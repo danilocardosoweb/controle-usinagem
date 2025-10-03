@@ -1,0 +1,13 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.4.2
+pydantic-extra-types==2.1.0
+passlib==1.7.4
+python-jose==3.3.0
+python-multipart==0.0.6
+email-validator==2.1.0
+bcrypt==4.0.1
+supabase==1.0.4
+pandas==2.1.1
+openpyxl==3.1.2
+SQLAlchemy==2.0.29
