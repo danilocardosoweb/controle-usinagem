@@ -6,9 +6,12 @@ import ApontamentosUsinagem from './pages/ApontamentosUsinagem'
 import ApontamentosParadas from './pages/ApontamentosParadas'
 import CarteiraEncomendas from './pages/CarteiraEncomendas'
 import Relatorios from './pages/Relatorios'
+import PrevisaoTrabalho from './pages/PrevisaoTrabalho'
 import Configuracoes from './pages/Configuracoes'
 import Pedidos from './pages/Pedidos'
+import PCP from './pages/PCP'
 import Layout from './components/Layout'
+import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
   const { user, login } = useAuth()
@@ -40,7 +43,13 @@ function App() {
         <Route path="apontamentos-usinagem" element={<ApontamentosUsinagem />} />
         <Route path="apontamentos-paradas" element={<ApontamentosParadas />} />
         <Route path="relatorios" element={<Relatorios />} />
-        <Route path="configuracoes" element={<Configuracoes />} />
+        <Route path="previsao-trabalho" element={<PrevisaoTrabalho />} />
+        <Route path="pcp" element={<PCP />} />
+        <Route path="configuracoes" element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <Configuracoes />
+          </ProtectedRoute>
+        } />
         <Route path="pedidos" element={<Pedidos />} />
         <Route path="carteira-encomendas" element={<Navigate to="/pedidos" replace />} />
       </Route>

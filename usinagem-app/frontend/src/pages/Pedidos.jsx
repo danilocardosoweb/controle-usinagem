@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+  import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { FaFilter, FaSearch, FaSort, FaSortUp, FaSortDown, FaEye, FaEdit, FaTrash, FaDatabase, FaSync, FaList } from 'react-icons/fa'
+import { FaFilter, FaSearch, FaSort, FaSortUp, FaSortDown, FaEye, FaEdit, FaTrash, FaDatabase, FaSync, FaList, FaStar } from 'react-icons/fa'
 import axios from 'axios'
 import * as XLSX from 'xlsx'
-import { useDatabase } from '../hooks/useDatabase'
+import { useSupabase } from '../hooks/useSupabase'
+import supabaseService from '../services/SupabaseService'
 import { useAuth } from '../contexts/AuthContext'
 
 const Pedidos = () => {
@@ -15,9 +16,24 @@ const Pedidos = () => {
     addItems,
     clearItems,
     loadItems
-  } = useDatabase('pedidos', true)
+  } = useSupabase('pedidos')
   // Apontamentos para consolidar quantidade apontada por pedido
-  const { items: apontamentosDB } = useDatabase('apontamentos', true)
+  const { items: apontamentosDB } = useSupabase('apontamentos')
+  // Catálogo de máquinas para mapear ID → nome
+  const { items: maquinasCat } = useSupabase('maquinas')
+  // Mapa id->nome de máquina para exibições (modal 'Apontamentos do Pedido')
+  const maqMap = useMemo(() => {
+    const map = {}
+    for (const m of (maquinasCat || [])) {
+      if (!m) continue
+      map[String(m.id)] = m.nome || m.codigo || `Máquina ${m.id}`
+    }
+    return map
+  }, [maquinasCat])
+
+  // Prioridades do PCP
+  const [prioridades, setPrioridades] = useState([])
+  const [pedidosPrioritarios, setPedidosPrioritarios] = useState(new Set())
   // Usuário logado
   const { user } = useAuth()
   
@@ -37,7 +53,8 @@ const Pedidos = () => {
     produto: '',
     status: '',
     ferramenta: '',
-    comprimento: ''
+    comprimento: '',
+    prioridade: 'todos' // 'todos' | 'prioritarios'
   })
   
   // Estado para ordenação
@@ -57,12 +74,43 @@ const Pedidos = () => {
   const [arquivo, setArquivo] = useState(null)
   
   
-  // Removido o carregamento automático de dados de exemplo
+  // Carregar prioridades do PCP
+  useEffect(() => {
+    carregarPrioridades()
+  }, [])
+
+  const carregarPrioridades = async () => {
+    try {
+      const prioridadesData = await supabaseService.getAll('pcp_prioridades')
+      setPrioridades(prioridadesData || [])
+      // Criar Set com pedido_seq dos itens prioritários
+      const setPrioritarios = new Set(
+        (prioridadesData || [])
+          .map(p => p.pedido_numero)
+          .filter(Boolean)
+      )
+      setPedidosPrioritarios(setPrioritarios)
+    } catch (error) {
+      console.warn('Não foi possível carregar prioridades do PCP:', error)
+      setPrioridades([])
+      setPedidosPrioritarios(new Set())
+    }
+  }
+
+  // Verificar se um pedido é prioritário
+  const isPrioritario = (pedidoSeq) => {
+    return pedidosPrioritarios.has(pedidoSeq)
+  }
+
+  // Obter dados da prioridade de um pedido
+  const getPrioridadeDoPedido = (pedidoSeq) => {
+    return prioridades.find(p => p.pedido_numero === pedidoSeq)
+  }
   
   // Aplicar filtros quando os filtros mudarem ou quando os pedidos do banco de dados mudarem
   useEffect(() => {
     aplicarFiltros()
-  }, [filtros, pedidosDB])
+  }, [filtros, pedidosDB, pedidosPrioritarios])
   
   // Removida a função de dados de exemplo
   
@@ -246,11 +294,11 @@ const Pedidos = () => {
       if (!user?.nome) return { porSeqOp, porSeq }
       for (const a of (apontamentosDB || [])) {
         if (String(a.operador || '') !== String(user.nome)) continue
-        const seq = String(a.ordemTrabalho || a.pedido_seq || '')
+        const seq = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '')
         if (!seq) continue
         const q = Number(a.quantidade || a.quantidadeProduzida || 0)
         const add = isNaN(q) ? 0 : q
-        const op = String(a.nroOp || a.nro_op || '')
+        const op = String(a.nro_op || a.nroOp || '')
         if (op) {
           const k = `${seq}__${op}`
           porSeqOp[k] = (porSeqOp[k] || 0) + add
@@ -287,7 +335,7 @@ const Pedidos = () => {
     if (!pedido) return { lista: [], total: 0 }
     const chave = String(pedido.pedido_seq || '')
     const lista = (apontamentosDB || []).filter(a => {
-      const seq = String(a.ordemTrabalho || a.pedido_seq || '')
+      const seq = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '')
       return seq === chave
     })
     const total = lista.reduce((acc, a) => {
@@ -360,6 +408,11 @@ const Pedidos = () => {
     // Filtro por status (usar status calculado e mapeado para chave)
     if (filtros.status) {
       resultado = resultado.filter(p => statusToKey(calcularStatus(p)) === filtros.status)
+    }
+    
+    // Filtro por prioridade
+    if (filtros.prioridade === 'prioritarios') {
+      resultado = resultado.filter(p => isPrioritario(p.pedido_seq))
     }
     
     // Aplicar ordenação
@@ -645,7 +698,7 @@ const Pedidos = () => {
             } else if (todasColunas['OP'] !== undefined) {
               colunas.op = todasColunas['OP']
             } else {
-              // Fallback por inclusão de 'op'
+              // Fallback: tentar encontrar por inclusão de 'op'
               colunas.op = cabecalhos.findIndex(c => {
                 const nc = norm(c)
                 return nc.includes('op')
@@ -941,7 +994,8 @@ const Pedidos = () => {
       produto: '',
       status: '',
       ferramenta: '',
-      comprimento: ''
+      comprimento: '',
+      prioridade: 'todos'
     })
   }
   
@@ -993,42 +1047,43 @@ const Pedidos = () => {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">Pedidos e Produtos</h1>
 
-      {/* Seção de filtros (compacta) */}
-      <div className="bg-white rounded-lg shadow p-3 form-compact">
+      {/* Seção de filtros compactos */}
+      <div className="bg-white rounded-lg shadow p-3 mb-4">
         <h2 className="text-base font-semibold text-gray-700 mb-2">Filtros</h2>
-        <div className="overflow-x-auto">
-          <div className="grid grid-cols-6 gap-2 grid-compact min-w-[1200px]">
+        
+        {/* Grid: 1 linha em md+ com 7 colunas (6 filtros + botão) */}
+        <div className="grid grid-cols-1 md:grid-cols-7 gap-3 items-end">
           <div>
-            <label className="block label-sm font-medium text-gray-700 mb-1">Cliente</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Cliente</label>
             <input
               type="text"
               name="cliente"
               value={filtros.cliente}
               onChange={handleFiltroChange}
               placeholder="Filtrar por cliente"
-              className="input-field input-field-sm"
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           <div>
-            <label className="block label-sm font-medium text-gray-700 mb-1">Produto/Descrição</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Produto/Descrição</label>
             <input
               type="text"
               name="produto"
               value={filtros.produto}
               onChange={handleFiltroChange}
-              placeholder="Filtrar por produto ou descrição"
-              className="input-field input-field-sm"
+              placeholder="Filtrar por produto"
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           <div>
-            <label className="block label-sm font-medium text-gray-700 mb-1">Status</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
             <select
               name="status"
               value={filtros.status}
               onChange={handleFiltroChange}
-              className="input-field input-field-sm"
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               <option value="">Todos</option>
               <option value="pendente">Pendente</option>
@@ -1038,45 +1093,57 @@ const Pedidos = () => {
           </div>
 
           <div>
-            <label className="block label-sm font-medium text-gray-700 mb-1">Ferramenta</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Prioridade</label>
+            <select
+              name="prioridade"
+              value={filtros.prioridade}
+              onChange={handleFiltroChange}
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            >
+              <option value="todos">Todos</option>
+              <option value="prioritarios">Apenas Prioritários</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Ferramenta</label>
             <input
               type="text"
               name="ferramenta"
               value={filtros.ferramenta}
               onChange={handleFiltroChange}
-              placeholder="Ex.: TP-0192, EXP-910"
-              className="input-field input-field-sm"
+              placeholder="Ex.: TP-0192"
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           <div>
-            <label className="block label-sm font-medium text-gray-700 mb-1">Comprimento do Acabado (mm)</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Comprimento (mm)</label>
             <input
               type="text"
               name="comprimento"
               value={filtros.comprimento}
               onChange={handleFiltroChange}
               placeholder="Ex.: 1100"
-              className="input-field input-field-sm"
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
-
-          <div className="col-span-1 flex items-end justify-end">
+          {/* Botão na mesma linha */}
+          <div className="md:col-auto justify-self-end">
             <button
               type="button"
-              className="btn-secondary text-xs px-3 py-1.5"
+              className="px-3 h-8 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               onClick={limparFiltros}
             >
               Limpar Filtros
             </button>
-          </div>
           </div>
         </div>
       </div>
 
       {/* Tabela de pedidos */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto pb-4">
+        <div className="overflow-x-auto pb-6">
           <table className="min-w-full divide-y divide-gray-200 table-compact">
             <thead className="bg-gray-50">
               <tr>
@@ -1160,9 +1227,9 @@ const Pedidos = () => {
                 </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-primary-700 uppercase tracking-wider"
-                  title="Soma de apontamentos feitos por você para este pedido"
+                  title="Soma de apontamentos registrados para este pedido (total de todos operadores)"
                 >
-                  Apontado (Você)
+                  Apontado
                 </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
@@ -1223,13 +1290,21 @@ const Pedidos = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {pedidosPaginados.length > 0 ? (
-                pedidosPaginados.map((pedido) => (
-                  <tr key={pedido.id} className="hover:bg-gray-50">
+                pedidosPaginados.map((pedido) => {
+                  const ehPrioritario = isPrioritario(pedido.pedido_seq)
+                  const dadosPrioridade = ehPrioritario ? getPrioridadeDoPedido(pedido.pedido_seq) : null
+                  return (
+                  <tr key={pedido.id} className={`hover:bg-gray-50 ${ehPrioritario ? 'bg-yellow-50 border-l-4 border-l-yellow-500' : ''}`}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {pedido.nro_op}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {pedido.pedido_seq}
+                      <div className="flex items-center gap-2">
+                        {ehPrioritario && (
+                          <FaStar className="text-yellow-500" title={`Prioridade #${dadosPrioridade?.prioridade || '-'}`} />
+                        )}
+                        <span>{pedido.pedido_seq}</span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {pedido.pedido_cliente}
@@ -1257,10 +1332,10 @@ const Pedidos = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {(() => {
-                        const meuTotal = somaApontadoPeloUsuario(pedido)
+                        const { total } = obterApontamentosDoPedido(pedido)
                         return (
-                          <span className="px-2 py-1 rounded bg-primary-50 text-primary-800 font-bold">
-                            {meuTotal}
+                          <span className="px-2 py-1 rounded bg-primary-50 text-primary-800 font-bold" title="Total apontado (todos)">
+                            {total}
                           </span>
                         )
                       })()}
@@ -1300,7 +1375,8 @@ const Pedidos = () => {
                       </button>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               ) : (
                 <tr>
                   <td colSpan="17" className="px-6 py-4 text-center text-sm text-gray-500">
@@ -1388,7 +1464,7 @@ const Pedidos = () => {
               <h3 className="text-lg font-semibold text-gray-800">Detalhes do Pedido</h3>
               <div className="flex items-center gap-3">
                 {(() => { const { total } = obterApontamentosDoPedido(pedidoSelecionado); return (
-                  <div className="px-3 py-1 rounded-md bg-primary-50 text-primary-700 text-sm font-semibold border border-primary-200" title="Soma de apontamentos deste pedido">
+                  <div className="px-3 py-1 rounded-md bg-primary-50 text-primary-700 text-sm font-semibold border border-primary-200" title="Total apontado (todos)">
                     Qtd. Apontada: {total}
                   </div>
                 ) })()}
@@ -1504,7 +1580,7 @@ const Pedidos = () => {
                         <tr key={idx} className="border-t">
                           <td className="px-3 py-2">{a.inicio ? new Date(a.inicio).toLocaleString('pt-BR') : '-'}</td>
                           <td className="px-3 py-2">{a.fim ? new Date(a.fim).toLocaleString('pt-BR') : '-'}</td>
-                          <td className="px-3 py-2">{a.maquina || '-'}</td>
+                          <td className="px-3 py-2">{(() => { const id = a.maquina ?? a.maquina_id ?? a.maquinaId; const nome = a.maquina_nome ?? a.maquinaNome; return maqMap[String(id)] || nome || id || '-'; })()}</td>
                           <td className="px-3 py-2">{a.operador || '-'}</td>
                           <td className="px-3 py-2">{(a.produto || a.codigoPerfil || '-') }</td>
                           <td className="px-3 py-2 text-right">{a.quantidade || a.quantidadeProduzida || 0}</td>

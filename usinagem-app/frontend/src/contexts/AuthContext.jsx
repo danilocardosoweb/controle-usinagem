@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import auditoriaService from '../services/AuditoriaService';
 
 const AuthContext = createContext();
 
@@ -19,62 +20,70 @@ export function AuthProvider({ children }) {
     console.log('AuthContext: Tentativa de login', { username, password });
     
     try {
-      // Simulação de uma chamada de API
-      // Em produção, isso seria uma chamada real para o backend
-      const response = await new Promise((resolve) => {
-        setTimeout(() => {
-          // Aceitar qualquer email com senha 'senha123' para facilitar os testes
-          if (password === 'senha123') {
-            // Determinar o papel com base no email
-            let role = 'operador';
-            let nome = 'Usuário';
-            
-            if (username.includes('admin')) {
-              role = 'admin';
-              nome = 'Administrador';
-            } else if (username.includes('supervisor')) {
-              role = 'supervisor';
-              nome = 'Supervisor';
-            } else if (username.includes('danilo')) {
-              role = 'admin';
-              nome = 'Danilo Cardoso';
-            }
-            
-            console.log('AuthContext: Login bem-sucedido', { username, role });
-            
-            resolve({
-              success: true,
-              user: {
-                id: Math.floor(Math.random() * 1000) + 1,
-                nome: nome,
-                username: username,
-                role: role
-              }
-            });
-          } else {
-            console.log('AuthContext: Senha incorreta');
-            resolve({
-              success: false,
-              message: 'Credenciais inválidas'
-            });
-          }
-        }, 500);
-      });
-
-      if (response.success) {
-        localStorage.setItem('user', JSON.stringify(response.user));
-        setUser(response.user);
-        return { success: true };
-      } else {
-        return { success: false, message: response.message };
+      // Importar o SupabaseService dinamicamente
+      const { default: supabaseService } = await import('../services/SupabaseService');
+      
+      // Buscar usuário no banco de dados pelo email
+      const usuarios = await supabaseService.getByIndex('usuarios', 'email', username.toLowerCase());
+      
+      if (usuarios.length === 0) {
+        console.log('AuthContext: Usuário não encontrado');
+        return { success: false, message: 'Credenciais inválidas' };
       }
+      
+      const usuario = usuarios[0];
+      
+      // Verificar senha (em texto plano - APENAS PARA DESENVOLVIMENTO)
+      // ⚠️ EM PRODUÇÃO, USE HASH DE SENHA (bcrypt, argon2, etc)
+      const senhaCorreta = usuario.senha === password || usuario.senha_hash === password;
+      
+      if (!senhaCorreta) {
+        console.log('AuthContext: Senha incorreta');
+        return { success: false, message: 'Credenciais inválidas' };
+      }
+      
+      // Verificar se usuário está ativo
+      if (usuario.ativo === false) {
+        console.log('AuthContext: Usuário inativo');
+        return { success: false, message: 'Usuário inativo. Contate o administrador.' };
+      }
+      
+      console.log('AuthContext: Login bem-sucedido', { email: usuario.email, nivel: usuario.nivel_acesso });
+      
+      // Atualizar último acesso
+      await supabaseService.update('usuarios', {
+        ...usuario,
+        ultimo_acesso: new Date().toISOString()
+      });
+      
+      const userData = {
+        id: usuario.id,
+        nome: usuario.nome,
+        username: usuario.email,
+        email: usuario.email,
+        role: usuario.nivel_acesso
+      };
+      
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      
+      // Registrar login na auditoria
+      await auditoriaService.registrarLogin(userData);
+      
+      return { success: true };
+      
     } catch (error) {
       console.error('Erro ao fazer login:', error);
-      return { success: false, message: 'Erro ao fazer login' };
+      return { success: false, message: 'Erro ao fazer login: ' + error.message };
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Registrar logout antes de limpar dados
+    if (user) {
+      await auditoriaService.registrarLogout(user);
+    }
+    
     localStorage.removeItem('user');
     setUser(null);
   };

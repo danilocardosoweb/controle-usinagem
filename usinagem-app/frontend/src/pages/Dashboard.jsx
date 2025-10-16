@@ -1,27 +1,90 @@
-import { useMemo } from 'react'
-import { useDatabase } from '../hooks/useDatabase'
+import { useMemo, useState } from 'react'
+import { useSupabase } from '../hooks/useSupabase'
 
 const Dashboard = () => {
   // Dados reais do Supabase
-  const { items: pedidos } = useDatabase('pedidos', true)
-  const { items: apontamentos } = useDatabase('apontamentos', true)
+  const { items: pedidos } = useSupabase('pedidos')
+  const { items: apontamentos } = useSupabase('apontamentos')
+  const { items: paradas } = useSupabase('paradas')
+  const { items: maquinas } = useSupabase('maquinas')
 
+  const [periodo, setPeriodo] = useState('hoje') // 'hoje' | 'ontem' | 'ult7'
   const hojeISO = new Date()
-  const dia = hojeISO.toISOString().slice(0, 10) // YYYY-MM-DD
+  const dia = (() => {
+    const y = hojeISO.getFullYear()
+    const m = String(hojeISO.getMonth() + 1).padStart(2, '0')
+    const d = String(hojeISO.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}` // YYYY-MM-DD em horário local
+  })()
+
+  const toLocalYMD = (dt) => {
+    if (!(dt instanceof Date)) return ''
+    if (isNaN(dt.getTime())) return ''
+    const y = dt.getFullYear()
+    const m = String(dt.getMonth() + 1).padStart(2, '0')
+    const d = String(dt.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  // Calcula início e fim do período selecionado (datas locais)
+  const range = useMemo(() => {
+    const hoje = new Date()
+    const inicio = new Date(hoje)
+    const fim = new Date(hoje)
+    if (periodo === 'ontem') {
+      inicio.setDate(hoje.getDate() - 1)
+      fim.setDate(hoje.getDate() - 1)
+    } else if (periodo === 'ult7') {
+      inicio.setDate(hoje.getDate() - 6)
+    }
+    // Normalizar para início/fim do dia
+    inicio.setHours(0,0,0,0)
+    fim.setHours(23,59,59,999)
+    return { inicio, fim, ymdInicio: toLocalYMD(inicio), ymdFim: toLocalYMD(fim) }
+  }, [periodo])
 
   const stats = useMemo(() => {
-    // Produção diária: soma quantidades de apontamentos cujo início é do dia atual
-    const prodDiaria = (apontamentos || []).reduce((acc, a) => {
-      const ini = a.inicio ? String(a.inicio) : ''
-      const d = ini.slice(0, 10)
+    // Produção no período: soma quantidades de apontamentos cujo início cai dentro do range
+    const prodPeriodo = (apontamentos || []).reduce((acc, a) => {
+      const iniRaw = a.inicio || a.inicio_timestamp || a.data || a.inicio_norm || ''
+      const iniDate = iniRaw ? new Date(iniRaw) : null
       const qtd = Number(a.quantidade || 0)
-      return acc + (d === dia ? (isNaN(qtd) ? 0 : qtd) : 0)
+      if (!iniDate || isNaN(iniDate.getTime())) return acc
+      return (iniDate >= range.inicio && iniDate <= range.fim) ? (acc + (isNaN(qtd) ? 0 : qtd)) : acc
     }, 0)
 
-    // Ordens (normalizando variações de status)
-    const statusKey = (s) => String(s || '').toLowerCase()
-    const concluidas = (pedidos || []).filter(p => ['concluido','finalizado'].includes(statusKey(p.status))).length
-    const pendentes = (pedidos || []).filter(p => ['pendente','em_producao'].includes(statusKey(p.status))).length
+    // Tempo de Parada do período: somar interseções com o range
+    const inicioDia = range.inicio
+    const fimDia = range.fim
+    const msParadaHoje = (paradas || []).reduce((acc, p) => {
+      const iniRaw = p.inicio || p.inicio_timestamp || p.inicio_norm
+      if (!iniRaw) return acc
+      const fimRaw = p.fim || p.fim_timestamp || p.fim_norm || new Date()
+      const iniP = new Date(iniRaw)
+      const fimP = new Date(fimRaw)
+      if (isNaN(iniP.getTime())) return acc
+      const start = iniP > inicioDia ? iniP : inicioDia
+      const end = fimP < fimDia ? fimP : fimDia
+      const delta = Math.max(0, end - start)
+      return acc + delta
+    }, 0)
+    const totalMin = Math.floor(msParadaHoje / 60000)
+    const hh = String(Math.floor(totalMin / 60)).padStart(2, '0')
+    const mm = String(totalMin % 60).padStart(2, '0')
+    const tempoParadaFmt = msParadaHoje > 0 ? `${hh}:${mm}` : '-'
+
+    // Ordens: regra solicitada -> Concluída quando SEPARADO >= QTD_PEDIDO
+    const concluidas = (pedidos || []).filter(p => {
+      const sep = Number(p.separado || 0)
+      const qtd = Number(p.qtd_pedido || 0)
+      return qtd > 0 && sep >= qtd
+    }).length
+    const pendentes = (pedidos || []).filter(p => {
+      const sep = Number(p.separado || 0)
+      const qtd = Number(p.qtd_pedido || 0)
+      // pendente quando não atingiu o pedido
+      return !(qtd > 0 && sep >= qtd)
+    }).length
 
     // OEE (placeholder simples, até termos paradas e metas)
     const disponibilidade = 0
@@ -31,25 +94,32 @@ const Dashboard = () => {
 
     return {
       oee: { disponibilidade, performance, qualidade, total },
-      tempoParada: '-',
-      producaoDiaria: prodDiaria,
+      tempoParada: tempoParadaFmt,
+      producaoDiaria: prodPeriodo,
       ordensCompletadas: concluidas,
       ordensPendentes: pendentes,
     }
-  }, [apontamentos, pedidos, dia])
+  }, [apontamentos, pedidos, paradas, range])
 
   const ordensExecucao = useMemo(() => {
     // Agregar apontamentos por pedido (ordemTrabalho = pedido_seq)
     const porPedido = {}
     for (const a of (apontamentos || [])) {
-      const seq = String(a.ordemTrabalho || a.pedido_seq || '')
+      const seq = String(a.ordem_trabalho || a.pedido_seq || '')
       if (!seq) continue
       const q = Number(a.quantidade || 0)
       if (!porPedido[seq]) porPedido[seq] = { quantidade: 0, ultimo: null }
       porPedido[seq].quantidade += isNaN(q) ? 0 : q
       // guardar o último apontamento para mostrar máquina/operador
-      const ts = a.created_at || a.fim || a.inicio || ''
-      porPedido[seq].ultimo = { ...(porPedido[seq].ultimo || {}), a, ts }
+      porPedido[seq].ultimo = a
+    }
+
+    // Mapa de máquinas (id -> nome visível)
+    const mapMaq = new Map()
+    for (const m of (maquinas || [])) {
+      const nomeVisivel = (m.nome || m.codigo || m.modelo || '').toString() || '-'
+      if (m.id) mapMaq.set(String(m.id), nomeVisivel)
+      if (m.codigo) mapMaq.set(String(m.codigo), nomeVisivel)
     }
 
     // Selecionar pedidos que:
@@ -73,22 +143,36 @@ const Dashboard = () => {
         const qtd = Number(p.qtd_pedido || 0)
         const produzidas = info.quantidade
         const progresso = qtd > 0 ? Math.min(Math.round((produzidas / qtd) * 100), 100) : 0
-        const ultimo = info.ultimo?.a || {}
+        const ultimo = info.ultimo || {}
+        const rawMaq = String(ultimo.maquina || p.operacao_atual || '').trim()
+        const maqNome = mapMaq.get(rawMaq) || (/^[0-9a-f-]{8,}$/i.test(rawMaq) ? '-' : (rawMaq || '-'))
         return {
           codigo: p.pedido_seq || p.nro_op || p.id,
           perfil: p.produto,
-          maquina: ultimo.maquina || p.operacao_atual || '-',
+          maquina: maqNome,
           operador: ultimo.operador || '-',
+          qtdPedido: qtd,
+          separado: Number(p.separado || 0),
+          apontado: produzidas,
           progresso,
         }
       })
       .slice(0, 5)
     return lista
-  }, [pedidos, apontamentos])
+  }, [pedidos, apontamentos, maquinas])
   
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-gray-600">Período:</label>
+        <select value={periodo} onChange={(e)=>setPeriodo(e.target.value)} className="border rounded px-2 py-1 text-sm">
+          <option value="hoje">Hoje</option>
+          <option value="ontem">Ontem</option>
+          <option value="ult7">Últimos 7 dias</option>
+        </select>
+        <span className="text-xs text-gray-500">{range.ymdInicio} → {range.ymdFim}</span>
+      </div>
       
       {/* Cards principais */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -103,7 +187,7 @@ const Dashboard = () => {
         </div>
         
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-700">Produção Diária</h2>
+          <h2 className="text-lg font-semibold text-gray-700">Produção no Período</h2>
           <p className="text-3xl font-bold text-green-600">{stats.producaoDiaria}</p>
         </div>
         
@@ -169,6 +253,9 @@ const Dashboard = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Perfil</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Máquina</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operador</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd. Pedido</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Separado</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Apontado</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progresso</th>
               </tr>
             </thead>
@@ -179,6 +266,9 @@ const Dashboard = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{o.perfil}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{o.maquina}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{o.operador}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{(o.qtdPedido||0).toLocaleString('pt-BR')}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{(o.separado||0).toLocaleString('pt-BR')}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{(o.apontado||0).toLocaleString('pt-BR')}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <div className="relative pt-1">
                       <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">

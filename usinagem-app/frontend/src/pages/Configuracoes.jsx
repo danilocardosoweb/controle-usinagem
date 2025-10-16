@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FaUserPlus, FaEdit, FaTrash, FaSave, FaTimes, FaTools, FaIndustry, FaWrench, FaOilCan, FaFileUpload, FaDatabase, FaSync, FaFilePdf, FaExternalLinkAlt } from 'react-icons/fa'
+import { FaSave, FaFileImport, FaUserPlus, FaEdit, FaTrash, FaTimes, FaTools, FaIndustry, FaWrench, FaOilCan, FaFileUpload, FaDatabase, FaSync, FaFilePdf, FaExternalLinkAlt } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import axios from 'axios'
-import { useDatabase } from '../hooks/useDatabase'
-import SyncService from '../services/SyncService'
-import dbService from '../services/DatabaseService'
+import useSupabase from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
+import auditoriaService from '../services/AuditoriaService'
+import { useAuth } from '../contexts/AuthContext'
 
 const Configuracoes = () => {
+  const { user } = useAuth()
+  
   // Banco de dados de pedidos (para aba Dados)
-  const { items: pedidosDB, addItems, clearItems, loadItems } = useDatabase('pedidos', true)
-  // Lotes local (IndexedDB somente)
-  const { items: lotesDB, addItems: addLotes, clearItems: clearLotes } = useDatabase('lotes', false)
+  const { items: pedidosDB, addItems, clearItems, loadItems } = useSupabase('pedidos')
+  // Lotes (Supabase)
+  const { items: lotesDB, addItems: addLotes, clearItems: clearLotes } = useSupabase('lotes')
   const [arquivo, setArquivo] = useState(null)
   const [arquivoLotes, setArquivoLotes] = useState(null)
   const [carregando, setCarregando] = useState(false)
@@ -23,8 +25,8 @@ const Configuracoes = () => {
   const [erroLotes, setErroLotes] = useState('')
   const [mensagemLotes, setMensagemLotes] = useState('')
   const [qtLotesImportados, setQtLotesImportados] = useState(0)
-  // Estados para gerenciamento de usuários
-  const [usuarios, setUsuarios] = useState([])
+  // Estados para gerenciamento de usuários (Supabase)
+  const { items: usuarios, addItem: addUsuario, updateItem: updateUsuario, removeItem: removeUsuario, loadItems: recarregarUsuarios, loading: carregandoUsuarios } = useSupabase('usuarios')
   const [novoUsuario, setNovoUsuario] = useState({
     nome: '',
     email: '',
@@ -40,7 +42,7 @@ const Configuracoes = () => {
     addItem: addCfg,
     updateItem: updateCfg,
     removeItem: removeCfg
-  } = useDatabase('ferramentas_cfg', true)
+  } = useSupabase('ferramentas_cfg')
   const [novoCfg, setNovoCfg] = useState({
     ferramenta: '',
     peso_linear: '', // kg por metro (ou unidade adequada)
@@ -190,8 +192,19 @@ const Configuracoes = () => {
           }
           if (novos.length === 0) throw new Error('Nenhuma linha válida encontrada (verifique Pedido e Seq e Rack!Embalagem)')
           try { await clearLotes() } catch {}
-          await addLotes(novos)
-          setQtLotesImportados(novos.length)
+          
+          // Inserir em lotes menores para evitar timeout
+          const BATCH_SIZE = 100; // Inserir 100 registros por vez
+          let totalInseridos = 0;
+          
+          for (let i = 0; i < novos.length; i += BATCH_SIZE) {
+            const lote = novos.slice(i, i + BATCH_SIZE);
+            await addLotes(lote);
+            totalInseridos += lote.length;
+            console.log(`Inseridos ${totalInseridos}/${novos.length} lotes...`);
+          }
+          
+          setQtLotesImportados(totalInseridos)
           setMensagemLotes(`Arquivo ${arquivoLotes.name} importado com sucesso! ${novos.length} lotes foram processados.`)
           setArquivoLotes(null)
         } catch (err) {
@@ -245,22 +258,43 @@ const Configuracoes = () => {
   })
   
   // Motivos de parada (Supabase)
-  const { items: motivosParada, addItem: addMotivo, updateItem: updMotivo, removeItem: delMotivo } = useDatabase('motivos_parada', true)
+  const { items: motivosParada, addItem: addMotivo, updateItem: updMotivo, removeItem: delMotivo } = useSupabase('motivos_parada')
   const [novoMotivoParada, setNovoMotivoParada] = useState('')
+  const [novoTipoMotivoParada, setNovoTipoMotivoParada] = useState('planejada')
+  const [editandoMotivo, setEditandoMotivo] = useState(null)
+  const [modoEdicaoMotivo, setModoEdicaoMotivo] = useState(false)
   
   // Tipos de parada (Supabase)
-  const { items: tiposParada, addItem: addTipo, updateItem: updTipo, removeItem: delTipo } = useDatabase('tipos_parada', true)
+  const { items: tiposParada, addItem: addTipo, updateItem: updTipo, removeItem: delTipo } = useSupabase('tipos_parada')
   const [novoTipoParada, setNovoTipoParada] = useState('')
+
+  // Normalizador de tipo (remove acentos e troca espaços por _)
+  const normalizeTipo = (txt) => {
+    if (!txt) return ''
+    try {
+      const s = String(txt).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'')
+      return s.replace(/\s+/g,'_')
+    } catch { return String(txt).toLowerCase() }
+  }
+
+  // Definir default do select de tipo (novo motivo) quando carregar tipos
+  useEffect(() => {
+    if ((tiposParada || []).length > 0) {
+      const first = tiposParada[0]
+      const desc = first?.descricao || first?.nome || ''
+      if (desc) setNovoTipoMotivoParada(normalizeTipo(desc))
+    }
+  }, [tiposParada])
   
   // Máquinas persistidas no IndexedDB
-  const { items: maquinas, addItem: addMaquina, updateItem: updateMaquina, removeItem: removeMaquina } = useDatabase('maquinas', true)
+  const { items: maquinas, addItem: addMaquina, updateItem: updateMaquina, removeItem: removeMaquina } = useSupabase('maquinas')
   const [novaMaquina, setNovaMaquina] = useState({
     codigo: '',
     nome: '',
     modelo: '',
     fabricante: '',
     ano: new Date().getFullYear(),
-    status: 'ativo'
+    status: 'ativa'
   })
   const [editandoMaquina, setEditandoMaquina] = useState(null)
   const [modoEdicaoMaquina, setModoEdicaoMaquina] = useState(false)
@@ -272,6 +306,27 @@ const Configuracoes = () => {
     { id: 3, codigo: 'INS003', nome: 'Broca 10mm', tipo: 'ferramenta', quantidade: 30, unidade: 'peças' },
     { id: 4, codigo: 'INS004', nome: 'Inserto CNMG', tipo: 'ferramenta_cnc', quantidade: 100, unidade: 'peças' }
   ])
+  
+  // Estados para impressoras
+  const [impressoras, setImpressoras] = useState(() => {
+    const saved = localStorage.getItem('configuracao_impressoras')
+    return saved ? JSON.parse(saved) : {
+      termica: {
+        nome: 'Impressora Térmica',
+        caminho: '\\\\192.168.1.100\\Zebra_ZT230',
+        ip: '192.168.1.100',
+        porta: '9100',
+        ativa: true
+      },
+      comum: {
+        nome: 'Impressora Comum',
+        caminho: '\\\\192.168.1.101\\HP_LaserJet',
+        ip: '192.168.1.101',
+        porta: '9100',
+        ativa: true
+      }
+    }
+  })
   const [novoInsumo, setNovoInsumo] = useState({
     codigo: '',
     nome: '',
@@ -375,44 +430,49 @@ const Configuracoes = () => {
     }
   }
   
-  // Carregar dados simulados na inicialização
-  useEffect(() => {
-    // Dados simulados de usuários
-    const usuariosSimulados = [
-      { id: 1, nome: 'Administrador', email: 'admin@usinagem.com', nivel_acesso: 'admin' },
-      { id: 2, nome: 'Supervisor Produção', email: 'supervisor@usinagem.com', nivel_acesso: 'supervisor' },
-      { id: 3, nome: 'Operador 1', email: 'operador@usinagem.com', nivel_acesso: 'operador' }
-    ]
-    
-    setUsuarios(usuariosSimulados)
-  }, [])
+  // Usuários são carregados automaticamente via useSupabase('usuarios')
   
   // Funções para gerenciamento de usuários
-  const adicionarUsuario = () => {
+  const adicionarUsuarioHandler = async () => {
     if (!novoUsuario.nome || !novoUsuario.email || !novoUsuario.senha) {
       alert('Preencha todos os campos obrigatórios')
       return
     }
     
-    const novoId = usuarios.length > 0 ? Math.max(...usuarios.map(u => u.id)) + 1 : 1
-    
-    setUsuarios([
-      ...usuarios,
-      {
-        id: novoId,
-        nome: novoUsuario.nome,
-        email: novoUsuario.email,
-        nivel_acesso: novoUsuario.nivel_acesso
+    try {
+      const novoUsuarioData = {
+        nome: novoUsuario.nome.trim(),
+        email: novoUsuario.email.trim().toLowerCase(),
+        senha: novoUsuario.senha, // Trigger sincroniza com senha_hash
+        senha_hash: novoUsuario.senha, // Compatibilidade com estrutura antiga
+        nivel_acesso: novoUsuario.nivel_acesso,
+        ativo: true,
+        data_criacao: new Date().toISOString()
       }
-    ])
-    
-    // Limpar formulário
-    setNovoUsuario({
-      nome: '',
-      email: '',
-      senha: '',
-      nivel_acesso: 'operador'
-    })
+      
+      await addUsuario(novoUsuarioData)
+      
+      // Registrar na auditoria
+      await auditoriaService.registrarCriacao(
+        user,
+        'usuarios',
+        `Criou usuário: ${novoUsuarioData.nome} (${novoUsuarioData.email})`,
+        { ...novoUsuarioData, senha: '***', senha_hash: '***' } // Não registrar senha
+      )
+      
+      // Limpar formulário
+      setNovoUsuario({
+        nome: '',
+        email: '',
+        senha: '',
+        nivel_acesso: 'operador'
+      })
+      
+      alert('Usuário adicionado com sucesso!')
+    } catch (error) {
+      console.error('Erro ao adicionar usuário:', error)
+      alert('Erro ao adicionar usuário: ' + (error.message || 'Erro desconhecido'))
+    }
   }
   
   const iniciarEdicaoUsuario = (usuario) => {
@@ -423,17 +483,49 @@ const Configuracoes = () => {
     setModoEdicao(true)
   }
   
-  const salvarEdicaoUsuario = () => {
+  const salvarEdicaoUsuario = async () => {
     if (!editandoUsuario.nome || !editandoUsuario.email) {
       alert('Nome e email são obrigatórios')
       return
     }
     
-    setUsuarios(usuarios.map(u => 
-      u.id === editandoUsuario.id ? editandoUsuario : u
-    ))
-    
-    cancelarEdicaoUsuario()
+    try {
+      // Buscar dados anteriores para auditoria
+      const usuarioAnterior = usuarios.find(u => u.id === editandoUsuario.id)
+      
+      const payload = {
+        ...editandoUsuario,
+        nome: editandoUsuario.nome.trim(),
+        email: editandoUsuario.email.trim().toLowerCase()
+      }
+      
+      // Se senha foi alterada, incluir no payload (ambos os campos)
+      if (editandoUsuario.senha && editandoUsuario.senha.trim()) {
+        payload.senha = editandoUsuario.senha
+        payload.senha_hash = editandoUsuario.senha // Compatibilidade
+      } else {
+        // Remover campos de senha se vazio (manter senha atual)
+        delete payload.senha
+        delete payload.senha_hash
+      }
+      
+      await updateUsuario(payload)
+      
+      // Registrar na auditoria
+      await auditoriaService.registrarEdicao(
+        user,
+        'usuarios',
+        `Editou usuário: ${payload.nome} (${payload.email})`,
+        { ...usuarioAnterior, senha: '***', senha_hash: '***' },
+        { ...payload, senha: '***', senha_hash: '***' }
+      )
+      
+      cancelarEdicaoUsuario()
+      alert('Usuário atualizado com sucesso!')
+    } catch (error) {
+      console.error('Erro ao atualizar usuário:', error)
+      alert('Erro ao atualizar usuário: ' + (error.message || 'Erro desconhecido'))
+    }
   }
   
   const cancelarEdicaoUsuario = () => {
@@ -441,9 +533,38 @@ const Configuracoes = () => {
     setModoEdicao(false)
   }
   
-  const excluirUsuario = (id) => {
-    if (window.confirm('Tem certeza que deseja excluir este usuário?')) {
-      setUsuarios(usuarios.filter(u => u.id !== id))
+  const excluirUsuarioHandler = async (id) => {
+    if (!window.confirm('Tem certeza que deseja excluir este usuário?')) {
+      return
+    }
+    
+    try {
+      // Buscar dados do usuário antes de excluir
+      const usuarioExcluido = usuarios.find(u => u.id === id)
+      
+      console.log('Excluindo usuário ID:', id)
+      await removeUsuario(id)
+      console.log('Usuário excluído com sucesso')
+      
+      // Registrar na auditoria
+      if (usuarioExcluido) {
+        await auditoriaService.registrarExclusao(
+          user,
+          'usuarios',
+          `Excluiu usuário: ${usuarioExcluido.nome} (${usuarioExcluido.email})`,
+          { ...usuarioExcluido, senha: '***', senha_hash: '***' }
+        )
+      }
+      
+      // Forçar reload da lista
+      console.log('Forçando reload da lista de usuários...')
+      await recarregarUsuarios()
+      console.log('Lista recarregada')
+      
+      alert('Usuário excluído com sucesso!')
+    } catch (error) {
+      console.error('Erro ao excluir usuário:', error)
+      alert('Erro ao excluir usuário: ' + (error.message || 'Erro desconhecido'))
     }
   }
   
@@ -459,8 +580,38 @@ const Configuracoes = () => {
   // Funções para motivos de parada
   const adicionarMotivoParada = async () => {
     if (!novoMotivoParada.trim()) { alert('Digite uma descrição para o motivo de parada'); return }
-    await addMotivo({ descricao: novoMotivoParada.trim(), tipo: null })
+    const tipo = String(novoTipoMotivoParada || 'planejada')
+    await addMotivo({ descricao: novoMotivoParada.trim(), tipo_parada: tipo })
     setNovoMotivoParada('')
+    setNovoTipoMotivoParada('planejada')
+  }
+
+  const iniciarEdicaoMotivo = (motivo) => {
+    setEditandoMotivo({
+      id: motivo.id,
+      descricao: motivo.descricao || '',
+      tipo_parada: motivo.tipo_parada || ''
+    })
+    setModoEdicaoMotivo(true)
+  }
+
+  const salvarEdicaoMotivo = async () => {
+    if (!editandoMotivo || !String(editandoMotivo.descricao || '').trim()) {
+      alert('Descrição é obrigatória')
+      return
+    }
+    const payload = {
+      id: editandoMotivo.id,
+      descricao: String(editandoMotivo.descricao).trim(),
+      tipo_parada: String(editandoMotivo.tipo_parada || '').trim()
+    }
+    await updMotivo(payload)
+    cancelarEdicaoMotivo()
+  }
+
+  const cancelarEdicaoMotivo = () => {
+    setEditandoMotivo(null)
+    setModoEdicaoMotivo(false)
   }
   
   const excluirMotivoParada = async (id) => { if (id && window.confirm('Excluir este motivo?')) await delMotivo(id) }
@@ -480,13 +631,15 @@ const Configuracoes = () => {
       alert('Código e nome da máquina são obrigatórios')
       return
     }
+    const statusBruto = (novaMaquina.status || 'ativa').toLowerCase()
+    const statusNorm = statusBruto === 'ativo' ? 'ativa' : (statusBruto === 'inativo' ? 'inativa' : statusBruto)
     await addMaquina({
       codigo: String(novaMaquina.codigo).trim(),
       nome: String(novaMaquina.nome).trim(),
       modelo: String(novaMaquina.modelo || '').trim(),
       fabricante: String(novaMaquina.fabricante || '').trim(),
       ano: parseInt(novaMaquina.ano) || new Date().getFullYear(),
-      status: novaMaquina.status || 'ativo'
+      status: statusNorm
     })
     
     // Limpar formulário
@@ -496,7 +649,7 @@ const Configuracoes = () => {
       modelo: '',
       fabricante: '',
       ano: new Date().getFullYear(),
-      status: 'ativo'
+      status: 'ativa'
     })
   }
   
@@ -510,8 +663,11 @@ const Configuracoes = () => {
       alert('Código e nome da máquina são obrigatórios')
       return
     }
+    const statusBrutoEd = String(editandoMaquina.status || '').toLowerCase()
+    const statusNormEd = statusBrutoEd === 'ativo' ? 'ativa' : (statusBrutoEd === 'inativo' ? 'inativa' : statusBrutoEd || 'ativa')
     await updateMaquina({
       ...editandoMaquina,
+      status: statusNormEd,
       ano: parseInt(editandoMaquina.ano) || new Date().getFullYear()
     })
     cancelarEdicaoMaquina()
@@ -586,6 +742,33 @@ const Configuracoes = () => {
     if (window.confirm('Tem certeza que deseja excluir este insumo?')) {
       setInsumos(insumos.filter(i => i.id !== id))
     }
+  }
+  
+  // Funções para gerenciamento de impressoras
+  const salvarConfiguracaoImpressoras = () => {
+    localStorage.setItem('configuracao_impressoras', JSON.stringify(impressoras))
+    alert('Configurações de impressoras salvas com sucesso!')
+  }
+  
+  const atualizarImpressora = (tipo, campo, valor) => {
+    setImpressoras(prev => ({
+      ...prev,
+      [tipo]: {
+        ...prev[tipo],
+        [campo]: valor
+      }
+    }))
+  }
+  
+  const testarImpressora = (tipo) => {
+    const impressora = impressoras[tipo]
+    if (!impressora.ativa) {
+      alert(`Impressora ${impressora.nome} está desativada`)
+      return
+    }
+    
+    // Simular teste de impressão
+    alert(`Teste de impressão enviado para: ${impressora.nome}\nCaminho: ${impressora.caminho}\nIP: ${impressora.ip}:${impressora.porta}`)
   }
   
   const salvarConfiguracoes = () => {
@@ -723,7 +906,7 @@ const Configuracoes = () => {
             const dadosOriginais = {}
             cabecalhos.forEach((cabecalho, index) => { if (cabecalho && linha[index] !== undefined) dadosOriginais[cabecalho] = linha[index] })
             novosPedidos.push({
-              id: novoId,
+              // Remover id: deixar o Supabase gerar automaticamente o UUID
               pedido_seq: pedidoSeq.includes('/') ? pedidoSeq : `${pedidoSeq}/1`,
               pedido_cliente: pedidoCliente || pedidoSeq,
               cliente: nomeCliente,
@@ -743,7 +926,17 @@ const Configuracoes = () => {
             })
           }
           if (novosPedidos.length === 0) throw new Error('Nenhum pedido válido encontrado na planilha')
-          await addItems(novosPedidos)
+          
+          // Inserir em lotes menores para evitar timeout
+          const BATCH_SIZE = 50; // Inserir 50 pedidos por vez
+          let totalInseridos = 0;
+          
+          for (let i = 0; i < novosPedidos.length; i += BATCH_SIZE) {
+            const lote = novosPedidos.slice(i, i + BATCH_SIZE);
+            await addItems(lote);
+            totalInseridos += lote.length;
+            console.log(`Inseridos ${totalInseridos}/${novosPedidos.length} pedidos...`);
+          }
           setMensagem(`Arquivo ${nomeArquivo} importado com sucesso! ${novosPedidos.length} pedidos foram processados.`)
           setCarregando(false)
           setArquivo(null)
@@ -766,13 +959,13 @@ const Configuracoes = () => {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">Configurações</h1>
       
-      {/* Abas de navegação */}
+      {/* Abas de navegação responsivas */}
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto pb-1">
+        <nav className="-mb-px flex flex-wrap sm:flex-nowrap sm:space-x-4 lg:space-x-8 overflow-x-auto pb-1 gap-2 sm:gap-0">
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'usuarios'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('usuarios')}
@@ -780,9 +973,9 @@ const Configuracoes = () => {
             Usuários
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'processo'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('processo')}
@@ -790,9 +983,9 @@ const Configuracoes = () => {
             Processo
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'maquinas'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('maquinas')}
@@ -800,9 +993,9 @@ const Configuracoes = () => {
             Máquinas
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'insumos'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('insumos')}
@@ -810,9 +1003,19 @@ const Configuracoes = () => {
             Insumos
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
+              abaAtiva === 'impressoras'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+            onClick={() => setAbaAtiva('impressoras')}
+          >
+            Impressoras
+          </button>
+          <button
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'dados'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('dados')}
@@ -820,9 +1023,9 @@ const Configuracoes = () => {
             Dados
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'arquivos'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('arquivos')}
@@ -830,9 +1033,9 @@ const Configuracoes = () => {
             Arquivos
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'expedicao'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('expedicao')}
@@ -840,9 +1043,9 @@ const Configuracoes = () => {
             Expedição
           </button>
           <button
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
               abaAtiva === 'status'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
             onClick={() => setAbaAtiva('status')}
@@ -864,7 +1067,7 @@ const Configuracoes = () => {
                 {modoEdicao ? 'Editar Usuário' : 'Adicionar Novo Usuário'}
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nome
@@ -951,13 +1154,26 @@ const Configuracoes = () => {
                   <button
                     type="button"
                     className="btn-primary"
-                    onClick={adicionarUsuario}
+                    onClick={adicionarUsuarioHandler}
+                    disabled={carregandoUsuarios}
                   >
-                    <FaUserPlus className="mr-1" /> Adicionar Usuário
+                    <FaUserPlus className="mr-1" /> {carregandoUsuarios ? 'Adicionando...' : 'Adicionar Usuário'}
                   </button>
                 )}
               </div>
             </div>
+            
+            {/* Aviso sobre configuração da tabela */}
+            {usuarios.length === 0 && !carregandoUsuarios && (
+              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  <strong>⚠️ Atenção:</strong> A tabela de usuários pode não estar criada no Supabase.
+                </p>
+                <p className="text-xs text-yellow-700 mt-2">
+                  Execute o script SQL em <code className="bg-yellow-100 px-1 rounded">database_schema_usuarios.sql</code> no Supabase para criar a tabela.
+                </p>
+              </div>
+            )}
             
             {/* Lista de usuários */}
             <div className="overflow-x-auto">
@@ -1001,13 +1217,28 @@ const Configuracoes = () => {
                         </button>
                         <button
                           className="text-red-600 hover:text-red-900"
-                          onClick={() => excluirUsuario(usuario.id)}
+                          onClick={() => excluirUsuarioHandler(usuario.id)}
+                          disabled={carregandoUsuarios}
                         >
                           <FaTrash />
                         </button>
                       </td>
                     </tr>
                   ))}
+                  {!carregandoUsuarios && usuarios.length === 0 && (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                        Nenhum usuário cadastrado. Adicione o primeiro usuário acima.
+                      </td>
+                    </tr>
+                  )}
+                  {carregandoUsuarios && (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                        Carregando usuários...
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1233,6 +1464,204 @@ const Configuracoes = () => {
         </div>
       )}
       
+      {/* Conteúdo da aba de impressoras */}
+      {abaAtiva === 'impressoras' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4">Configuração de Impressoras</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Configure os caminhos e endereços das impressoras para etiquetas térmicas e documentos comuns.
+            </p>
+            
+            {/* Impressora Térmica */}
+            <div className="border border-gray-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-md font-medium text-gray-800 flex items-center">
+                  🏷️ Impressora Térmica (Etiquetas)
+                </h3>
+                <div className="flex items-center space-x-2">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={impressoras.termica.ativa}
+                      onChange={(e) => atualizarImpressora('termica', 'ativa', e.target.checked)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-600">Ativa</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => testarImpressora('termica')}
+                    className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                  >
+                    Testar
+                  </button>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome da Impressora
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.termica.nome}
+                    onChange={(e) => atualizarImpressora('termica', 'nome', e.target.value)}
+                    placeholder="Ex: Zebra ZT230"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Caminho de Rede
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.termica.caminho}
+                    onChange={(e) => atualizarImpressora('termica', 'caminho', e.target.value)}
+                    placeholder="Ex: \\192.168.1.100\Zebra_ZT230"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Endereço IP
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.termica.ip}
+                    onChange={(e) => atualizarImpressora('termica', 'ip', e.target.value)}
+                    placeholder="Ex: 192.168.1.100"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Porta
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.termica.porta}
+                    onChange={(e) => atualizarImpressora('termica', 'porta', e.target.value)}
+                    placeholder="Ex: 9100"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Impressora Comum */}
+            <div className="border border-gray-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-md font-medium text-gray-800 flex items-center">
+                  🖨️ Impressora Comum (Documentos)
+                </h3>
+                <div className="flex items-center space-x-2">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={impressoras.comum.ativa}
+                      onChange={(e) => atualizarImpressora('comum', 'ativa', e.target.checked)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-600">Ativa</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => testarImpressora('comum')}
+                    className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                  >
+                    Testar
+                  </button>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome da Impressora
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.comum.nome}
+                    onChange={(e) => atualizarImpressora('comum', 'nome', e.target.value)}
+                    placeholder="Ex: HP LaserJet Pro"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Caminho de Rede
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.comum.caminho}
+                    onChange={(e) => atualizarImpressora('comum', 'caminho', e.target.value)}
+                    placeholder="Ex: \\192.168.1.101\HP_LaserJet"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Endereço IP
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.comum.ip}
+                    onChange={(e) => atualizarImpressora('comum', 'ip', e.target.value)}
+                    placeholder="Ex: 192.168.1.101"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Porta
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={impressoras.comum.porta}
+                    onChange={(e) => atualizarImpressora('comum', 'porta', e.target.value)}
+                    placeholder="Ex: 9100"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Botões de ação */}
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={salvarConfiguracaoImpressoras}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+              >
+                <FaSave className="mr-2 inline" />
+                Salvar Configurações
+              </button>
+            </div>
+            
+            {/* Informações adicionais */}
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+              <h4 className="text-sm font-medium text-blue-800 mb-2">💡 Dicas de Configuração</h4>
+              <ul className="text-xs text-blue-700 space-y-1">
+                <li>• <strong>Caminho de Rede:</strong> Use o formato \\IP\NomeCompartilhamento para impressoras compartilhadas</li>
+                <li>• <strong>IP Direto:</strong> Para impressoras com IP fixo, use o endereço IP + porta</li>
+                <li>• <strong>Teste:</strong> Use o botão "Testar" para verificar se a impressora está acessível</li>
+                <li>• <strong>Etiqueta Térmica:</strong> Usada para imprimir etiquetas pequenas (código de barras, lote)</li>
+                <li>• <strong>Impressora Comum:</strong> Usada para documentos A4 (formulário de identificação)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Conteúdo da aba de dados */}
       {abaAtiva === 'dados' && (
         <div className="space-y-4">
@@ -1319,7 +1748,7 @@ const Configuracoes = () => {
                 {modoEdicaoMaquina ? 'Editar Máquina' : 'Adicionar Nova Máquina'}
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Código *
@@ -1534,7 +1963,7 @@ const Configuracoes = () => {
                 {modoEdicaoInsumo ? 'Editar Insumo' : 'Adicionar Novo Insumo'}
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Código *
@@ -1726,10 +2155,10 @@ const Configuracoes = () => {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Configurações do Processo</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tempo Padrão de Setup (minutos)
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Setup (min)
                 </label>
                 <input
                   type="number"
@@ -1741,8 +2170,8 @@ const Configuracoes = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tempo Padrão de Manutenção (minutos)
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Manut. (min)
                 </label>
                 <input
                   type="number"
@@ -1754,8 +2183,8 @@ const Configuracoes = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Meta de OEE (%)
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Meta OEE (%)
                 </label>
                 <input
                   type="number"
@@ -1769,8 +2198,8 @@ const Configuracoes = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Horas por Turno
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Horas/Turno
                 </label>
                 <input
                   type="number"
@@ -1782,8 +2211,8 @@ const Configuracoes = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Dias Úteis por Mês
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Dias Úteis/Mês
                 </label>
                 <input
                   type="number"
@@ -1810,15 +2239,26 @@ const Configuracoes = () => {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Motivos de Parada</h2>
             
-            <div className="flex space-x-2 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-2 mb-4">
               <input
                 type="text"
-                className="input-field flex-grow"
+                className="input-field md:col-span-3"
                 placeholder="Digite um novo motivo de parada"
                 value={novoMotivoParada}
                 onChange={(e) => setNovoMotivoParada(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && adicionarMotivoParada()}
               />
+              <select
+                className="input-field md:col-span-2"
+                value={novoTipoMotivoParada}
+                onChange={(e) => setNovoTipoMotivoParada(e.target.value)}
+              >
+                {(tiposParada || []).map(t => {
+                  const desc = t?.descricao || t?.nome || '-'
+                  const val = normalizeTipo(desc)
+                  return <option key={t.id || val} value={val}>{desc}</option>
+                })}
+              </select>
               <button
                 type="button"
                 className="btn-primary whitespace-nowrap"
@@ -1835,27 +2275,85 @@ const Configuracoes = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Descrição
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tipo
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Ações
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {motivosParada.map(motivo => (
-                    <tr key={motivo.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {motivo.descricao}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          className="text-red-600 hover:text-red-900"
-                          onClick={() => excluirMotivoParada(motivo.id)}
-                        >
-                          <FaTrash />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {motivosParada.map(motivo => {
+                    const labelTipo = (() => {
+                      const match = (tiposParada || []).find(t => normalizeTipo(t?.descricao || t?.nome) === String(motivo.tipo_parada || ''))
+                      if (match) return match.descricao
+                      // fallback legível
+                      const s = String(motivo.tipo_parada || '').replace(/_/g,' ')
+                      return s ? s.charAt(0).toUpperCase() + s.slice(1) : '-'
+                    })()
+                    const isEditing = modoEdicaoMotivo && editandoMotivo?.id === motivo.id
+                    return (
+                      <tr key={motivo.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              className="input-field"
+                              value={editandoMotivo.descricao}
+                              onChange={(e)=> setEditandoMotivo(prev => ({...prev, descricao: e.target.value}))}
+                            />
+                          ) : (
+                            motivo.descricao
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {isEditing ? (
+                            <select
+                              className="input-field"
+                              value={editandoMotivo.tipo_parada || ''}
+                              onChange={(e)=> setEditandoMotivo(prev => ({...prev, tipo_parada: e.target.value}))}
+                            >
+                              {(tiposParada || []).map(t => {
+                                const desc = t?.descricao || t?.nome || '-'
+                                const val = normalizeTipo(desc)
+                                return <option key={t.id || val} value={val}>{desc}</option>
+                              })}
+                            </select>
+                          ) : (
+                            labelTipo
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          {isEditing ? (
+                            <>
+                              <button className="text-primary-600 hover:text-primary-900 mr-3" onClick={salvarEdicaoMotivo}>
+                                <FaSave />
+                              </button>
+                              <button className="text-gray-600 hover:text-gray-900" onClick={cancelarEdicaoMotivo}>
+                                <FaTimes />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="text-primary-600 hover:text-primary-900 mr-3"
+                                onClick={() => iniciarEdicaoMotivo(motivo)}
+                              >
+                                <FaEdit />
+                              </button>
+                              <button
+                                className="text-red-600 hover:text-red-900"
+                                onClick={() => excluirMotivoParada(motivo.id)}
+                              >
+                                <FaTrash />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

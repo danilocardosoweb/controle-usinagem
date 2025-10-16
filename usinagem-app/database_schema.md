@@ -66,8 +66,29 @@ Registra os apontamentos operacionais efetivamente usados pelo app (campos ricos
 - `lote`: Lote interno gerado.
 - `lote_externo`: Primeiro lote externo.
 - `lotes_externos`: Lista de lotes externos (array).
+- `amarrados_detalhados`: Detalhes completos dos amarrados para rastreabilidade (JSONB).
 - `observacoes`: Observações.
 - `created_at`: Data de criação.
+
+### Campo `amarrados_detalhados` (JSONB)
+Armazena informações completas dos amarrados selecionados para rastreabilidade total:
+```json
+[
+  {
+    "codigo": "2532005482",
+    "rack": "278", 
+    "lote": "224020089",
+    "produto": "EXP908155000NANV",
+    "pedido_seq": "78914/10",
+    "romaneio": "37513",
+    "qt_kg": 12.42,
+    "qtd_pc": 3,
+    "situacao": "LIBERADO",
+    "embalagem_data": "2024-12-15",
+    "nota_fiscal": "12345"
+  }
+]
+```
 
 ## Tabela: `motivos_parada`
 Catálogo com os motivos de parada das máquinas.
@@ -75,15 +96,19 @@ Catálogo com os motivos de parada das máquinas.
 - `descricao`: Descrição do motivo da parada.
 - `tipo_parada`: Classificação da parada ('planejada', 'nao_planejada', 'manutencao', 'setup').
 
-## Tabela: `apontamentos_parada`
-Registra os eventos de parada de máquina.
-- `id`: Identificador único do registro de parada.
-- `maquina_id`: Chave estrangeira para `maquinas`.
-- `motivo_parada_id`: Chave estrangeira para `motivos_parada`.
-- `inicio_timestamp`: Data e hora de início da parada.
-- `fim_timestamp`: Data e hora de término da parada.
+## Tabela: `paradas`
+Registra os eventos de parada de máquina (tabela canônica no Supabase).
+- `id`: Identificador único do registro de parada (UUID).
+- `maquina`: Identificador/nome da máquina (texto; pode evoluir para FK).
+- `motivo_parada`: Texto do motivo (pode evoluir para FK com `motivos_parada`).
+- `tipo_parada`: Classificação (ex.: `planejada`, `nao_planejada`, `manutencao`, `setup`).
+- `inicio`: Data e hora de início da parada (timestamptz).
+- `fim`: Data e hora de término da parada (timestamptz, opcional).
 - `observacoes`: Notas adicionais.
-- `created_at`: Data de criação do registro.
+- `created_at`: Timestamp de criação.
+
+Observação: existe a VIEW `apontamentos_parada` para compatibilidade com nomenclaturas antigas,
+mapeando os campos da tabela `paradas` para o formato com sufixos `_timestamp`.
 
 ## Tabela: `tipos_parada`
 Catálogo de tipos de parada utilizados no frontend (estrutura simples).

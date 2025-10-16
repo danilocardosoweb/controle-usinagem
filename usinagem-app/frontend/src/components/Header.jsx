@@ -1,19 +1,37 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FaBars } from 'react-icons/fa'
+import { useAuth } from '../contexts/AuthContext'
 
-const Header = () => {
+const Header = ({ onMenuClick, isMobile }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const navigate = useNavigate()
+  const { logout } = useAuth()
   
   const handleLogout = () => {
-    // Implementar lógica de logout
-    navigate('/login')
+    try {
+      logout()
+    } finally {
+      navigate('/login')
+      setDropdownOpen(false)
+    }
   }
 
   return (
-    <header className="bg-white shadow h-16 flex items-center justify-between px-6">
-      <div className="flex items-center">
-        <h1 className="text-xl font-semibold text-gray-800">Controle de Usinagem</h1>
+    <header className="bg-white shadow h-16 flex items-center justify-between px-4 md:px-6">
+      <div className="flex items-center space-x-4">
+        {isMobile && (
+          <button
+            onClick={onMenuClick}
+            className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            aria-label="Abrir menu"
+          >
+            <FaBars className="w-5 h-5" />
+          </button>
+        )}
+        <h1 className="text-lg md:text-xl font-semibold text-gray-800 truncate">
+          Controle de Usinagem
+        </h1>
       </div>
       
       <div className="relative">

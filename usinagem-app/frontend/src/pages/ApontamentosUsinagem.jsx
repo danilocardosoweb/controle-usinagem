@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
-import { useDatabase } from '../hooks/useDatabase'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy } from 'react-icons/fa'
+import { useSupabase } from '../hooks/useSupabase'
+import supabaseService from '../services/SupabaseService'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar } from 'react-icons/fa'
+import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
 const buildHttpPdfUrl = (basePath, fileName) => {
@@ -34,6 +36,36 @@ const tryOpenInNewTab = async (url, fallbackPathText) => {
       if (fallbackPathText) {
         try { await navigator.clipboard.writeText(fallbackPathText) } catch {}
       }
+  // Fallback: se não houver lotesExternos selecionados, mas houver rack informado,
+  // e temos o produto do apontamento, considera que todos os amarrados daquele rack
+  // e daquele item foram processados e grava na rastreabilidade.
+  if (amarradosDetalhados.length === 0) {
+    const rackAlvo = String(rackOuPallet || formData.rack_ou_pallet || '').trim()
+    const produtoAlvo = String(formData.codigoPerfil || '').trim()
+    if (rackAlvo && produtoAlvo) {
+      const candidatos = (lotesDB || []).filter(l => {
+        const rackEq = String(l.rack_embalagem || '').trim() === rackAlvo
+        const prodL = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
+        const prodEq = !!prodL && prodL === produtoAlvo
+        return rackEq && prodEq
+      })
+      for (const loteDetalhado of candidatos) {
+        amarradosDetalhados.push({
+          codigo: String(loteDetalhado.codigo || '').trim(),
+          rack: String(loteDetalhado.rack_embalagem || '').trim(),
+          lote: String(loteDetalhado.lote || '').trim(),
+          produto: String(loteDetalhado.produto || getCampoOriginalLote(loteDetalhado, 'Produto') || '').trim(),
+          pedido_seq: String(loteDetalhado.pedido_seq || '').trim(),
+          romaneio: String(loteDetalhado.romaneio || '').trim(),
+          qt_kg: Number(loteDetalhado.qt_kg || 0),
+          qtd_pc: Number(loteDetalhado.qtd_pc || 0),
+          situacao: String(loteDetalhado.situacao || '').trim(),
+          embalagem_data: loteDetalhado.embalagem_data || null,
+          nota_fiscal: String(loteDetalhado.nota_fiscal || '').trim()
+        })
+      }
+    }
+  }
       alert('O navegador bloqueou a abertura direta do arquivo local. O caminho foi copiado para a área de transferência. Cole no Explorer para abrir:\n' + (fallbackPathText || url))
     }
   } catch (e) {
@@ -46,10 +78,35 @@ const tryOpenInNewTab = async (url, fallbackPathText) => {
 
 const ApontamentosUsinagem = () => {
   const { user } = useAuth() // Obtendo o usuário logado
-  const { items: pedidosDB, loading: carregandoPedidos } = useDatabase('pedidos', true)
-  const { items: apontamentosDB, addItem: addApont } = useDatabase('apontamentos', true)
-  // Lotes importados (Dados • Lotes)
-  const { items: lotesDB } = useDatabase('lotes', false)
+  const { items: pedidosDB, loading: carregandoPedidos } = useSupabase('pedidos')
+  const { items: apontamentosDB, addItem: addApont, loadItems: recarregarApontamentos } = useSupabase('apontamentos')
+  // Lotes importados (Dados • Lotes) via Supabase
+  const { items: lotesDB } = useSupabase('lotes')
+  
+  // Filtro de prioridades
+  const [filtrarPrioridades, setFiltrarPrioridades] = useState(false)
+  const [pedidosPrioritarios, setPedidosPrioritarios] = useState(new Set())
+  
+  // Carregar prioridades do PCP
+  useEffect(() => {
+    carregarPrioridades()
+  }, [])
+
+  const carregarPrioridades = async () => {
+    try {
+      const prioridadesData = await supabaseService.getAll('pcp_prioridades')
+      const setPrioritarios = new Set(
+        (prioridadesData || [])
+          .map(p => p.pedido_numero)
+          .filter(Boolean)
+      )
+      setPedidosPrioritarios(setPrioritarios)
+    } catch (error) {
+      console.warn('Não foi possível carregar prioridades do PCP:', error)
+      setPedidosPrioritarios(new Set())
+    }
+  }
+
   const STORAGE_KEY = 'apont_usinagem_draft'
   const [formData, setFormData] = useState({
     operador: user ? user.nome : '',
@@ -118,8 +175,175 @@ const ApontamentosUsinagem = () => {
     return base.replace(/[^A-Za-z0-9_-]/g, '-')
   }
 
+  // Cria etiqueta térmica compacta 100x45mm para impressora térmica
+  const imprimirEtiquetaTermica = (lote, quantidade, rackOuPalletValor, dureza) => {
+    // Verificar configuração da impressora térmica
+    const impressoraTermica = getConfiguracaoImpressoras().termica
+    
+    if (!isImpressoraAtiva('termica')) {
+      alert(`Impressora térmica não está configurada ou ativa.\nVá em Configurações > Impressoras para configurar.`)
+      return
+    }
+    
+    const caminhoImpressora = getCaminhoImpressora('termica')
+    console.log(`🖨️ Imprimindo etiqueta térmica via: ${impressoraTermica.nome} (${caminhoImpressora})`)
+    
+    const cliente = formData.cliente || ''
+    const pedidoSeq = formData.ordemTrabalho || ''
+    const perfil = formData.codigoPerfil || ''
+    const comprimento = formData.comprimentoAcabado || ''
+    const qtde = quantidade || ''
+    const pallet = rackOuPalletValor || ''
+    const durezaVal = dureza || 'N/A'
+    
+    // Extrai ferramenta do código do produto
+    const extrairFerramenta = (prod) => {
+      if (!prod) return ''
+      const s = String(prod).toUpperCase()
+      const re3 = /^([A-Z]{3})([A-Z0-9]+)/
+      const re2 = /^([A-Z]{2})([A-Z0-9]+)/
+      let letras = '', resto = '', qtdDigitos = 0
+      let m = s.match(re3)
+      if (m) { letras = m[1]; resto = m[2]; qtdDigitos = 3 }
+      else { m = s.match(re2); if (m) { letras = m[1]; resto = m[2]; qtdDigitos = 4 } else return '' }
+      let nums = ''
+      for (const ch of resto) {
+        if (/[0-9]/.test(ch)) nums += ch
+        else if (ch === 'O') nums += '0'
+        if (nums.length === qtdDigitos) break
+      }
+      if (nums.length < qtdDigitos) nums = nums.padEnd(qtdDigitos, '0')
+      return `${letras}-${nums}`
+    }
+    
+    const ferramenta = extrairFerramenta(perfil)
+
+    const html = `<!DOCTYPE html>
+    <html><head><meta charset="utf-8" />
+    <style>
+      @page { size: 100mm 45mm; margin: 1mm; }
+      body { 
+        font-family: Arial, sans-serif; 
+        color: #000; 
+        margin: 0; 
+        padding: 1mm;
+        font-size: 13pt;
+        line-height: 1.3;
+        -webkit-print-color-adjust: exact; 
+        print-color-adjust: exact;
+      }
+      .header { 
+        background: #000; 
+        color: #fff; 
+        text-align: center; 
+        font-weight: bold; 
+        font-size: 14pt;
+        padding: 1.5mm 0;
+        margin-bottom: 1.5mm;
+      }
+      .content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1mm 3mm;
+        margin-bottom: 1.5mm;
+      }
+      .info-item {
+        margin-bottom: 1mm;
+      }
+      .label { 
+        font-size: 10pt;
+        color: #666;
+        display: block;
+        margin-bottom: 0.3mm;
+      }
+      .value { 
+        font-weight: bold;
+        font-size: 14pt;
+        color: #000;
+        display: block;
+      }
+      .barcode-section {
+        text-align: center;
+        margin-top: 1mm;
+        padding-top: 1mm;
+        border-top: 1px solid #ccc;
+      }
+      .barcode-text {
+        font-family: 'Libre Barcode 128', 'Courier New', monospace;
+        font-size: 32pt;
+        letter-spacing: -1px;
+        line-height: 1;
+        font-weight: bold;
+      }
+    </style>
+    </head><body>
+      <div class="header">TECNOPERFIL ALUMÍNIO</div>
+      <div class="content">
+        <div class="col-left">
+          <div class="info-item">
+            <span class="label">Cliente:</span>
+            <span class="value">${cliente}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Pedido:</span>
+            <span class="value">${pedidoSeq}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Perfil:</span>
+            <span class="value">${ferramenta}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Dureza:</span>
+            <span class="value">${durezaVal}</span>
+          </div>
+        </div>
+        <div class="col-right">
+          <div class="info-item">
+            <span class="label">Comprimento:</span>
+            <span class="value">${comprimento} mm</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Turno:</span>
+            <span class="value">TB</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Quantidade:</span>
+            <span class="value">${qtde} PC</span>
+          </div>
+        </div>
+      </div>
+      <div class="barcode-section">
+        <div class="barcode-text">${lote.replace(/-/g, '')}</div>
+      </div>
+    </body></html>`
+
+    // Criar blob HTML para impressão direta
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const printWindow = window.open(url, '_blank', 'width=400,height=200')
+    if (printWindow) {
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.print()
+        }, 250)
+      }
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   // Cria conteúdo HTML estilizado para o formulário e dispara download .doc
-  const imprimirDocumentoIdentificacao = (lote, quantidade, rackOuPalletValor) => {
+  const imprimirDocumentoIdentificacao = (lote, quantidade, rackOuPalletValor, dureza) => {
+    // Verificar configuração da impressora comum
+    const impressoraComum = getConfiguracaoImpressoras().comum
+    
+    if (!isImpressoraAtiva('comum')) {
+      alert(`Impressora comum não está configurada ou ativa.\nVá em Configurações > Impressoras para configurar.`)
+      return
+    }
+    
+    const caminhoImpressora = getCaminhoImpressora('comum')
+    console.log(`🖨️ Imprimindo documento via: ${impressoraComum.nome} (${caminhoImpressora})`)
+    
     const cliente = formData.cliente || ''
     const item = formData.codigoPerfil || ''
     const itemCli = formData.perfilLongo || '' // se existir no futuro 'item_do_cliente', trocar aqui
@@ -128,64 +352,148 @@ const ApontamentosUsinagem = () => {
     const pedidoCli = formData.pedidoCliente || ''
     const qtde = quantidade || ''
     const pallet = rackOuPalletValor || ''
+    const durezaVal = dureza || ''
 
     const html = `<!DOCTYPE html>
     <html><head><meta charset="utf-8" />
     <style>
-      @page { size: A4 landscape; margin: 12mm; }
-      body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .header { text-align: center; margin-bottom: 10mm; }
-      .logo { height: 18mm; object-fit: contain; }
-      .titulo { font-size: 26pt; font-weight: 800; }
-      .sub { margin-top: 4mm; font-size: 12pt; font-weight: 700; }
-      table { width: 100%; border-collapse: separate; border-spacing: 0 12mm; }
-      th, td { vertical-align: bottom; }
-      .label { font-weight: 800; font-size: 18pt; white-space: nowrap; padding-right: 6mm; }
-      .valor { border-bottom: 3px solid #000; font-size: 18pt; padding: 0 3mm; height: 14mm; }
-      .dupla td { width: 50%; }
-      .lote { font-weight: 700; font-size: 14pt; }
+      @page { 
+        size: A4 landscape; 
+        margin: 12.7mm; /* Margens estreitas padrão */
+      }
+      @media print {
+        @page {
+          size: landscape;
+          margin: 12.7mm;
+        }
+        body {
+          margin: 0;
+        }
+      }
+      body { 
+        font-family: 'Segoe UI', Arial, sans-serif; 
+        color: #000; 
+        margin: 0;
+        padding: 10mm;
+        background: #fff;
+        -webkit-print-color-adjust: exact; 
+        print-color-adjust: exact; 
+      }
+      .container {
+        max-width: 100%;
+        margin: 0 auto;
+        background: #fff;
+        border: 2px solid #000;
+        padding: 8mm;
+      }
+      .header { 
+        text-align: center; 
+        margin-bottom: 8mm;
+        border-bottom: 3px solid #000;
+        padding-bottom: 4mm;
+      }
+      .titulo { 
+        font-size: 24pt; 
+        font-weight: 800; 
+        text-transform: uppercase;
+        letter-spacing: 1pt;
+        margin: 0;
+      }
+      .sub { 
+        margin-top: 4mm; 
+        font-size: 11pt; 
+        font-weight: 600; 
+        color: #333;
+      }
+      .form-grid { 
+        display: grid;
+        grid-template-columns: 25% 75%;
+        gap: 5mm 0;
+        margin-bottom: 5mm;
+      }
+      .form-row {
+        display: contents;
+      }
+      .form-row.dupla {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: 12.5% 37.5% 12.5% 37.5%;
+        gap: 0 4mm;
+        align-items: end;
+      }
+      .label { 
+        font-weight: 700; 
+        font-size: 14pt; 
+        text-transform: uppercase;
+        letter-spacing: 0.5pt;
+        color: #000;
+        padding-right: 4mm;
+        align-self: end;
+        padding-bottom: 2mm;
+      }
+      .valor { 
+        border-bottom: 2px solid #000; 
+        font-size: 16pt; 
+        font-weight: 600;
+        padding: 2mm 4mm; 
+        min-height: 8mm; 
+        text-align: center;
+        background: #f9f9f9;
+        position: relative;
+      }
+      .valor:empty::after {
+        content: '';
+        display: inline-block;
+        width: 100%;
+        height: 8mm;
+      }
     </style>
     </head><body>
-      <div class="header">
-        <div class="titulo">Formulário de Identificação do Material Cortado</div>
-        <div class="sub">Lote: ${lote}</div>
+      <div class="container">
+        <div class="header">
+          <div class="titulo">Formulário de Identificação do Material Cortado</div>
+          <div class="sub">Lote: ${lote}</div>
+        </div>
+        
+        <div class="form-grid">
+          <div class="form-row">
+            <div class="label">Cliente:</div>
+            <div class="valor">${cliente}</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="label">Item:</div>
+            <div class="valor">${item}</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="label">Medida:</div>
+            <div class="valor">${medida}</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="label">Pedido Tecno:</div>
+            <div class="valor">${pedidoTecno}</div>
+          </div>
+          
+          <div class="form-row dupla">
+            <div class="label">Qtde:</div>
+            <div class="valor">${qtde}</div>
+            <div class="label">Palet:</div>
+            <div class="valor">${pallet}</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="label">Pedido Cli:</div>
+            <div class="valor">${pedidoCli}</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="label">Dureza:</div>
+            <div class="valor">${durezaVal}</div>
+          </div>
+        </div>
       </div>
-      <table>
-        <tr>
-          <td class="label">CLIENTE:</td>
-          <td class="valor">${cliente}</td>
-        </tr>
-        <tr>
-          <td class="label">ITEM:</td>
-          <td class="valor">${item}</td>
-        </tr>
-        <tr>
-          <td class="label">ITEM CLI:</td>
-          <td class="valor">${itemCli}</td>
-        </tr>
-        <tr>
-          <td class="label">MEDIDA:</td>
-          <td class="valor">${medida}</td>
-        </tr>
-        <tr>
-          <td class="label">PEDIDO TECNO:</td>
-          <td class="valor">${pedidoTecno}</td>
-        </tr>
-        <tr class="dupla">
-          <td>
-            <span class="label">QTDE:</span>
-            <span class="valor" style="display:inline-block; min-width:60mm;">${qtde}</span>
-          </td>
-          <td>
-            <span class="label">PALET:</span>
-            <span class="valor" style="display:inline-block; min-width:60mm;">${pallet}</span>
-          </td>
-        </tr>
-        <tr>
-          <td class="label">PEDIDO CLI:</td>
-          <td class="valor">${pedidoCli}</td>
-        </tr>
-      </table>
     </body></html>`
 
     // Criar blob .doc (Word abre HTML com extensão .doc)
@@ -233,6 +541,9 @@ const ApontamentosUsinagem = () => {
   const [confirmarAberto, setConfirmarAberto] = useState(false)
   const [rackOuPallet, setRackOuPallet] = useState('')
   const [qtdConfirmada, setQtdConfirmada] = useState('')
+  const [qtdRefugo, setQtdRefugo] = useState('')
+  const [comprimentoRefugo, setComprimentoRefugo] = useState('')
+  const [durezaMaterial, setDurezaMaterial] = useState('')
   // Modal de listagem de apontamentos da ordem selecionada
   const [listarApontAberto, setListarApontAberto] = useState(false)
   const [showTimerModal, setShowTimerModal] = useState(false)
@@ -241,6 +552,7 @@ const ApontamentosUsinagem = () => {
   // Modal para imprimir formulário de identificação
   const [imprimirAberto, setImprimirAberto] = useState(false)
   const [ultimoLote, setUltimoLote] = useState('')
+  const [tipoImpressao, setTipoImpressao] = useState('documento') // 'documento' | 'etiqueta'
   // Modal para romaneio e lote externo (fluxo antigo – mantendo disponível se necessário)
   const [romaneioAberto, setRomaneioAberto] = useState(false)
   const [tmpRomaneio, setTmpRomaneio] = useState('')
@@ -251,6 +563,11 @@ const ApontamentosUsinagem = () => {
   const [rackDigitado, setRackDigitado] = useState('')
   const [lotesEncontrados, setLotesEncontrados] = useState([]) // [{id?, lote}]
   const [lotesSelecionados, setLotesSelecionados] = useState([]) // [lote]
+  const [amarradosSelecionadosRack, setAmarradosSelecionadosRack] = useState([]) // [{lote, codigo, ...}]
+  const [lotesExpandidos, setLotesExpandidos] = useState([]) // [lote] - controla quais lotes estão expandidos
+  // Digitar Lote de Extrusão manualmente
+  const [manualAberto, setManualAberto] = useState(false)
+  const [manualLotesTxt, setManualLotesTxt] = useState('')
   // Inspeção de amarrados do Rack
   const [inspAberto, setInspAberto] = useState(false)
   const [amarradosRack, setAmarradosRack] = useState([])
@@ -258,6 +575,12 @@ const ApontamentosUsinagem = () => {
   const [marcarTodosAmarrados, setMarcarTodosAmarrados] = useState(false)
   const [filtroPedidoInsp, setFiltroPedidoInsp] = useState('')
   const [filtroRomaneioInsp, setFiltroRomaneioInsp] = useState('')
+  // Buscar por Amarrado (encontrar Rack/Embalagem pelo nº do amarrado)
+  const [buscarAmarradoAberto, setBuscarAmarradoAberto] = useState(false)
+  const [numeroAmarrado, setNumeroAmarrado] = useState('')
+  const [resultadosAmarrado, setResultadosAmarrado] = useState([]) // [{rack, lote, produto, pedido_seq, romaneio, codigo, qt_kg, qtd_pc}]
+  const [amarradosSelecionadosBusca, setAmarradosSelecionadosBusca] = useState([]) // indices dos amarrados selecionados na busca
+  const [amarradosAcumulados, setAmarradosAcumulados] = useState([]) // todos os amarrados já selecionados nas buscas anteriores
   const amarradosFiltrados = useMemo(() => {
     const ped = String(filtroPedidoInsp || '').replace(/\D/g, '')
     const rom = String(filtroRomaneioInsp || '').replace(/\D/g, '')
@@ -268,6 +591,13 @@ const ApontamentosUsinagem = () => {
     })
   }, [filtroPedidoInsp, filtroRomaneioInsp, amarradosRack])
   
+  // Normaliza identificadores de Rack/Embalagem para números (remove tudo que não seja dígito)
+  const normalizeRackId = (val) => {
+    const s = String(val || '')
+    const digits = s.replace(/\D/g, '')
+    return digits
+  }
+
   // Lê um campo do dados_originais do lote de forma case-insensitive
   const getCampoOriginalLote = (loteObj, campo) => {
     try {
@@ -286,8 +616,22 @@ const ApontamentosUsinagem = () => {
     const rack = String(rackDigitado || '').trim()
     if (!rack) { setLotesEncontrados([]); return }
     try {
-      const lista = (lotesDB || []).filter(l => String(l.rack_embalagem || '').trim() === rack)
-      // Agregar por número do lote (usando SOMENTE dados da base "Dados • Lotes")
+      // Busca exata primeiro (como na versão que funcionava)
+      let lista = (lotesDB || []).filter(l => String(l.rack_embalagem || '').trim() === rack)
+      
+      // Se não encontrou nada, tenta busca normalizada
+      if (lista.length === 0) {
+        const rackNorm = normalizeRackId(rack)
+        if (rackNorm) {
+          lista = (lotesDB || []).filter(l => {
+            const lr = normalizeRackId(l.rack_embalagem)
+            if (!lr) return false
+            return lr === rackNorm || (lr.endsWith(rackNorm) && rackNorm.length >= 3)
+          })
+        }
+      }
+      
+      // Agregar por número do lote, incluindo amarrados
       const map = new Map()
       for (const l of lista) {
         const num = String(l.lote || '').trim()
@@ -296,8 +640,10 @@ const ApontamentosUsinagem = () => {
         const p = pedidoSeq.includes('/') ? pedidoSeq.split('/') : ['', '']
         const pedido = p[0] || ''
         const seq = p[1] || ''
-        const produtoPlanilha = String(l.produto || getCampoOriginalLote(l, 'Produto') || l.codigo || '').trim() // preferir 'Produto' da planilha
+        const produtoPlanilha = String(l.produto || getCampoOriginalLote(l, 'Produto') || l.codigo || '').trim()
         const ferramentaPlanilha = extrairFerramenta(produtoPlanilha || '')
+        const amarradoCodigo = String(l.codigo || getCampoOriginalLote(l, 'Amarrado') || '').trim()
+        
         if (!map.has(num)) {
           map.set(num, {
             lote: num,
@@ -305,7 +651,8 @@ const ApontamentosUsinagem = () => {
             ferramenta: ferramentaPlanilha,
             romaneios: new Set(),
             pedido,
-            seq
+            seq,
+            amarrados: []
           })
         }
         const entry = map.get(num)
@@ -314,7 +661,25 @@ const ApontamentosUsinagem = () => {
         if (!entry.ferramenta && ferramentaPlanilha) entry.ferramenta = ferramentaPlanilha
         const rom = String(l.romaneio || '').trim()
         if (rom) entry.romaneios.add(rom)
+        
+        // Adicionar amarrado se não existir já
+        if (amarradoCodigo && !entry.amarrados.some(a => a.codigo === amarradoCodigo)) {
+          entry.amarrados.push({
+            codigo: amarradoCodigo,
+            rack: String(l.rack_embalagem || '').trim(),
+            lote: num,
+            produto: produtoPlanilha,
+            pedido_seq: pedidoSeq,
+            romaneio: rom,
+            qt_kg: Number(l.qt_kg || 0),
+            qtd_pc: Number(l.qtd_pc || 0),
+            situacao: String(l.situacao || '').trim(),
+            embalagem_data: l.embalagem_data || null,
+            nota_fiscal: String(l.nota_fiscal || '').trim()
+          })
+        }
       }
+      
       // Converter para array e mesclar romaneios únicos
       const unicos = Array.from(map.values()).map(e => ({
         lote: e.lote,
@@ -322,11 +687,100 @@ const ApontamentosUsinagem = () => {
         ferramenta: e.ferramenta,
         romaneio: Array.from(e.romaneios).join(', '),
         pedido: e.pedido,
-        seq: e.seq
+        seq: e.seq,
+        amarrados: e.amarrados
       }))
       setLotesEncontrados(unicos)
       setLotesSelecionados(prev => prev.filter(v => unicos.some(x => x.lote === v)))
     } catch { setLotesEncontrados([]) }
+  }
+
+  // Busca o Rack/Embalagem a partir do número do Amarrado informado
+  const procurarRackPorAmarrado = () => {
+    const raw = String(numeroAmarrado || '').trim()
+    const digits = raw.replace(/\D/g, '')
+    if (!digits) { setResultadosAmarrado([]); setAmarradosSelecionadosBusca([]); return }
+    try {
+      const achados = []
+      for (const l of (lotesDB || [])) {
+        const loteStr = String(l.lote || '').replace(/\D/g, '')
+        const codigoStr = String(l.codigo || '').replace(/\D/g, '')
+        const origAmarr = String(getCampoOriginalLote(l, 'Amarrado') || '').replace(/\D/g, '')
+        const match = (loteStr && loteStr.includes(digits)) || (codigoStr && codigoStr.includes(digits)) || (origAmarr && origAmarr.includes(digits))
+        if (match) {
+          achados.push({
+            rack: String(l.rack_embalagem || '').trim(),
+            lote: String(l.lote || '').trim(),
+            produto: String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim(),
+            pedido_seq: String(l.pedido_seq || '').trim(),
+            romaneio: String(l.romaneio || '').trim(),
+            codigo: String(l.codigo || '').trim(),
+            qt_kg: Number(l.qt_kg || 0),
+            qtd_pc: Number(l.qtd_pc || 0)
+          })
+        }
+      }
+      setResultadosAmarrado(achados)
+      setAmarradosSelecionadosBusca([])
+    } catch { 
+      setResultadosAmarrado([])
+      setAmarradosSelecionadosBusca([])
+    }
+  }
+
+  // Salva apenas os amarrados selecionados como lotes externos
+  const salvarAmarradosSelecionados = () => {
+    const selecionados = amarradosSelecionadosBusca.map(idx => resultadosAmarrado[idx])
+    if (!selecionados.length) {
+      alert('Selecione pelo menos um amarrado.')
+      return
+    }
+    
+    // Extrai os números dos lotes dos amarrados selecionados
+    const novosLotes = selecionados.map(a => a.lote).filter(Boolean)
+    
+    // Coleta todos os racks únicos dos amarrados selecionados
+    const racksUnicos = Array.from(new Set(selecionados.map(a => a.rack).filter(Boolean)))
+    
+    // Adiciona os novos lotes aos já existentes (sem duplicar)
+    const lotesExistentes = lotesSelecionados || []
+    const lotesUnicos = Array.from(new Set([...lotesExistentes, ...novosLotes]))
+    
+    // Atualiza os lotes selecionados no modal principal
+    setLotesSelecionados(lotesUnicos)
+    
+    // Não preenche o campo Rack!Embalagem quando usar "Procurar por Amarrado"
+    // Deixa vazio para evitar conflitos, já que os amarrados podem vir de racks diferentes
+    
+    // Cria objetos de lote para exibição na lista "Lotes encontrados"
+    const novosLotesObj = selecionados.map(a => ({
+      lote: a.lote,
+      produto: a.produto,
+      ferramenta: extrairFerramenta(a.produto || ''),
+      romaneio: a.romaneio,
+      pedido: a.pedido_seq ? a.pedido_seq.split('/')[0] : '',
+      seq: a.pedido_seq ? a.pedido_seq.split('/')[1] : '',
+      rack: a.rack // Adiciona informação do rack para cada lote
+    }))
+    
+    // Adiciona aos lotes encontrados (sem duplicar)
+    setLotesEncontrados(prev => {
+      const existentes = prev.filter(l => !novosLotes.includes(l.lote))
+      return [...existentes, ...novosLotesObj]
+    })
+    
+    // Adiciona aos amarrados acumulados para mostrar na lateral
+    setAmarradosAcumulados(prev => {
+      const existentes = prev.filter(a => !novosLotes.includes(a.lote))
+      return [...existentes, ...selecionados]
+    })
+    
+    // Limpa a seleção atual da busca
+    setAmarradosSelecionadosBusca([])
+    setResultadosAmarrado([])
+    setNumeroAmarrado('')
+    
+    alert(`${selecionados.length} amarrado(s) adicionado(s) à seleção. Total: ${lotesUnicos.length} lote(s) selecionado(s).`)
   }
 
   // Marca/desmarca um número de lote
@@ -334,11 +788,108 @@ const ApontamentosUsinagem = () => {
     setLotesSelecionados(prev => prev.includes(num) ? prev.filter(x => x !== num) : [...prev, num])
   }
 
+  // Marca/desmarca um amarrado específico
+  const toggleAmarradoSelecionado = (amarrado) => {
+    setAmarradosSelecionadosRack(prev => {
+      const existe = prev.some(a => a.codigo === amarrado.codigo && a.lote === amarrado.lote)
+      if (existe) {
+        return prev.filter(a => !(a.codigo === amarrado.codigo && a.lote === amarrado.lote))
+      } else {
+        return [...prev, amarrado]
+      }
+    })
+  }
+
+  // Seleciona todos os amarrados de um lote
+  const selecionarTodosAmarradosDoLote = (lote) => {
+    const loteObj = lotesEncontrados.find(l => l.lote === lote)
+    if (!loteObj || !loteObj.amarrados) return
+    
+    setAmarradosSelecionadosRack(prev => {
+      // Remove amarrados existentes deste lote
+      const semEsteL = prev.filter(a => a.lote !== lote)
+      // Adiciona todos os amarrados do lote
+      return [...semEsteL, ...loteObj.amarrados]
+    })
+  }
+
+  // Desmarca todos os amarrados de um lote
+  const desmarcarTodosAmarradosDoLote = (lote) => {
+    setAmarradosSelecionadosRack(prev => prev.filter(a => a.lote !== lote))
+  }
+
+  // Verifica se todos os amarrados de um lote estão selecionados
+  const todoAmarradosDoLoteSelecionados = (lote) => {
+    const loteObj = lotesEncontrados.find(l => l.lote === lote)
+    if (!loteObj || !loteObj.amarrados || loteObj.amarrados.length === 0) return false
+    return loteObj.amarrados.every(a => 
+      amarradosSelecionadosRack.some(sel => sel.codigo === a.codigo && sel.lote === a.lote)
+    )
+  }
+
+  // Toggle expandir/recolher lote
+  const toggleLoteExpandido = (lote) => {
+    setLotesExpandidos(prev => 
+      prev.includes(lote) ? prev.filter(l => l !== lote) : [...prev, lote]
+    )
+  }
+
   // Salva Rack e lotes escolhidos no formulário principal
   const salvarRackELotes = () => {
     const rack = String(rackDigitado || '').trim()
-    if (!rack) { alert('Informe o Rack!Embalagem.'); return }
-    if (!lotesSelecionados.length) { if (!window.confirm('Nenhum lote selecionado. Deseja continuar assim mesmo?')) return }
+    
+    // Prioriza amarrados selecionados individualmente
+    if (amarradosSelecionadosRack.length > 0) {
+      const lotesUnicos = Array.from(new Set(amarradosSelecionadosRack.map(a => a.lote)))
+      const racksUnicos = Array.from(new Set(amarradosSelecionadosRack.map(a => a.rack).filter(Boolean)))
+      const rackFinal = racksUnicos.length > 1 ? 'MÚLTIPLOS RACKS' : (racksUnicos[0] || rack)
+      
+      setFormData(prev => ({
+        ...prev,
+        rack_ou_pallet: rackFinal,
+        rackOuPallet: rackFinal,
+        lotesExternos: lotesUnicos,
+        amarradosDetalhados: amarradosSelecionadosRack
+      }))
+      setRackModalAberto(false)
+      setAmarradosSelecionadosRack([])
+      setLotesExpandidos([])
+      return
+    }
+    
+    // Verifica se há lotes selecionados
+    if (!lotesSelecionados.length) { 
+      if (!window.confirm('Nenhum lote selecionado. Deseja continuar assim mesmo?')) return 
+    }
+    
+    // Se não há rack definido mas há lotes selecionados (vindos da busca por amarrado)
+    if (!rack && lotesSelecionados.length > 0) {
+      // Verifica se os lotes têm informação de rack individual
+      const lotesComRack = lotesEncontrados.filter(l => lotesSelecionados.includes(l.lote) && l.rack)
+      
+      if (lotesComRack.length > 0) {
+        // Usa "MÚLTIPLOS RACKS" se há lotes de racks diferentes, senão usa o rack único
+        const racksUnicos = Array.from(new Set(lotesComRack.map(l => l.rack)))
+        const rackFinal = racksUnicos.length > 1 ? 'MÚLTIPLOS RACKS' : racksUnicos[0]
+        
+        setFormData(prev => ({
+          ...prev,
+          rack_ou_pallet: rackFinal,
+          rackOuPallet: rackFinal,
+          lotesExternos: [...lotesSelecionados]
+        }))
+        setRackModalAberto(false)
+        setAmarradosSelecionadosRack([])
+        return
+      }
+    }
+    
+    // Fluxo normal: exige rack quando não há lotes ou quando rack foi digitado
+    if (!rack) { 
+      alert('Informe o Rack!Embalagem ou use "Procurar por Amarrado" para selecionar lotes.'); 
+      return 
+    }
+    
     setFormData(prev => ({
       ...prev,
       rack_ou_pallet: rack,
@@ -346,6 +897,7 @@ const ApontamentosUsinagem = () => {
       lotesExternos: [...lotesSelecionados]
     }))
     setRackModalAberto(false)
+    setAmarradosSelecionadosRack([])
   }
   
   // Lista simulada de operadores (máquinas virão do IndexedDB)
@@ -355,7 +907,7 @@ const ApontamentosUsinagem = () => {
     { id: 3, nome: 'Carlos Santos' }
   ]
   // Máquinas reais cadastradas em Configurações (IndexedDB)
-  const { items: maquinas } = useDatabase('maquinas', true)
+  const { items: maquinas } = useSupabase('maquinas')
   
   // Extrai o comprimento do acabado a partir do código do produto
   const extrairComprimentoAcabado = (produto) => {
@@ -514,7 +1066,7 @@ const ApontamentosUsinagem = () => {
   }
 
   // Ordens de trabalho derivadas da Carteira (pedidos importados)
-  const ordensTrabalho = pedidosDB.map(p => {
+  const ordensTrabalhoTodas = pedidosDB.map(p => {
     const comp = extrairComprimentoAcabado(p.produto)
     const ferramenta = extrairFerramenta(p.produto)
     return {
@@ -533,6 +1085,11 @@ const ApontamentosUsinagem = () => {
       nroOp: p.nro_op || ''
     }
   })
+  
+  // Aplicar filtro de prioridades se ativo
+  const ordensTrabalho = filtrarPrioridades 
+    ? ordensTrabalhoTodas.filter(o => pedidosPrioritarios.has(o.id))
+    : ordensTrabalhoTodas
 
   // Caminhos base para PDFs salvos em Configurações
   const pdfBasePath = typeof window !== 'undefined' ? (localStorage.getItem('pdfBasePath') || '') : ''
@@ -579,18 +1136,26 @@ const ApontamentosUsinagem = () => {
     const t = buscaTexto.toString().trim().toLowerCase()
     const tDigits = t.replace(/\D/g, '')
     const comprimentoNum = (o.comprimentoAcabado || '').replace(/\D/g, '')
-    let match = false
-    // Se o usuário digitou números, priorizar correspondência no comprimento (início)
+    const idStr = String(o.id || '').toLowerCase()
+    const idDigits = idStr.replace(/\D/g, '')
+    const pedCliStr = String(o.pedidoCliente || '').toLowerCase()
+    const pedCliDigits = pedCliStr.replace(/\D/g, '')
+
+    // 1) Busca numérica: tenta comprimento (prefixo) e Pedido/Seq por dígitos
     if (tDigits) {
-      match = comprimentoNum.startsWith(tDigits)
+      if (comprimentoNum.startsWith(tDigits)) return true
+      if (idDigits.includes(tDigits)) return true
+      if (pedCliDigits && pedCliDigits.includes(tDigits)) return true
     }
-    // Demais campos por inclusão
-    if (!match && (o.id || '').toLowerCase().includes(t)) match = true
-    if (!match && (o.ferramenta || '').toLowerCase().includes(t)) match = true
-    if (!match && (o.codigoPerfil || '').toLowerCase().includes(t)) match = true
-    if (!match && (o.pedidoCliente || '').toLowerCase().includes(t)) match = true
-    if (!match && (o.cliente || '').toLowerCase().includes(t)) match = true
-    return match
+
+    // 2) Busca textual (case-insensitive)
+    if (idStr.includes(t)) return true
+    if ((o.ferramenta || '').toLowerCase().includes(t)) return true
+    if ((o.codigoPerfil || '').toLowerCase().includes(t)) return true
+    if (pedCliStr.includes(t)) return true
+    if ((o.cliente || '').toLowerCase().includes(t)) return true
+
+    return false
   })
   
   // Atualizar o operador quando o usuário for carregado
@@ -679,6 +1244,9 @@ const ApontamentosUsinagem = () => {
     // Abrir modal de confirmação antes de registrar
     setQtdConfirmada(String(formData.quantidade || ''))
     setRackOuPallet('')
+    setQtdRefugo('')
+    setComprimentoRefugo('')
+    setDurezaMaterial('')
     setConfirmarAberto(true)
   }
 
@@ -699,6 +1267,31 @@ const ApontamentosUsinagem = () => {
     }
     // Mapeia para as colunas existentes na tabela public.apontamentos
     const lote = gerarCodigoLote()
+    
+    // Prepara detalhes completos dos amarrados para rastreabilidade
+    const amarradosDetalhados = []
+    if (formData.lotesExternos && formData.lotesExternos.length > 0) {
+      // Busca detalhes completos de cada lote selecionado na base de dados
+      for (const loteNum of formData.lotesExternos) {
+        const loteDetalhado = (lotesDB || []).find(l => String(l.lote || '').trim() === loteNum)
+        if (loteDetalhado) {
+          amarradosDetalhados.push({
+            codigo: String(loteDetalhado.codigo || '').trim(),
+            rack: String(loteDetalhado.rack_embalagem || '').trim(),
+            lote: String(loteDetalhado.lote || '').trim(),
+            produto: String(loteDetalhado.produto || getCampoOriginalLote(loteDetalhado, 'Produto') || '').trim(),
+            pedido_seq: String(loteDetalhado.pedido_seq || '').trim(),
+            romaneio: String(loteDetalhado.romaneio || '').trim(),
+            qt_kg: Number(loteDetalhado.qt_kg || 0),
+            qtd_pc: Number(loteDetalhado.qtd_pc || 0),
+            situacao: String(loteDetalhado.situacao || '').trim(),
+            embalagem_data: loteDetalhado.embalagem_data || null,
+            nota_fiscal: String(loteDetalhado.nota_fiscal || '').trim()
+          })
+        }
+      }
+    }
+
     const payloadDB = {
       operador: formData.operador || (user ? user.nome : ''),
       maquina: formData.maquina || '',
@@ -707,6 +1300,8 @@ const ApontamentosUsinagem = () => {
       inicio: localInputToISO(formData.inicio),
       fim: formData.fim ? localInputToISO(formData.fim) : null,
       quantidade: qtdForm,
+      qtd_refugo: Number(qtdRefugo || 0),
+      comprimento_refugo: Number(comprimentoRefugo || 0),
       qtd_pedido: formData.qtdPedido ? Number(formData.qtdPedido) : null,
       nro_op: formData.nroOp || '',
       perfil_longo: formData.perfilLongo || '',
@@ -714,20 +1309,29 @@ const ApontamentosUsinagem = () => {
       ordem_trabalho: formData.ordemTrabalho || '',
       observacoes: formData.observacoes || '',
       rack_ou_pallet: rackOuPallet || '',
-      pedido_cliente: formData.pedidoCliente || '',
-      lote,
-      romaneio_numero: formData.romaneioNumero || null,
-      lote_externo: (formData.lotesExternos && formData.lotesExternos.length > 0
-        ? formData.lotesExternos[0]
-        : (formData.loteExterno || null)),
-      lotes_externos: formData.lotesExternos && formData.lotesExternos.length ? [...formData.lotesExternos] : (formData.loteExterno ? [formData.loteExterno] : []),
-      separado: formData.separado ? Number(formData.separado) : 0,
-      // Campos espelhados para compatibilidade com relatórios legados
-      pedido_seq: formData.ordemTrabalho || '',
-      qtd_separado: formData.separado ? Number(formData.separado) : 0
+      dureza_material: durezaMaterial || '',
+      // Guardar seleção de lotes internos/externos na coluna padronizada
+      lotes_externos: (formData.lotesExternos && formData.lotesExternos.length ? [...formData.lotesExternos] : []),
+      lote: lote,
+      romaneio_numero: formData.romaneioNumero || '',
+      lote_externo: formData.loteExterno || '',
+      // NOVO: Detalhes completos dos amarrados para rastreabilidade
+      amarrados_detalhados: amarradosDetalhados.length > 0 ? amarradosDetalhados : null,
     }
-    await addApont(payloadDB)
-    console.log('Apontamento confirmado:', payloadDB)
+    try {
+      await addApont(payloadDB)
+      console.log('Apontamento confirmado (Supabase):', payloadDB)
+      
+      // Força atualização dos apontamentos para garantir que o cálculo seja atualizado
+      setTimeout(() => {
+        recarregarApontamentos()
+      }, 500)
+      
+    } catch (err) {
+      console.error('Falha ao registrar apontamento no Supabase:', err)
+      alert('Não foi possível registrar o apontamento no Supabase. Verifique a conexão e o schema.\nDetalhes: ' + (err?.message || 'erro desconhecido'))
+      return
+    }
     // Fecha modal de confirmação e abre o pop-up customizado
     setConfirmarAberto(false)
     setUltimoLote(lote)
@@ -756,7 +1360,11 @@ const ApontamentosUsinagem = () => {
   // Ações do modal de imprimir
   const handleImprimirAgora = () => {
     setImprimirAberto(false)
-    imprimirDocumentoIdentificacao(ultimoLote, formData.quantidade, rackOuPallet)
+    if (tipoImpressao === 'etiqueta') {
+      imprimirEtiquetaTermica(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial)
+    } else {
+      imprimirDocumentoIdentificacao(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial)
+    }
     // Depois que escolher imprimir ou não, segue para a decisão de continuar no mesmo item
     setContinuarMesmoItemAberto(true)
   }
@@ -796,12 +1404,25 @@ const ApontamentosUsinagem = () => {
     const chave = String(formData.ordemTrabalho || '')
     if (!chave) return 0
     try {
-      return (apontamentosDB || []).reduce((acc, a) => {
-        const seq = String(a.ordemTrabalho || a.pedido_seq || '')
+      console.log('Calculando totalApontado para:', chave)
+      console.log('ApontamentosDB:', apontamentosDB?.length || 0, 'registros')
+      
+      const total = (apontamentosDB || []).reduce((acc, a) => {
+        const seq = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '')
         const qtd = Number(a.quantidade || a.quantidadeProduzida || 0)
-        return acc + (seq === chave ? (isNaN(qtd) ? 0 : qtd) : 0)
+        const match = seq === chave
+        
+        if (match) {
+          console.log('Match encontrado:', { seq, qtd, apontamento: a })
+        }
+        
+        return acc + (match ? (isNaN(qtd) ? 0 : qtd) : 0)
       }, 0)
-    } catch {
+      
+      console.log('Total calculado:', total)
+      return total
+    } catch (e) {
+      console.error('Erro ao calcular totalApontado:', e)
       return 0
     }
   }, [apontamentosDB, formData.ordemTrabalho])
@@ -856,6 +1477,207 @@ const ApontamentosUsinagem = () => {
               </button>
             </div>
           )}
+      {/* Modal: Procurar por Amarrado */}
+      {buscarAmarradoAberto && (
+        <div className="fixed inset-0 z-[67] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black bg-opacity-30" onClick={() => setBuscarAmarradoAberto(false)}></div>
+          <div className="relative bg-white rounded-lg shadow-lg w-full max-w-7xl h-[90vh] p-5 form-compact flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold text-gray-800">Procurar Amarrados</h3>
+              <button className="text-sm text-gray-600 hover:text-gray-900" onClick={() => setBuscarAmarradoAberto(false)}>Fechar</button>
+            </div>
+            {/* Layout em duas colunas */}
+            <div className="flex-1 flex gap-4 min-h-0">
+              {/* Coluna esquerda - Busca */}
+              <div className="flex-1 flex flex-col space-y-3">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="block label-sm font-medium text-gray-700 mb-1">Número do Amarrado</label>
+                    <input
+                      type="text"
+                      className="input-field input-field-sm w-full"
+                      value={numeroAmarrado}
+                      onChange={(e)=> setNumeroAmarrado(e.target.value)}
+                      placeholder="Digite o nº do amarrado (pode colar parcial)"
+                      onKeyPress={(e) => e.key === 'Enter' && procurarRackPorAmarrado()}
+                    />
+                  </div>
+                  <button type="button" className="btn-primary" onClick={procurarRackPorAmarrado}>Procurar</button>
+                  <button 
+                    type="button" 
+                    className="btn-outline" 
+                    onClick={() => { setNumeroAmarrado(''); setResultadosAmarrado([]); setAmarradosSelecionadosBusca([]) }}
+                  >
+                    Limpar
+                  </button>
+                </div>
+                
+                {resultadosAmarrado.length > 0 && (
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-sm text-gray-600">
+                      {resultadosAmarrado.length} amarrado(s) encontrado(s) • {amarradosSelecionadosBusca.length} selecionado(s)
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={amarradosSelecionadosBusca.length === resultadosAmarrado.length && resultadosAmarrado.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAmarradosSelecionadosBusca(resultadosAmarrado.map((_, idx) => idx))
+                          } else {
+                            setAmarradosSelecionadosBusca([])
+                          }
+                        }}
+                      />
+                      Selecionar todos
+                    </label>
+                  </div>
+                )}
+
+                <div className="border rounded flex-1 overflow-auto">
+                  {(!resultadosAmarrado || resultadosAmarrado.length === 0) && (
+                    <div className="text-sm text-gray-500 p-4 text-center">
+                      {numeroAmarrado ? 'Nenhum amarrado encontrado.' : 'Informe o número do amarrado e clique em Procurar.'}
+                    </div>
+                  )}
+                  
+                  {resultadosAmarrado.length > 0 && (
+                    <table className="min-w-full text-xs">
+                      <thead className="bg-gray-50 text-gray-600 sticky top-0">
+                        <tr>
+                          <th className="p-2 w-8"></th>
+                          <th className="p-2 text-left">Rack/Embalagem</th>
+                          <th className="p-2 text-left">Código</th>
+                          <th className="p-2 text-left">Lote</th>
+                          <th className="p-2 text-left">Produto</th>
+                          <th className="p-2 text-left">Pedido/Seq</th>
+                          <th className="p-2 text-left">Romaneio</th>
+                          <th className="p-2 text-right">Qt Kg</th>
+                          <th className="p-2 text-right">Qtd PC</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resultadosAmarrado.map((amarrado, idx) => (
+                          <tr key={idx} className="border-t hover:bg-gray-50">
+                            <td className="p-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={amarradosSelecionadosBusca.includes(idx)}
+                                onChange={() => {
+                                  setAmarradosSelecionadosBusca(prev => 
+                                    prev.includes(idx) 
+                                      ? prev.filter(i => i !== idx)
+                                      : [...prev, idx]
+                                  )
+                                }}
+                              />
+                            </td>
+                            <td className="p-2 font-semibold">{amarrado.rack || '-'}</td>
+                            <td className="p-2">{amarrado.codigo || '-'}</td>
+                            <td className="p-2">{amarrado.lote || '-'}</td>
+                            <td className="p-2">{amarrado.produto || '-'}</td>
+                            <td className="p-2">{amarrado.pedido_seq || '-'}</td>
+                            <td className="p-2">{amarrado.romaneio || '-'}</td>
+                            <td className="p-2 text-right">{Number.isFinite(amarrado.qt_kg) ? amarrado.qt_kg : '-'}</td>
+                            <td className="p-2 text-right">{Number.isFinite(amarrado.qtd_pc) ? amarrado.qtd_pc : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* Coluna direita - Amarrados Selecionados */}
+              <div className="w-80 flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold text-gray-800">Amarrados Selecionados ({amarradosAcumulados.length})</h4>
+                  {amarradosAcumulados.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs text-red-600 hover:text-red-800"
+                      onClick={() => {
+                        if (window.confirm('Deseja limpar todos os amarrados selecionados?')) {
+                          setAmarradosAcumulados([])
+                          setLotesEncontrados([])
+                          setLotesSelecionados([])
+                        }
+                      }}
+                    >
+                      Limpar todos
+                    </button>
+                  )}
+                </div>
+                <div className="border rounded bg-gray-50 flex-1 overflow-auto p-3">
+                  {amarradosAcumulados.length === 0 && (
+                    <div className="text-sm text-gray-500 text-center py-8">
+                      Nenhum amarrado selecionado ainda.
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {amarradosAcumulados.map((amarrado, idx) => (
+                      <div key={idx} className="bg-white border rounded p-2 text-xs">
+                        <div className="font-semibold">Lote: {amarrado.lote}</div>
+                        <div className="text-gray-600 mt-1">
+                          <div>Rack: <span className="font-semibold text-blue-600">{amarrado.rack}</span></div>
+                          <div>Produto: {amarrado.produto}</div>
+                          <div>Pedido/Seq: {amarrado.pedido_seq}</div>
+                          <div>Romaneio: {amarrado.romaneio}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="mt-1 text-red-500 hover:text-red-700 text-xs"
+                          onClick={() => {
+                            // Remove este amarrado específico
+                            const novoAcumulados = amarradosAcumulados.filter((_, i) => i !== idx)
+                            setAmarradosAcumulados(novoAcumulados)
+                            
+                            // Remove dos lotes selecionados também
+                            setLotesSelecionados(prev => prev.filter(l => l !== amarrado.lote))
+                            setLotesEncontrados(prev => prev.filter(l => l.lote !== amarrado.lote))
+                          }}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 flex justify-between">
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  className="btn-outline" 
+                  onClick={() => setBuscarAmarradoAberto(false)}
+                >
+                  Cancelar
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  className="btn-primary"
+                  onClick={salvarAmarradosSelecionados}
+                  disabled={amarradosSelecionadosBusca.length === 0}
+                >
+                  Adicionar à Seleção ({amarradosSelecionadosBusca.length})
+                </button>
+                <button 
+                  type="button" 
+                  className="btn-success"
+                  onClick={() => setBuscarAmarradoAberto(false)}
+                  disabled={amarradosAcumulados.length === 0}
+                >
+                  Finalizar ({amarradosAcumulados.length} lotes)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal: Inspecionar Amarrados do Rack */}
       {inspAberto && (
         <div className="fixed inset-0 z-[67] flex items-center justify-center">
@@ -964,6 +1786,43 @@ const ApontamentosUsinagem = () => {
           </div>
         </div>
       )}
+      {/* Modal: Digitar Lote de Extrusão (manual) */}
+      {manualAberto && (
+        <div className="fixed inset-0 z-[67] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black bg-opacity-30" onClick={()=>setManualAberto(false)}></div>
+          <div className="relative bg-white rounded-lg shadow-lg w-full max-w-md p-5 form-compact">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold text-gray-800">Digitar Lote de Extrusão</h3>
+            </div>
+            <div className="text-sm text-gray-600 mb-3">Informe um ou mais lotes, separados por vírgula, espaço ou quebra de linha.</div>
+            <textarea
+              className="w-full border rounded p-2 text-sm h-32"
+              placeholder="Ex.: 125210022, 225390040"
+              value={manualLotesTxt}
+              onChange={(e)=>setManualLotesTxt(e.target.value)}
+            ></textarea>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn-outline" onClick={()=>setManualAberto(false)}>Cancelar</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const tokens = String(manualLotesTxt || '')
+                    .split(/[^0-9]+/)
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                  if (!tokens.length) { alert('Nenhum número de lote informado.'); return }
+                  // adiciona na seleção do modal principal
+                  setLotesSelecionados(prev => Array.from(new Set([...(prev||[]), ...tokens])))
+                  setManualAberto(false)
+                }}
+              >
+                Adicionar à seleção
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal: Romaneio e Lote Externo (obrigatório ao selecionar pedido) */}
       {romaneioAberto && (
         <div className="fixed inset-0 z-[65] flex items-center justify-center">
@@ -1031,7 +1890,22 @@ const ApontamentosUsinagem = () => {
                     onClick={() => {
                       const r = String(rackDigitado || '').trim()
                       if (!r) { alert('Informe o Rack!Embalagem primeiro.'); return }
-                      const lista = (lotesDB || []).filter(l => String(l.rack_embalagem || '').trim() === r)
+                      
+                      // Busca exata primeiro (como na versão que funcionava)
+                      let lista = (lotesDB || []).filter(l => String(l.rack_embalagem || '').trim() === r)
+                      
+                      // Se não encontrou nada, tenta busca normalizada
+                      if (lista.length === 0) {
+                        const rNorm = normalizeRackId(r)
+                        if (rNorm) {
+                          lista = (lotesDB || []).filter(l => {
+                            const lr = normalizeRackId(l.rack_embalagem)
+                            if (!lr) return false
+                            return lr === rNorm || (lr.endsWith(rNorm) && rNorm.length >= 3)
+                          })
+                        }
+                      }
+                      
                       const rows = lista.map((l, idx) => ({
                         idx,
                         codigo: String(l.codigo || '').trim(),
@@ -1050,34 +1924,120 @@ const ApontamentosUsinagem = () => {
                   >
                     Inspecionar
                   </button>
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 text-xs rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
+                    title="Procurar o Rack pelo número do Amarrado"
+                    onClick={() => { 
+                      setBuscarAmarradoAberto(true); 
+                      setNumeroAmarrado(''); 
+                      setResultadosAmarrado([]);
+                      setAmarradosSelecionadosBusca([]);
+                      // Inicializa amarrados acumulados com os lotes já encontrados
+                      const lotesJaEncontrados = lotesEncontrados.filter(l => l.rack).map(l => ({
+                        rack: l.rack,
+                        lote: l.lote,
+                        produto: l.produto,
+                        pedido_seq: `${l.pedido}/${l.seq}`,
+                        romaneio: l.romaneio
+                      }));
+                      setAmarradosAcumulados(lotesJaEncontrados);
+                    }}
+                  >
+                    Procurar por Amarrado
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 text-xs rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
+                    title="Digitar Lote de Extrusão manualmente"
+                    onClick={() => { setManualAberto(true); setManualLotesTxt('') }}
+                  >
+                    Digitar Lote
+                  </button>
                 </div>
               </div>
               <div>
                 <label className="block label-sm font-medium text-gray-700 mb-1">Lotes encontrados</label>
                 <div className="max-h-72 overflow-auto border rounded p-3 space-y-2">
                   {lotesEncontrados.length === 0 && (
-                    <div className="text-sm text-gray-500">Nenhum lote encontrado para este Rack.</div>
+                    <div className="text-sm text-gray-500">
+                      {rackDigitado 
+                        ? 'Nenhum lote encontrado para este Rack.'
+                        : 'Informe o Rack!Embalagem ou use "Procurar por Amarrado" para adicionar lotes.'
+                      }
+                    </div>
                   )}
                   {lotesEncontrados.map((l) => (
-                    <div key={l.lote} className="flex items-start gap-3 text-sm py-1">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={lotesSelecionados.includes(l.lote)}
-                        onChange={()=>toggleLoteSelecionado(l.lote)}
-                      />
-                      <div className="flex-1">
-                        <div className="font-semibold whitespace-nowrap">Lote: {l.lote}</div>
-                        <div className="text-gray-700 text-xs mt-1">
-                          <div>Produto: {l.produto || '-'}</div>
-                          <div>
-                            Ferramenta: {l.ferramenta ? (
-                              <span className="inline-block px-2 py-0.5 rounded bg-primary-50 text-primary-700 font-semibold">{l.ferramenta}</span>
-                            ) : '-'}
+                    <div key={l.lote} className="border rounded p-3 bg-gray-50">
+                      <div className="flex items-start gap-3 text-sm">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={todoAmarradosDoLoteSelecionados(l.lote)}
+                          onChange={() => {
+                            if (todoAmarradosDoLoteSelecionados(l.lote)) {
+                              desmarcarTodosAmarradosDoLote(l.lote)
+                            } else {
+                              selecionarTodosAmarradosDoLote(l.lote)
+                            }
+                          }}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="font-semibold whitespace-nowrap">
+                              Lote: {l.lote} ({l.amarrados?.length || 0} amarrados)
+                            </div>
+                            {l.amarrados && l.amarrados.length > 0 && (
+                              <button
+                                type="button"
+                                className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded border border-blue-200 hover:bg-blue-50"
+                                onClick={() => toggleLoteExpandido(l.lote)}
+                              >
+                                {lotesExpandidos.includes(l.lote) ? 'Recolher' : 'Expandir'}
+                              </button>
+                            )}
                           </div>
-                          <div>Romaneio: {l.romaneio || '-'}</div>
-                          <div>Pedido: {l.pedido || '-'}</div>
-                          <div>Seq: {l.seq || '-'}</div>
+                          <div className="text-gray-700 text-xs mt-1">
+                            <div>Produto: {l.produto || '-'}</div>
+                            <div>
+                              Ferramenta: {l.ferramenta ? (
+                                <span className="inline-block px-2 py-0.5 rounded bg-primary-50 text-primary-700 font-semibold">{l.ferramenta}</span>
+                              ) : '-'}
+                            </div>
+                            {l.rack && (
+                              <div>Rack: <span className="font-semibold text-blue-600">{l.rack}</span></div>
+                            )}
+                            <div>Romaneio: {l.romaneio || '-'}</div>
+                            <div>Pedido: {l.pedido || '-'}</div>
+                            <div>Seq: {l.seq || '-'}</div>
+                          </div>
+                          
+                          {/* Lista de amarrados - só mostra se expandido */}
+                          {l.amarrados && l.amarrados.length > 0 && lotesExpandidos.includes(l.lote) && (
+                            <div className="mt-2 border-t pt-2">
+                              <div className="text-xs font-medium text-gray-600 mb-1">Amarrados:</div>
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {l.amarrados.map((amarrado, idx) => (
+                                  <div key={`${amarrado.lote}-${amarrado.codigo}`} className="flex items-center gap-2 text-xs">
+                                    <input
+                                      type="checkbox"
+                                      className="text-xs"
+                                      checked={amarradosSelecionadosRack.some(a => a.codigo === amarrado.codigo && a.lote === amarrado.lote)}
+                                      onChange={() => toggleAmarradoSelecionado(amarrado)}
+                                    />
+                                    <span className="font-mono text-blue-600">{amarrado.codigo}</span>
+                                    <span className="text-gray-500">
+                                      {amarrado.qt_kg > 0 && `${amarrado.qt_kg}kg`}
+                                      {amarrado.qtd_pc > 0 && ` ${amarrado.qtd_pc}pcs`}
+                                    </span>
+                                    {amarrado.romaneio && (
+                                      <span className="text-gray-400">Rom: {amarrado.romaneio}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1086,7 +2046,7 @@ const ApontamentosUsinagem = () => {
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="btn-outline" onClick={()=>setRackModalAberto(false)}>Cancelar</button>
+              <button type="button" className="btn-outline" onClick={()=>{setRackModalAberto(false); setAmarradosSelecionadosRack([]); setLotesExpandidos([])}}>Cancelar</button>
               <button type="button" className="btn-primary" onClick={salvarRackELotes}>Salvar</button>
             </div>
           </div>
@@ -1101,10 +2061,59 @@ const ApontamentosUsinagem = () => {
               <h3 className="text-base font-semibold text-gray-800">Imprimir identificação do material?</h3>
               <button className="text-sm text-gray-600 hover:text-gray-900" onClick={handleNaoImprimir}>Fechar</button>
             </div>
-            <div className="text-sm text-gray-700 space-y-2">
+            <div className="text-sm text-gray-700 space-y-3">
               <p>Apontamento registrado com sucesso.</p>
               <p><strong>Lote gerado:</strong> {ultimoLote}</p>
-              <p>Deseja imprimir o formulário de identificação em Word agora?</p>
+              <p>Escolha o tipo de impressão:</p>
+              <div className="space-y-2">
+                {(() => {
+                  const configImpressoras = getConfiguracaoImpressoras()
+                  return (
+                    <>
+                      <label className={`flex items-center gap-2 p-3 border rounded cursor-pointer hover:bg-gray-50 ${!configImpressoras.comum.ativa ? 'opacity-50' : ''}`}>
+                        <input 
+                          type="radio" 
+                          name="tipoImpressao" 
+                          value="documento" 
+                          checked={tipoImpressao === 'documento'} 
+                          onChange={(e) => setTipoImpressao(e.target.value)}
+                          className="w-4 h-4"
+                          disabled={!configImpressoras.comum.ativa}
+                        />
+                        <div className="flex-1">
+                          <div className="font-semibold">🖨️ Formulário Completo (A4)</div>
+                          <div className="text-xs text-gray-500">Documento A4 para identificação do rack</div>
+                          <div className="text-xs text-blue-600 mt-1">
+                            {configImpressoras.comum.ativa 
+                              ? `📍 ${configImpressoras.comum.nome}` 
+                              : '⚠️ Impressora não configurada'}
+                          </div>
+                        </div>
+                      </label>
+                      <label className={`flex items-center gap-2 p-3 border rounded cursor-pointer hover:bg-gray-50 ${!configImpressoras.termica.ativa ? 'opacity-50' : ''}`}>
+                        <input 
+                          type="radio" 
+                          name="tipoImpressao" 
+                          value="etiqueta" 
+                          checked={tipoImpressao === 'etiqueta'} 
+                          onChange={(e) => setTipoImpressao(e.target.value)}
+                          className="w-4 h-4"
+                          disabled={!configImpressoras.termica.ativa}
+                        />
+                        <div className="flex-1">
+                          <div className="font-semibold">🏷️ Etiqueta Térmica (100x45mm)</div>
+                          <div className="text-xs text-gray-500">Etiqueta compacta para impressora térmica</div>
+                          <div className="text-xs text-blue-600 mt-1">
+                            {configImpressoras.termica.ativa 
+                              ? `📍 ${configImpressoras.termica.nome}` 
+                              : '⚠️ Impressora não configurada'}
+                          </div>
+                        </div>
+                      </label>
+                    </>
+                  )
+                })()}
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="btn-outline" onClick={handleNaoImprimir}>Agora não</button>
@@ -1140,7 +2149,7 @@ const ApontamentosUsinagem = () => {
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-3 form-compact">
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-compact">
+          <div className="grid grid-cols-1 md:grid-cols-5 grid-compact">
             <div>
               <label className="block label-sm font-medium text-gray-700 mb-1">
                 Operador
@@ -1173,9 +2182,24 @@ const ApontamentosUsinagem = () => {
             </div>
             
             <div>
-              <label className="block label-sm font-medium text-gray-700 mb-1">
-                Pedido/Seq
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block label-sm font-medium text-gray-700">
+                  Pedido/Seq
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setFiltrarPrioridades(!filtrarPrioridades)}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors ${
+                    filtrarPrioridades 
+                      ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                  title={filtrarPrioridades ? 'Mostrando apenas prioritários' : 'Mostrar apenas prioritários'}
+                >
+                  <FaStar className={filtrarPrioridades ? 'text-yellow-500' : 'text-gray-400'} />
+                  <span>{filtrarPrioridades ? 'Prioritários' : 'Todos'}</span>
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <select
                   name="ordemTrabalho"
@@ -1274,9 +2298,7 @@ const ApontamentosUsinagem = () => {
                 readOnly
                 className="input-field input-field-sm bg-gray-100"
               />
-              {ferramentaAtual && (
-                <p className="text-[11px] text-gray-500 mt-1">Ferramenta: {ferramentaAtual}{pdfBasePath ? '' : ' • Defina o caminho em Configurações > Arquivos'}</p>
-              )}
+              {/* Mensagem de ferramenta removida para reduzir ruído visual */}
             </div>
 
             <div>
@@ -1402,18 +2424,6 @@ const ApontamentosUsinagem = () => {
                 readOnly
                 className="input-field input-field-sm bg-gray-100"
               />
-              <div className="mt-2">
-                <label className="block label-sm font-medium text-gray-700 mb-1">
-                  Comprimento do Acabado
-                </label>
-                <input
-                  type="text"
-                  name="comprimentoAcabado"
-                  value={formData.comprimentoAcabado}
-                  readOnly
-                  className="input-field input-field-sm bg-gray-100"
-                />
-              </div>
             </div>
             
             <div>
@@ -1433,7 +2443,7 @@ const ApontamentosUsinagem = () => {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="btn-primary flex-1 h-[38px] disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="btn-primary flex-1 h-9 disabled:opacity-60 disabled:cursor-not-allowed"
                       onClick={() => { if (!formData.ordemTrabalho) { alert('Selecione um Pedido/Seq antes de abrir o contador.'); return } setShowTimerModal(true) }}
                       disabled={!formData.ordemTrabalho}
                       title={formData.ordemTrabalho ? 'Abrir contador em tela grande' : 'Selecione um Pedido/Seq para habilitar'}
@@ -1461,7 +2471,7 @@ const ApontamentosUsinagem = () => {
                 <div className="flex">
                   <button
                     type="button"
-                    className="btn-secondary flex items-center justify-center gap-2 h-[38px] px-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="btn-secondary flex items-center justify-center gap-2 h-9 px-3 disabled:opacity-60 disabled:cursor-not-allowed"
                     onClick={() => {
                       if (!formData.ordemTrabalho) { alert('Selecione um Pedido/Seq antes de informar romaneio/lote.'); return }
                       setTmpRomaneio(formData.romaneioNumero || '')
@@ -1479,9 +2489,22 @@ const ApontamentosUsinagem = () => {
             </div>
 
             
+            {/* Linha extra dentro da mesma grid para reduzir espaçamento vertical */}
+            <div className="md:col-start-1">
+              <label className="block label-sm font-medium text-gray-700 mb-1">
+                Comprimento do Acabado
+              </label>
+              <input
+                type="text"
+                name="comprimentoAcabado"
+                value={formData.comprimentoAcabado}
+                readOnly
+                className="input-field input-field-sm bg-gray-100"
+              />
+            </div>
           </div>
           
-          <div>
+          <div className="md:col-span-5">
             <label className="block label-sm font-medium text-gray-700 mb-1">
               Observações
             </label>
@@ -1492,6 +2515,97 @@ const ApontamentosUsinagem = () => {
               className="input-field input-field-sm"
             />
           </div>
+
+          {/* Seção de Amarrados/Lotes Selecionados */}
+          {((formData.lotesExternos && formData.lotesExternos.length > 0) || (formData.amarradosDetalhados && formData.amarradosDetalhados.length > 0)) && (
+            <div className="col-span-full">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block label-sm font-medium text-gray-700">
+                  {formData.amarradosDetalhados && formData.amarradosDetalhados.length > 0 
+                    ? `Amarrados Selecionados (${formData.amarradosDetalhados.length})`
+                    : `Lotes Selecionados (${formData.lotesExternos?.length || 0})`
+                  }
+                </label>
+                <div className="flex items-center gap-2">
+                  {formData.rack_ou_pallet && (
+                    <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                      Rack: {formData.rack_ou_pallet}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="text-xs text-red-600 hover:text-red-800"
+                    onClick={() => {
+                      if (window.confirm('Deseja remover todos os amarrados/lotes selecionados?')) {
+                        setFormData(prev => ({
+                          ...prev,
+                          lotesExternos: [],
+                          loteExterno: '',
+                          rack_ou_pallet: '',
+                          rackOuPallet: '',
+                          amarradosDetalhados: []
+                        }))
+                      }
+                    }}
+                    title="Remover todos os amarrados/lotes"
+                  >
+                    Limpar todos
+                  </button>
+                </div>
+              </div>
+              <div className="border rounded p-3 bg-gray-50 max-h-32 overflow-auto">
+                <div className="flex flex-wrap gap-2">
+                  {/* Mostra amarrados detalhados se existirem */}
+                  {formData.amarradosDetalhados && formData.amarradosDetalhados.length > 0 ? (
+                    formData.amarradosDetalhados.map((amarrado, idx) => (
+                      <div key={idx} className="flex items-center gap-1 bg-white border rounded px-2 py-1 text-sm">
+                        <span className="font-mono text-blue-600">{amarrado.codigo}</span>
+                        <span className="text-xs text-gray-500">({amarrado.lote})</span>
+                        {amarrado.qt_kg > 0 && (
+                          <span className="text-xs text-gray-400">{amarrado.qt_kg}kg</span>
+                        )}
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700 ml-1"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              amarradosDetalhados: prev.amarradosDetalhados.filter((_, i) => i !== idx)
+                            }))
+                          }}
+                          title="Remover este amarrado"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    /* Fallback para lotes simples */
+                    formData.lotesExternos?.map((lote, idx) => (
+                      <div key={idx} className="flex items-center gap-1 bg-white border rounded px-2 py-1 text-sm">
+                        <span className="font-mono">{lote}</span>
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700 ml-1"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              lotesExternos: prev.lotesExternos.filter((_, i) => i !== idx),
+                              loteExterno: prev.lotesExternos.length === 1 ? '' : prev.loteExterno
+                            }))
+                          }}
+                          title="Remover este lote"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end pt-2 gap-2">
             <button
               type="button"
@@ -1524,9 +2638,23 @@ const ApontamentosUsinagem = () => {
                 <label className="block text-sm text-gray-700 mb-1">Confirmar Quantidade</label>
                 <input type="number" className="input-field input-field-sm" value={qtdConfirmada} onChange={(e)=>setQtdConfirmada(e.target.value)} />
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Refugos/Sucata (PCs)</label>
+                  <input type="number" className="input-field input-field-sm" placeholder="0" value={qtdRefugo} onChange={(e)=>setQtdRefugo(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Compr (mm)</label>
+                  <input type="number" className="input-field input-field-sm" placeholder="0" value={comprimentoRefugo} onChange={(e)=>setComprimentoRefugo(e.target.value)} />
+                </div>
+              </div>
               <div>
                 <label className="block text-sm text-gray-700 mb-1">Número do Rack ou Pallet</label>
                 <input type="text" className="input-field input-field-sm" placeholder="Ex.: RACK-12 ou P-07" value={rackOuPallet} onChange={(e)=>setRackOuPallet(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Dureza do Material</label>
+                <input type="text" className="input-field input-field-sm" placeholder="Ex.: HRC 45-50" value={durezaMaterial} onChange={(e)=>setDurezaMaterial(e.target.value)} />
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
@@ -1680,12 +2808,12 @@ const ApontamentosUsinagem = () => {
                               fim: prev.fim || addMinutesToInput((prev.inicio || getNowLocalInput()), 60)
                             }))
                             setBuscaAberta(false)
-                            // Abrir modal de romaneio/lote externo
-                            setTmpRomaneio(formData.romaneioNumero || '')
-                            setTmpLotesExt((formData.lotesExternos && formData.lotesExternos.length)
-                              ? [...formData.lotesExternos]
-                              : [formData.loteExterno || ''])
-                            setRomaneioAberto(true)
+                            // Abrir modal de Rack!Embalagem e Lotes (novo fluxo)
+                            setPedidoSeqSelecionado(o.id)
+                            setRackDigitado('')
+                            setLotesEncontrados([])
+                            setLotesSelecionados([])
+                            setRackModalAberto(true)
                           }}
                         >
                           Selecionar

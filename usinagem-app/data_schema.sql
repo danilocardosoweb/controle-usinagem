@@ -1,6 +1,7 @@
--- SQLite Schema and Migration Script
--- Data: 19/09/2025 09:50
--- Objetivo: Migrar o backend para SQLite mantendo o frontend offline-first com IndexedDB
+-- Schema Consolidado - Sistema de Usinagem
+-- Data: 13/10/2025 17:17
+-- Objetivo: Schema unificado para Supabase/PostgreSQL com rastreabilidade completa
+-- Última atualização: Adicionadas colunas dureza_material e comprimento_refugo em apontamentos
 
 -- ============================
 -- UP (Criar/atualizar estrutura)
@@ -156,10 +157,43 @@ BEGIN
   END IF;
 END $$;
 
+-- ============================
+-- MELHORIAS DE RASTREABILIDADE (v2.0.0)
+-- ============================
+
+-- Adicionar campo para rastreabilidade completa de amarrados
+ALTER TABLE public.apontamentos 
+  ADD COLUMN IF NOT EXISTS amarrados_detalhados jsonb;
+
+-- Adicionar campo de refugo/sucata
+ALTER TABLE public.apontamentos
+  ADD COLUMN IF NOT EXISTS qtd_refugo numeric(18,3) DEFAULT 0;
+
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_apontamentos_amarrados_detalhados 
+  ON public.apontamentos USING gin (amarrados_detalhados);
+
+-- Comentários explicativos
+COMMENT ON COLUMN public.apontamentos.amarrados_detalhados IS 
+'Detalhes completos dos amarrados selecionados para rastreabilidade. 
+Estrutura: [{"codigo": "2532005482", "rack": "278", "lote": "224020089", "produto": "EXP908155000NANV", "pedido_seq": "78914/10", "romaneio": "37513", "qt_kg": 12.42, "qtd_pc": 3}]';
+
+COMMENT ON COLUMN public.apontamentos.qtd_refugo IS 'Quantidade de refugo/sucata apontada na usinagem (na mesma unidade de quantidade).';
+
+-- Adicionar colunas para dureza e comprimento de refugo (v2.1.0 - 13/10/2025)
+ALTER TABLE public.apontamentos 
+ADD COLUMN IF NOT EXISTS dureza_material TEXT;
+
+ALTER TABLE public.apontamentos 
+ADD COLUMN IF NOT EXISTS comprimento_refugo NUMERIC DEFAULT 0;
+
+COMMENT ON COLUMN public.apontamentos.dureza_material IS 'Dureza do material cortado (ex: HRC 45-50)';
+COMMENT ON COLUMN public.apontamentos.comprimento_refugo IS 'Comprimento médio das peças refugadas em mm para cálculo de perdas em kg';
+
 COMMIT;
 
 -- ============================
--- DOWN (Rollback das alterações Postgres)
+-- DOWN (Rollback das alterações)
 -- ============================
 BEGIN;
 DROP TABLE IF EXISTS apontamentos;
@@ -181,4 +215,14 @@ DROP INDEX IF EXISTS idx_apont_maquina;
 DROP INDEX IF EXISTS idx_pedidos_pedido_seq;
 DROP INDEX IF EXISTS idx_pedidos_pedido_cliente;
 DROP INDEX IF EXISTS idx_pedidos_nro_op;
+
+-- Rollback melhorias v2.0.0
+DROP INDEX IF EXISTS idx_apontamentos_amarrados_detalhados;
+ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS amarrados_detalhados;
+ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS qtd_refugo;
+
+-- Rollback melhorias v2.1.0 (13/10/2025)
+ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS dureza_material;
+ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS comprimento_refugo;
+
 COMMIT;

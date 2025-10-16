@@ -48,7 +48,16 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 - Desempenho por operador/máquina
 - Exportação em Excel e PDF
 
-### 5. Integração da Carteira de Encomendas
+### 5. Previsão de Trabalho
+
+- Estimativas de tempo para conclusão de pedidos baseadas em dados históricos
+- Cálculos de produtividade (pcs/hora, pcs/dia) por produto
+- Análise da carteira de pedidos com estimativas automáticas
+- Ferramenta para estimativas manuais de novos pedidos
+- Histórico de produtividade por produto, máquina e operador
+- Indicadores de confiabilidade das estimativas baseados no número de registros históricos
+
+### 6. Integração da Carteira de Encomendas
 
 - Upload de arquivo Excel contendo os itens de usinagem
 - Carregamento automático dos dados para alimentar os apontamentos

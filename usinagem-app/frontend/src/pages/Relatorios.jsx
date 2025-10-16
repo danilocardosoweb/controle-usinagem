@@ -1,6 +1,40 @@
 import { useMemo, useState } from 'react'
 import { FaPrint } from 'react-icons/fa'
-import { useDatabase } from '../hooks/useDatabase'
+import { useSupabase } from '../hooks/useSupabase'
+import * as XLSX from 'xlsx'
+
+// Helpers (fora do componente) para evitar problemas de hoisting/TDZ
+export function extrairComprimentoAcabado(produto) {
+  if (!produto) return ''
+  const resto = String(produto).slice(8)
+  const match = resto.match(/^\d+/)
+  const valor = match ? parseInt(match[0], 10) : null
+  return Number.isFinite(valor) ? `${valor} mm` : ''
+}
+
+export function extrairFerramenta(produto) {
+  if (!produto) return ''
+  const s = String(produto).toUpperCase()
+  // Aceitar quaisquer letras (vogais ou consoantes) no prefixo
+  const re3 = /^([A-Z]{3})([A-Z0-9]+)/
+  const re2 = /^([A-Z]{2})([A-Z0-9]+)/
+  let letras = '', resto = '', qtd = 0
+  let m = s.match(re3)
+  if (m) { letras = m[1]; resto = m[2]; qtd = 3 }
+  else {
+    m = s.match(re2)
+    if (!m) return ''
+    letras = m[1]; resto = m[2]; qtd = 4
+  }
+  let nums = ''
+  for (const ch of resto) {
+    if (/[0-9]/.test(ch)) nums += ch
+    else if (ch === 'O') nums += '0'
+    if (nums.length === qtd) break
+  }
+  if (nums.length < qtd) nums = nums.padEnd(qtd, '0')
+  return `${letras}-${nums}`
+}
 
 const Relatorios = () => {
   const [filtros, setFiltros] = useState({
@@ -9,13 +43,75 @@ const Relatorios = () => {
     dataFim: '',
     maquina: '',
     operador: '',
-    formato: 'excel'
+    produto: '', // filtro por produto
+    ferramenta: '', // filtro por ferramenta
+    comprimento: '', // filtro por comprimento (ex: "810 mm")
+    formato: 'excel',
+    modo: 'detalhado' // para rastreabilidade: detalhado|compacto
   })
+  const [filtrosAberto, setFiltrosAberto] = useState(true)
   
   // Dados reais do IndexedDB
-  const { items: apontamentos } = useDatabase('apontamentos', true)
-  const { items: paradas } = useDatabase('paradas', true)
-  const { items: ferramentasCfg } = useDatabase('ferramentas_cfg', true)
+  const { items: apontamentos } = useSupabase('apontamentos')
+  const { items: paradasRaw } = useSupabase('apontamentos_parada')
+  const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
+  const { items: maquinasCat } = useSupabase('maquinas')
+  const { items: lotesDB } = useSupabase('lotes')
+
+  // Utilitário: Agrupar rastreabilidade em modo compacto (uma linha por apontamento)
+  const agruparRastreabilidadeCompacto = (linhas) => {
+    const map = {}
+    
+    // Função auxiliar para concatenar valores únicos
+    const concat = (a, b) => {
+      const sa = (a ? String(a) : '').trim()
+      const sb = (b ? String(b) : '').trim()
+      if (!sa) return sb
+      if (!sb) return sa
+      // Usar Set para evitar duplicatas
+      const set = new Set(sa.split(', ').filter(Boolean).concat(sb.split(', ').filter(Boolean)))
+      return Array.from(set).join(', ')
+    }
+    
+    // Lista de todos os campos de amarrado que devem ser concatenados
+    const camposAmarrado = [
+      'Amarrado_Codigo',
+      'Amarrado_Lote',
+      'Amarrado_Rack',
+      'Amarrado_Produto',
+      'Amarrado_PedidoSeq',
+      'Amarrado_Pedido',
+      'Amarrado_Seq',
+      'Amarrado_Romaneio',
+      'Amarrado_QtKG',
+      'Amarrado_QtdPC',
+      'Amarrado_Ferramenta',
+      'Amarrado_Comprimento_mm'
+    ]
+    
+    for (const r of (linhas || [])) {
+      const k = `${r.ID_Apont || ''}`
+      
+      if (!map[k]) {
+        // Primeira linha deste apontamento - copiar tudo
+        map[k] = { ...r }
+      } else {
+        // Concatenar todos os campos de amarrado
+        camposAmarrado.forEach(campo => {
+          if (campo in r || campo in map[k]) {
+            map[k][campo] = concat(map[k][campo] || '', r[campo] || '')
+          }
+        })
+      }
+    }
+    
+    const resultado = Object.values(map)
+    
+    // Log para debug
+    console.log(`📊 Rastreabilidade Compacto: ${linhas.length} linhas → ${resultado.length} apontamentos agrupados`)
+    
+    return resultado
+  }
 
   // Dados simulados para os filtros
   const maquinas = [
@@ -29,6 +125,28 @@ const Relatorios = () => {
     const nomes = Array.from(new Set((apontamentos || []).map(a => a.operador).filter(Boolean)))
     return nomes.map(n => ({ id: n, nome: n }))
   }, [apontamentos])
+
+  // Lista dinâmica de ferramentas a partir dos apontamentos
+  const ferramentasLista = useMemo(() => {
+    const set = new Set()
+    for (const a of (apontamentos || [])) {
+      const cod = a?.produto || a?.codigoPerfil
+      const f = extrairFerramenta(cod)
+      if (f) set.add(f)
+    }
+    return Array.from(set).sort()
+  }, [apontamentos])
+
+  // Lista dinâmica de comprimentos a partir dos apontamentos
+  const comprimentosLista = useMemo(() => {
+    const set = new Set()
+    for (const a of (apontamentos || [])) {
+      const cod = a?.produto || a?.codigoPerfil
+      const c = extrairComprimentoAcabado(cod)
+      if (c) set.add(c)
+    }
+    return Array.from(set).sort((a,b)=> String(a).localeCompare(String(b)))
+  }, [apontamentos])
   
   const tiposRelatorio = [
     { id: 'producao', nome: 'Produção por Período' },
@@ -36,7 +154,8 @@ const Relatorios = () => {
     { id: 'desempenho', nome: 'Desempenho por Operador/Máquina' },
     { id: 'oee', nome: 'OEE Detalhado' },
     { id: 'expedicao', nome: 'Estimativa de Expedição' },
-    { id: 'produtividade', nome: 'Produtividade (Itens)' }
+    { id: 'produtividade', nome: 'Produtividade (Itens)' },
+    { id: 'rastreabilidade', nome: 'Rastreabilidade (Amarrados/Lotes)' }
   ]
   
   const handleChange = (e) => {
@@ -103,12 +222,426 @@ const Relatorios = () => {
     URL.revokeObjectURL(url)
   }
   
+  // Utilitário: sanitizar nome de aba do Excel
+  const sanitizeSheetName = (name) => {
+    if (!name) return 'Dados'
+    
+    // Remover caracteres inválidos: : \ / ? * [ ]
+    let sanitized = String(name).replace(/[:\\\/\?\*\[\]]/g, '')
+    
+    // Limitar a 31 caracteres (limite do Excel)
+    if (sanitized.length > 31) {
+      sanitized = sanitized.substring(0, 31)
+    }
+    
+    // Se ficou vazio após sanitização, usar nome padrão
+    return sanitized.trim() || 'Dados'
+  }
+
+  // Utilitário: gerar e baixar arquivo Excel nativo
+  const downloadExcel = (rows, fileName, sheetName = 'Relatório') => {
+    if (!rows || rows.length === 0) { 
+      alert('Sem dados para exportar.'); 
+      return 
+    }
+
+    try {
+      // Criar workbook
+      const wb = XLSX.utils.book_new()
+      
+      // Converter dados para worksheet
+      const ws = XLSX.utils.json_to_sheet(rows)
+      
+      // Configurar largura das colunas automaticamente
+      const colWidths = []
+      const headers = Object.keys(rows[0] || {})
+      
+      headers.forEach((header, index) => {
+        let maxWidth = header.length
+        rows.forEach(row => {
+          const cellValue = String(row[header] || '')
+          if (cellValue.length > maxWidth) {
+            maxWidth = cellValue.length
+          }
+        })
+        // Limitar largura máxima para evitar colunas muito largas
+        colWidths[index] = { wch: Math.min(maxWidth + 2, 50) }
+      })
+      
+      ws['!cols'] = colWidths
+      
+      // Sanitizar nome da aba antes de adicionar
+      const safeSheetName = sanitizeSheetName(sheetName)
+      
+      // Adicionar worksheet ao workbook
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName)
+      
+      // Gerar arquivo Excel
+      const excelBuffer = XLSX.write(wb, { 
+        bookType: 'xlsx', 
+        type: 'array',
+        cellStyles: true 
+      })
+      
+      // Criar blob e fazer download
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      })
+      
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${fileName}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      console.log(`Excel gerado: ${fileName}.xlsx com ${rows.length} linhas`)
+      
+    } catch (error) {
+      console.error('Erro ao gerar Excel:', error)
+      alert('Erro ao gerar arquivo Excel: ' + error.message)
+    }
+  }
+
+  // Utilitário: gerar Excel com múltiplas abas
+  const downloadExcelMultiSheet = (sheetsData, fileName) => {
+    if (!sheetsData || sheetsData.length === 0) {
+      alert('Sem dados para exportar.')
+      return
+    }
+
+    try {
+      const wb = XLSX.utils.book_new()
+      
+      sheetsData.forEach(({ data, name }) => {
+        if (data && data.length > 0) {
+          const ws = XLSX.utils.json_to_sheet(data)
+          
+          // Auto-ajustar largura das colunas
+          const colWidths = []
+          const headers = Object.keys(data[0] || {})
+          
+          headers.forEach((header, index) => {
+            let maxWidth = header.length
+            data.forEach(row => {
+              const cellValue = String(row[header] || '')
+              if (cellValue.length > maxWidth) {
+                maxWidth = cellValue.length
+              }
+            })
+            colWidths[index] = { wch: Math.min(maxWidth + 2, 50) }
+          })
+          
+          ws['!cols'] = colWidths
+          
+          // Sanitizar nome da aba antes de adicionar
+          const safeSheetName = sanitizeSheetName(name || 'Dados')
+          
+          XLSX.utils.book_append_sheet(wb, ws, safeSheetName)
+        }
+      })
+      
+      const excelBuffer = XLSX.write(wb, { 
+        bookType: 'xlsx', 
+        type: 'array',
+        cellStyles: true 
+      })
+      
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      })
+      
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${fileName}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+    } catch (error) {
+      console.error('Erro ao gerar Excel multi-sheet:', error)
+      alert('Erro ao gerar arquivo Excel: ' + error.message)
+    }
+  }
+
+  // Construção das linhas para cada tipo de relatório
+  const buildRows = (tipo) => {
+    switch (tipo) {
+      case 'producao':
+        return apontamentosOrdenados.map(a => ({
+          Data: brDate(a.inicio),
+          Hora: brTime(a.inicio),
+          Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
+          Operador: a.operador || '-',
+          PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
+          Produto: a.produto || a.codigoPerfil || '-',
+          Ferramenta: extrairFerramenta(a.produto || a.codigoPerfil) || '-',
+          Quantidade: a.quantidade || 0,
+          Refugo: a.qtd_refugo || 0,
+          RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
+          QtdPedido: a.qtd_pedido ?? a.qtdPedido ?? '-',
+          Separado: a.separado ?? a.qtd_separado ?? '-'
+        }))
+      case 'paradas':
+        return paradasFiltradas.map(p => ({
+          Data: brDate(p.inicio_norm),
+          Maquina: maqMap[String(p.maquina)] || p.maquina || '-',
+          Motivo: p.motivo_norm,
+          Tipo: p.tipo_norm,
+          Inicio: p.inicio_norm ? new Date(p.inicio_norm).toLocaleString('pt-BR') : '-',
+          Fim: p.fim_norm ? new Date(p.fim_norm).toLocaleString('pt-BR') : '-',
+          Duracao_min: (duracaoMin(p.inicio_norm, p.fim_norm) ?? '-')
+        }))
+      case 'desempenho': {
+        const by = {}
+        for (const a of apontamentosFiltrados) {
+          const op = a.operador || '-'
+          const mq = maqMap[String(a.maquina)] || a.maquina || '-'
+          const key = `${op}__${mq}`
+          if (!by[key]) by[key] = { Operador: op, Maquina: mq, Producao: 0, Minutos: 0 }
+          by[key].Producao += Number(a.quantidade || 0) || 0
+          const m = duracaoMin(a.inicio, a.fim)
+          by[key].Minutos += m || 0
+        }
+        return Object.values(by).map(r => ({ ...r, Prod_por_Hora: (r.Minutos > 0 ? (r.Producao / (r.Minutos/60)) : 0).toFixed(2) }))
+      }
+      case 'oee': {
+        const by = {}
+        for (const a of apontamentosFiltrados) {
+          const d = toISODate(a.inicio) || '-'
+          const mq = maqMap[String(a.maquina)] || a.maquina || '-'
+          const k = `${d}__${mq}`
+          if (!by[k]) by[k] = { Data: d, Maquina: mq, Producao: 0, ProdMin: 0, ParadaMin: 0 }
+          by[k].Producao += Number(a.quantidade || 0) || 0
+          by[k].ProdMin += duracaoMin(a.inicio, a.fim) || 0
+        }
+        for (const p of paradasFiltradas) {
+          const d = toISODate(p.inicio_norm) || '-'
+          const mq = maqMap[String(p.maquina)] || p.maquina || '-'
+          const k = `${d}__${mq}`
+          if (!by[k]) by[k] = { Data: d, Maquina: mq, Producao: 0, ProdMin: 0, ParadaMin: 0 }
+          by[k].ParadaMin += duracaoMin(p.inicio_norm, p.fim_norm) || 0
+        }
+        return Object.values(by).sort((a,b)=> (a.Data||'').localeCompare(b.Data||''))
+      }
+      case 'expedicao': {
+        const porFerramenta = {}
+        for (const a of apontamentosFiltrados) {
+          const cod = (a.produto || a.codigoPerfil)
+          const ferramenta = extrairFerramenta(cod)
+          if (!ferramenta) continue
+          if (!porFerramenta[ferramenta]) porFerramenta[ferramenta] = { Ferramenta: ferramenta, Quantidade: 0 }
+          porFerramenta[ferramenta].Quantidade += Number(a.quantidade || 0) || 0
+        }
+        return Object.values(porFerramenta)
+      }
+      case 'produtividade': {
+        const grupos = {}
+        for (const a of apontamentosFiltrados) {
+          const cod = (a.produto || a.codigoPerfil)
+          const ferramenta = extrairFerramenta(cod)
+          const comprimento = extrairComprimentoAcabado(cod)
+          const key = `${ferramenta}__${comprimento}`
+          if (!grupos[key]) grupos[key] = { Ferramenta: ferramenta, Comprimento: comprimento, Quantidade: 0, Minutos: 0 }
+          grupos[key].Quantidade += Number(a.quantidade || 0) || 0
+          grupos[key].Minutos += duracaoMin(a.inicio, a.fim) || 0
+        }
+        return Object.values(grupos).map(g => ({ ...g, Media_pcs_h: (g.Minutos>0?(g.Quantidade/(g.Minutos/60)):0).toFixed(2) }))
+      }
+      case 'rastreabilidade': {
+        const linhas = []
+        let totalAmarrados = 0
+        
+        for (const a of apontamentosOrdenados) {
+          const base = {
+            ID_Apont: a.id,
+            Data: brDate(a.inicio),
+            Hora: brTime(a.inicio),
+            Operador: a.operador || '-',
+            Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
+            PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
+            Produto_Usinagem: a.produto || a.codigoPerfil || '-',
+            Lote_Usinagem: a.lote || '-',
+            Qtde_Produzida: a.quantidade || 0,
+            Qtde_Refugo: a.qtd_refugo || 0,
+            RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
+            LotesExternos: Array.isArray(a.lotes_externos) ? a.lotes_externos.join(', ') : (a.lote_externo || '')
+          }
+          const arr = Array.isArray(a.amarrados_detalhados) ? a.amarrados_detalhados : []
+          
+          if (arr.length === 0) {
+            // Fallback: derivar pelos lotes_externos quando não há amarrados_detalhados
+            const lotesExt = Array.isArray(a.lotes_externos) ? a.lotes_externos : (a.lote_externo ? [a.lote_externo] : [])
+            if (lotesExt.length > 0) {
+              for (const loteNum of lotesExt) {
+                const l = (lotesDB || []).find(x => String(x.lote || '').trim() === String(loteNum)) || {}
+                const prodBruto = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
+                const ferramentaBruta = extrairFerramenta(prodBruto) || ''
+                const comprimentoLongo = extrairComprimentoAcabado(prodBruto) || ''
+                const pedidoSeqBruto = String(l.pedido_seq || '')
+                const [pedidoBruto, seqBruto] = pedidoSeqBruto.includes('/') ? pedidoSeqBruto.split('/') : [pedidoSeqBruto, '']
+                linhas.push({
+                  ...base,
+                  Amarrado_Codigo: String(l.codigo || '').trim(),
+                  Amarrado_Lote: String(l.lote || '').trim(),
+                  Amarrado_Rack: String(l.rack_embalagem || '').trim(),
+                  Amarrado_Produto: prodBruto,
+                  Amarrado_Ferramenta: ferramentaBruta,
+                  Amarrado_Comprimento_mm: comprimentoLongo,
+                  Amarrado_PedidoSeq: pedidoSeqBruto,
+                  Amarrado_Pedido: pedidoBruto || '',
+                  Amarrado_Seq: seqBruto || '',
+                  Amarrado_Romaneio: String(l.romaneio || '').trim(),
+                  Amarrado_QtKG: Number(l.qt_kg || 0) || '',
+                  Amarrado_QtdPC: Number(l.qtd_pc || 0) || ''
+                })
+              }
+            } else {
+              linhas.push(base)
+            }
+          } else {
+            // Usar amarrados_detalhados quando disponível
+            totalAmarrados += arr.length
+            for (const am of arr) {
+              const prodBruto = am.produto || ''
+              const ferramentaBruta = extrairFerramenta(prodBruto) || ''
+              const comprimentoLongo = extrairComprimentoAcabado(prodBruto) || ''
+              const pedidoSeqBruto = String(am.pedido_seq || '')
+              const [pedidoBruto, seqBruto] = pedidoSeqBruto.includes('/') ? pedidoSeqBruto.split('/') : [pedidoSeqBruto, '']
+              linhas.push({
+                ...base,
+                Amarrado_Codigo: am.codigo || '',
+                Amarrado_Lote: am.lote || '',
+                Amarrado_Rack: am.rack || '',
+                Amarrado_Produto: prodBruto,
+                Amarrado_Ferramenta: ferramentaBruta,
+                Amarrado_Comprimento_mm: comprimentoLongo,
+                Amarrado_PedidoSeq: pedidoSeqBruto,
+                Amarrado_Pedido: pedidoBruto || '',
+                Amarrado_Seq: seqBruto || '',
+                Amarrado_Romaneio: am.romaneio || '',
+                Amarrado_QtKG: am.qt_kg ?? '',
+                Amarrado_QtdPC: am.qtd_pc ?? ''
+              })
+            }
+          }
+        }
+        
+        console.log(`📦 Rastreabilidade Detalhado: ${apontamentosOrdenados.length} apontamentos, ${totalAmarrados} amarrados, ${linhas.length} linhas geradas`)
+        
+        return linhas
+      }
+      default:
+        return []
+    }
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
-    console.log('Gerando relatório com os filtros:', filtros)
+    let rows = buildRows(filtros.tipoRelatorio)
     
-    // Simulação de geração de relatório
-    alert(`Relatório de ${filtros.tipoRelatorio} gerado com sucesso!`)
+    // Aplicar modo compacto para rastreabilidade
+    if (filtros.tipoRelatorio === 'rastreabilidade' && filtros.modo === 'compacto') {
+      rows = agruparRastreabilidadeCompacto(rows)
+    }
+    
+    const tipoInfo = tiposRelatorio.find(t => t.id === filtros.tipoRelatorio)
+    const label = (tipoInfo?.nome || 'Relatorio').replace(/\s+/g, '_')
+    const suffix = filtros.tipoRelatorio === 'rastreabilidade' ? `_${filtros.modo}` : ''
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '')
+    const fileName = `${label}${suffix}_${timestamp}`
+    
+    if ((filtros.formato || 'excel').toLowerCase() === 'excel') {
+      // Gerar Excel nativo com nome da aba baseado no tipo de relatório
+      const sheetName = tipoInfo?.nome || 'Relatório'
+      downloadExcel(rows, fileName, sheetName)
+    } else {
+      // Formato PDF ainda não implementado: exportar Excel como fallback
+      downloadExcel(rows, fileName, tipoInfo?.nome || 'Relatório')
+      alert('Formato PDF ainda não implementado. O arquivo foi exportado em Excel (.xlsx).')
+    }
+  }
+
+  // Função para gerar todos os relatórios em um único arquivo Excel
+  const handleGerarTodosRelatorios = () => {
+    try {
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '')
+      const fileName = `Relatorios_Completos_${timestamp}`
+      
+      const sheetsData = []
+      
+      // Mapeamento de nomes curtos para as abas
+      const nomesCurtos = {
+        'producao': 'Producao',
+        'paradas': 'Paradas',
+        'desempenho': 'Desempenho',
+        'oee': 'OEE',
+        'expedicao': 'Expedicao',
+        'produtividade': 'Produtividade',
+        'rastreabilidade': 'Rastreab'
+      }
+      
+      // Gerar dados para cada tipo de relatório
+      tiposRelatorio.forEach(tipo => {
+        try {
+          // Temporariamente alterar o tipo de relatório para gerar os dados
+          const originalTipo = filtros.tipoRelatorio
+          filtros.tipoRelatorio = tipo.id
+          
+          let rows = buildRows(tipo.id)
+          
+          // Nome curto para a aba
+          const nomeBase = nomesCurtos[tipo.id] || tipo.nome
+          
+          // Aplicar modo compacto para rastreabilidade
+          if (tipo.id === 'rastreabilidade') {
+            // Gerar duas abas: detalhado e compacto
+            sheetsData.push({
+              data: rows,
+              name: `${nomeBase} Detalhado`
+            })
+            
+            const rowsCompacto = agruparRastreabilidadeCompacto([...rows])
+            sheetsData.push({
+              data: rowsCompacto,
+              name: `${nomeBase} Compacto`
+            })
+          } else {
+            sheetsData.push({
+              data: rows,
+              name: nomeBase
+            })
+          }
+          
+          // Restaurar tipo original
+          filtros.tipoRelatorio = originalTipo
+          
+        } catch (error) {
+          console.error(`Erro ao gerar relatório ${tipo.nome}:`, error)
+        }
+      })
+      
+      // Filtrar abas vazias
+      const sheetsComDados = sheetsData.filter(sheet => sheet.data && sheet.data.length > 0)
+      
+      if (sheetsComDados.length === 0) {
+        alert('Nenhum dado encontrado para gerar relatórios.')
+        return
+      }
+      
+      // Gerar Excel com múltiplas abas
+      downloadExcelMultiSheet(sheetsComDados, fileName)
+      
+      alert(`Arquivo Excel gerado com ${sheetsComDados.length} abas de relatórios!`)
+      
+    } catch (error) {
+      console.error('Erro ao gerar todos os relatórios:', error)
+      alert('Erro ao gerar relatórios completos: ' + error.message)
+    }
   }
   
   
@@ -129,40 +662,31 @@ const Relatorios = () => {
   const fmt = (n, digits=0) => {
     try { return Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) } catch { return String(n) }
   }
-  // Comprimento a partir do código do produto (8º+ dígitos)
-  const extrairComprimentoAcabado = (produto) => {
-    if (!produto) return ''
-    const resto = String(produto).slice(8)
-    const match = resto.match(/^\d+/)
-    const valor = match ? parseInt(match[0], 10) : null
-    return Number.isFinite(valor) ? `${valor} mm` : ''
+  // Campo original do lote (dados_originais), case-insensitive
+  const getCampoOriginalLote = (loteObj, campo) => {
+    try {
+      const dados = loteObj?.dados_originais || {}
+      const alvo = String(campo).toLowerCase().replace(/[^a-z0-9]/g, '')
+      for (const k of Object.keys(dados)) {
+        const nk = String(k).toLowerCase().replace(/[^a-z0-9]/g, '')
+        if (nk === alvo) return dados[k]
+      }
+      return ''
+    } catch { return '' }
   }
-  // Extrai código de ferramenta a partir do código de produto/perfil
-  const extrairFerramenta = (produto) => {
-    if (!produto) return ''
-    const s = String(produto).toUpperCase()
-    // Aceitar quaisquer letras (vogais ou consoantes) no prefixo
-    const re3 = /^([A-Z]{3})([A-Z0-9]+)/
-    const re2 = /^([A-Z]{2})([A-Z0-9]+)/
-    let letras = '', resto = '', qtd = 0
-    let m = s.match(re3)
-    if (m) { letras = m[1]; resto = m[2]; qtd = 3 }
-    else {
-      m = s.match(re2)
-      if (!m) return ''
-      letras = m[1]; resto = m[2]; qtd = 4
-    }
-    let nums = ''
-    for (const ch of resto) {
-      if (/[0-9]/.test(ch)) nums += ch
-      else if (ch === 'O') nums += '0'
-      if (nums.length === qtd) break
-    }
-    if (nums.length < qtd) nums = nums.padEnd(qtd, '0')
-    return `${letras}-${nums}`
-  }
+  // Funções extrairComprimentoAcabado e extrairFerramenta já estão definidas no topo do arquivo
 
   // Filtro aplicado aos apontamentos conforme controles da tela
+  // Mapa id->nome da máquina
+  const maqMap = useMemo(() => {
+    const map = {}
+    for (const m of (maquinasCat || [])) {
+      if (!m) continue
+      map[String(m.id)] = m.nome || m.codigo || `Máquina ${m.id}`
+    }
+    return map
+  }, [maquinasCat])
+
   const apontamentosFiltrados = useMemo(() => {
     const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
     const df = filtros.dataFim ? toISODate(filtros.dataFim) : null
@@ -172,6 +696,16 @@ const Relatorios = () => {
       if (df && (!dd || dd > df)) return false
       if (filtros.maquina && String(a.maquina) !== String(filtros.maquina)) return false
       if (filtros.operador && String(a.operador) !== String(filtros.operador)) return false
+      // Filtros adicionais: ferramenta e comprimento
+      const cod = a?.produto || a?.codigoPerfil
+      if (filtros.ferramenta) {
+        const f = extrairFerramenta(cod)
+        if (f !== filtros.ferramenta) return false
+      }
+      if (filtros.comprimento) {
+        const c = extrairComprimentoAcabado(cod)
+        if (c !== filtros.comprimento) return false
+      }
       return true
     })
   }, [apontamentos, filtros])
@@ -188,11 +722,22 @@ const Relatorios = () => {
   }, [apontamentosFiltrados])
 
   // Filtro aplicado às paradas
+  // Normaliza paradas vindas da view/tabela
+  const paradas = useMemo(() => {
+    return (paradasRaw || []).map(p => ({
+      ...p,
+      inicio_norm: p.inicio || p.inicio_timestamp,
+      fim_norm: p.fim || p.fim_timestamp,
+      motivo_norm: p.motivo_parada || p.motivoParada || '-',
+      tipo_norm: p.tipo_parada || p.tipoParada || '-',
+    }))
+  }, [paradasRaw])
+
   const paradasFiltradas = useMemo(() => {
     const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
     const df = filtros.dataFim ? toISODate(filtros.dataFim) : null
     return (paradas || []).filter(p => {
-      const dd = toISODate(p.inicio)
+      const dd = toISODate(p.inicio_norm)
       if (di && (!dd || dd < di)) return false
       if (df && (!dd || dd > df)) return false
       if (filtros.maquina && String(p.maquina) !== String(filtros.maquina)) return false
@@ -287,7 +832,7 @@ const Relatorios = () => {
                 <tr key={index}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{brDate(a.inicio)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{brTime(a.inicio)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.maquina || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{maqMap[String(a.maquina)] || a.maquina || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.operador || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{
                     a.ordemTrabalho
@@ -346,13 +891,16 @@ const Relatorios = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {paradasFiltradas.map((p, index) => (
                 <tr key={index}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{brDate(p.inicio)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.maquina || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.motivoParada || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.tipoParada || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.inicio ? new Date(p.inicio).toLocaleString('pt-BR') : '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.fim ? new Date(p.fim).toLocaleString('pt-BR') : '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(() => { const m = duracaoMin(p.inicio, p.fim); return m != null ? m : '-'; })()}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{brDate(p.inicio_norm)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{maqMap[String(p.maquina)] || p.maquina || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.motivo_norm}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(() => {
+                    const tp = p.tipo_norm
+                    return tp === 'setup' ? 'Setup' : tp === 'nao_planejada' ? 'Não Planejada' : tp === 'manutencao' ? 'Manutenção' : tp === 'planejada' ? 'Planejada' : (tp || '-')
+                  })()}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.inicio_norm ? new Date(p.inicio_norm).toLocaleString('pt-BR') : '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.fim_norm ? new Date(p.fim_norm).toLocaleString('pt-BR') : '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(() => { const m = duracaoMin(p.inicio_norm, p.fim_norm); return m != null ? m : '-'; })()}</td>
                 </tr>
               ))}
               {paradasFiltradas.length === 0 && (
@@ -383,7 +931,7 @@ const Relatorios = () => {
                 return (
                   <tr key={index}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.operador}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.maquina}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{maqMap[String(item.maquina)] || item.maquina}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.producao}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{horas.toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{pph}</td>
@@ -605,6 +1153,128 @@ const Relatorios = () => {
           </table>
         )
       }
+      case 'rastreabilidade': {
+        // Reutiliza a mesma lógica do export para montar linhas
+        let linhas = (() => {
+          const out = []
+          for (const a of apontamentosOrdenados) {
+            const base = {
+              Data: brDate(a.inicio),
+              Hora: brTime(a.inicio),
+              Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
+              Operador: a.operador || '-',
+              PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
+              Produto_Usinagem: a.produto || a.codigoPerfil || '-',
+              Lote_Usinagem: a.lote || '-',
+              Qtde_Produzida: a.quantidade || 0,
+              Qtde_Refugo: a.qtd_refugo || 0,
+              RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
+              LotesExternos: Array.isArray(a.lotes_externos) ? a.lotes_externos.join(', ') : (a.lote_externo || '')
+            }
+            const arr = Array.isArray(a.amarrados_detalhados) ? a.amarrados_detalhados : []
+            if (arr.length === 0) {
+              // Fallback por lotes_externos quando não houver amarrados_detalhados
+              const lotesExt = Array.isArray(a.lotes_externos) ? a.lotes_externos : (a.lote_externo ? [a.lote_externo] : [])
+              if (lotesExt.length > 0) {
+                for (const loteNum of lotesExt) {
+                  const l = (lotesDB || []).find(x => String(x.lote || '').trim() === String(loteNum)) || {}
+                  out.push({
+                    ...base,
+                    Amarrado_Codigo: String(l.codigo || '').trim(),
+                    Amarrado_Lote: String(l.lote || '').trim(),
+                    Amarrado_Rack: String(l.rack_embalagem || '').trim(),
+                    Amarrado_Produto: String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim(),
+                    Amarrado_PedidoSeq: String(l.pedido_seq || '').trim(),
+                    Amarrado_Romaneio: String(l.romaneio || '').trim(),
+                    Amarrado_QtKG: Number(l.qt_kg || 0) || '',
+                    Amarrado_QtdPC: Number(l.qtd_pc || 0) || ''
+                  })
+                }
+              } else {
+                out.push(base)
+              }
+            } else {
+              for (const am of arr) {
+                out.push({
+                  ...base,
+                  Amarrado_Codigo: am.codigo || '',
+                  Amarrado_Lote: am.lote || '',
+                  Amarrado_Rack: am.rack || '',
+                  Amarrado_Produto: am.produto || '',
+                  Amarrado_PedidoSeq: am.pedido_seq || '',
+                  Amarrado_Romaneio: am.romaneio || '',
+                  Amarrado_QtKG: am.qt_kg ?? '',
+                  Amarrado_QtdPC: am.qtd_pc ?? ''
+                })
+              }
+            }
+          }
+          return out
+        })()
+        
+        // Aplicar modo compacto se selecionado
+        if (filtros.modo === 'compacto') {
+          linhas = agruparRastreabilidadeCompacto(linhas)
+        }
+
+        return (
+          <div className="overflow-x-auto">
+            <table className="min-w-[1200px] divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Máquina</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Operador</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pedido/Seq</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produto Usinagem</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Lote Usinagem</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Qtd Produzida</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Refugo</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Rack/Pallet</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Lotes Externos</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Código</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Lote</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Rack</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Produto</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Pedido/Seq</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Romaneio</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Qt(kg)</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amarrado Qtd(pc)</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {linhas.map((r, idx) => (
+                  <tr key={idx}>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Data}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Hora}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Maquina}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Operador}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.PedidoSeq}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Produto_Usinagem}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Lote_Usinagem}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Qtde_Produzida}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Qtde_Refugo}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.RackOuPallet}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.LotesExternos}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_Codigo || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_Lote || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_Rack || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_Produto || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_PedidoSeq || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_Romaneio || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_QtKG ?? '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700">{r.Amarrado_QtdPC ?? '-'}</td>
+                  </tr>
+                ))}
+                {linhas.length === 0 && (
+                  <tr><td colSpan="19" className="px-6 py-6 text-center text-gray-500">Nenhum dado de rastreabilidade no período/seleção</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )
+      }
       
       default:
         return <p>Selecione um tipo de relatório</p>
@@ -615,122 +1285,193 @@ const Relatorios = () => {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">Relatórios</h1>
       
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-4">Filtros</h2>
+      <div className="bg-white rounded-lg shadow p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-700">Filtros</h2>
+          <button
+            type="button"
+            onClick={() => setFiltrosAberto(v => !v)}
+            className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
+            title={filtrosAberto ? 'Recolher filtros' : 'Expandir filtros'}
+          >
+            {filtrosAberto ? 'Recolher' : 'Expandir'}
+          </button>
+        </div>
         
+        {filtrosAberto && (
         <form onSubmit={handleSubmit}>
-          <div className="overflow-x-auto">
-            <div className="grid grid-cols-6 gap-3 min-w-[1200px] items-end">
+          {/* Grid responsivo para filtros principais (7 colunas em md+) */}
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Tipo de Relatório
+              </label>
+              <select
+                name="tipoRelatorio"
+                value={filtros.tipoRelatorio}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                {tiposRelatorio.map(tipo => (
+                  <option key={tipo.id} value={tipo.id}>{tipo.nome}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Data Início
+              </label>
+              <input
+                type="date"
+                name="dataInicio"
+                value={filtros.dataInicio}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Data Fim
+              </label>
+              <input
+                type="date"
+                name="dataFim"
+                value={filtros.dataFim}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Máquina
+              </label>
+              <select
+                name="maquina"
+                value={filtros.maquina}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="">Todas as máquinas</option>
+                {maquinas.map(maq => (
+                  <option key={maq.id} value={maq.id}>{maq.nome}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Operador
+              </label>
+              <select
+                name="operador"
+                value={filtros.operador}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="">Todos os operadores</option>
+                {operadores.map(op => (
+                  <option key={op.id} value={op.id}>{op.nome}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ferramenta
+              </label>
+              <select
+                name="ferramenta"
+                value={filtros.ferramenta}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="">Todas as ferramentas</option>
+                {ferramentasLista.map(f => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Comprimento
+              </label>
+              <select
+                name="comprimento"
+                value={filtros.comprimento}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="">Todos os comprimentos</option>
+                {comprimentosLista.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Modo de Exibição (apenas para rastreabilidade) */}
+            {filtros.tipoRelatorio === 'rastreabilidade' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tipo de Relatório
+                  Modo de Exibição
                 </label>
                 <select
-                  name="tipoRelatorio"
-                  value={filtros.tipoRelatorio}
+                  name="modo"
+                  value={filtros.modo}
                   onChange={handleChange}
-                  className="input-field"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
-                  {tiposRelatorio.map(tipo => (
-                    <option key={tipo.id} value={tipo.id}>{tipo.nome}</option>
-                  ))}
+                  <option value="detalhado">Detalhado (1 linha por amarrado)</option>
+                  <option value="compacto">Compacto (amarrados concatenados)</option>
                 </select>
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Data Início
-                </label>
-                <input
-                  type="date"
-                  name="dataInicio"
-                  value={filtros.dataInicio}
-                  onChange={handleChange}
-                  className="input-field"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Data Fim
-                </label>
-                <input
-                  type="date"
-                  name="dataFim"
-                  value={filtros.dataFim}
-                  onChange={handleChange}
-                  className="input-field"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Máquina
-                </label>
-                <select
-                  name="maquina"
-                  value={filtros.maquina}
-                  onChange={handleChange}
-                  className="input-field"
-                >
-                  <option value="">Todas as máquinas</option>
-                  {maquinas.map(maq => (
-                    <option key={maq.id} value={maq.id}>{maq.nome}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Operador
-                </label>
-                <select
-                  name="operador"
-                  value={filtros.operador}
-                  onChange={handleChange}
-                  className="input-field"
-                >
-                  <option value="">Todos os operadores</option>
-                  {operadores.map(op => (
-                    <option key={op.id} value={op.id}>{op.nome}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="flex items-end justify-end">
-                <div className="w-full">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Formato de Exportação
-                  </label>
-                  <div className="flex items-end gap-2">
-                    <select
-                      name="formato"
-                      value={filtros.formato}
-                      onChange={handleChange}
-                      className="input-field"
-                    >
-                      <option value="excel">Excel (.xlsx)</option>
-                      <option value="pdf">PDF</option>
-                      <option value="csv">CSV</option>
-                    </select>
-                    <button
-                      type="submit"
-                      className="btn-primary whitespace-nowrap"
-                    >
-                      Gerar Relatório
-                    </button>
-                  </div>
-                </div>
-              </div>
+            )}
+          </div>
+          
+          {/* Seção de formato e botão */}
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-4 border-t border-gray-200">
+            <div className="sm:w-48">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Formato de Exportação
+              </label>
+              <select
+                name="formato"
+                value={filtros.formato}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="excel">Excel</option>
+                <option value="pdf">PDF</option>
+              </select>
+            </div>
+            
+            <div className="flex gap-2">
+              <button 
+                type="submit" 
+                className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors whitespace-nowrap"
+              >
+                Gerar Relatório
+              </button>
+              <button 
+                type="button"
+                onClick={handleGerarTodosRelatorios}
+                className="px-6 py-2 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors whitespace-nowrap"
+              >
+                Gerar Todos os Relatórios
+              </button>
             </div>
           </div>
         </form>
+        )}
       </div>
       
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg shadow p-4 md:p-6">
         <h2 className="text-lg font-semibold text-gray-700 mb-4">Visualização Prévia</h2>
         
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto pb-4">
           <PreviewRelatorio tipo={filtros.tipoRelatorio} />
         </div>
       </div>

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import logoDanilo from '../assets/LogoDaniloBranco.png'
 
 const Login = ({ onLogin }) => {
-  const [username, setUsername] = useState('danilo.cardosoweb@gmail.com')
-  const [password, setPassword] = useState('senha123')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   
@@ -36,10 +37,19 @@ const Login = ({ onLogin }) => {
   }
   
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-lg shadow-md">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-900 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-lg shadow-2xl">
+        <div className="flex flex-col items-center">
+          {/* Logo */}
+          <div className="mb-6">
+            <img 
+              src={logoDanilo} 
+              alt="Logo Danilo Cardoso" 
+              className="h-24 w-auto"
+            />
+          </div>
+          
+          <h2 className="text-center text-3xl font-extrabold text-gray-900">
             Controle de Usinagem
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
@@ -47,7 +57,7 @@ const Login = ({ onLogin }) => {
           </p>
         </div>
         
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit} autoComplete="off">
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
               {error}
@@ -56,15 +66,15 @@ const Login = ({ onLogin }) => {
           
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
-              <label htmlFor="email" className="sr-only">Email</label>
+              <label htmlFor="username" className="sr-only">Email</label>
               <input
                 id="username"
                 name="username"
-                type="text"
-                autoComplete="username"
+                type="email"
+                autoComplete="off"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="Nome de usuário"
+                placeholder="Seu email"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
@@ -75,10 +85,10 @@ const Login = ({ onLogin }) => {
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="Senha"
+                placeholder="Sua senha"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />

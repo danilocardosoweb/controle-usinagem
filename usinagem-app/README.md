@@ -1,8 +1,40 @@
-# Controle de Usinagem - Fábrica de Extrusão
+# Sistema de Controle de Usinagem
 
-## Descrição
+Sistema completo para controle e apontamentos de usinagem em fábrica de extrusão de perfis de alumínio, com rastreabilidade completa de amarrados e lotes.
 
-Aplicação web para controle e apontamentos da usinagem na Fábrica de Extrusão de Perfis de Alumínio. O sistema permite o registro de ordens de trabalho, apontamentos de produção, controle de paradas de máquina, monitoramento de indicadores de desempenho (OEE) e geração de relatórios exportáveis.
+## 🚀 Funcionalidades Principais
+
+### 📊 Dashboard
+- Indicadores OEE (Disponibilidade, Performance, Qualidade)
+- Tempo de parada em tempo real
+- Ordens em execução com progresso
+- Produção diária e estatísticas
+
+### 🏭 Apontamentos de Usinagem
+- Timer integrado para controle de tempo
+- Seleção de pedidos com preenchimento automático
+- Busca avançada por amarrados
+- Rastreabilidade completa de lotes e racks
+- Campo de refugo/sucata
+- Geração automática de códigos de lote
+- Impressão de formulários de identificação
+
+### 📈 Relatórios Avançados
+- **Produção por Período**: Detalhamento completo dos apontamentos
+- **Rastreabilidade**: Amarrados/lotes com modo detalhado e compacto
+- **Paradas de Máquina**: Análise de tempos de parada
+- **OEE Detalhado**: Indicadores por máquina e período
+- **Estimativa de Expedição**: Cálculo de pallets e peso
+- **Produtividade**: Análise por ferramenta e comprimento
+- Exportação para Excel nativo (.xlsx)
+- Filtros por produto, ferramenta, período, máquina, operador
+
+### 🔍 Sistema de Amarrados
+- Modal de busca por número do amarrado
+- Seleção múltipla com acumulação
+- Inspeção de racks com filtros
+- Rastreabilidade completa do material bruto
+- Fallback automático por rack/produto
 
 ## Tecnologias Utilizadas
 
