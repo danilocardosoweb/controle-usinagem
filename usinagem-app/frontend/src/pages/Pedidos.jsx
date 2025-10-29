@@ -50,6 +50,7 @@ const Pedidos = () => {
   // Estados para filtros
   const [filtros, setFiltros] = useState({
     cliente: '',
+    pedidoCliente: '',
     produto: '',
     status: '',
     ferramenta: '',
@@ -350,6 +351,8 @@ const Pedidos = () => {
   // - Finalizado: separado >= qtd_pedido
   // - Em Produção: separado > 0 e < qtd_pedido
   const calcularStatus = (pedido) => {
+    if (pedido?.finalizado_manual) return 'Finalizado'
+
     const sep = Number(pedido?.separado || 0)
     const qtd = Number(pedido?.qtd_pedido || 0)
     if (sep === 0) return 'Pendente'
@@ -382,6 +385,13 @@ const Pedidos = () => {
     if (filtros.cliente) {
       resultado = resultado.filter(p => 
         p.cliente && p.cliente.toLowerCase().includes(filtros.cliente.toLowerCase())
+      )
+    }
+    // Filtro por Pedido Cliente
+    if (filtros.pedidoCliente) {
+      const alvo = filtros.pedidoCliente.toLowerCase()
+      resultado = resultado.filter(p => 
+        (p.pedido_cliente || '') && String(p.pedido_cliente).toLowerCase().includes(alvo)
       )
     }
     
@@ -991,6 +1001,7 @@ const Pedidos = () => {
   const limparFiltros = () => {
     setFiltros({
       cliente: '',
+      pedidoCliente: '',
       produto: '',
       status: '',
       ferramenta: '',
@@ -1051,8 +1062,8 @@ const Pedidos = () => {
       <div className="bg-white rounded-lg shadow p-3 mb-4">
         <h2 className="text-base font-semibold text-gray-700 mb-2">Filtros</h2>
         
-        {/* Grid: 1 linha em md+ com 7 colunas (6 filtros + botão) */}
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-3 items-end">
+        {/* Grid: 1 linha em md+ com 8 colunas (7 filtros + botão) */}
+        <div className="grid grid-cols-1 md:grid-cols-8 gap-3 items-end">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Cliente</label>
             <input
@@ -1061,6 +1072,18 @@ const Pedidos = () => {
               value={filtros.cliente}
               onChange={handleFiltroChange}
               placeholder="Filtrar por cliente"
+              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Pedido Cliente</label>
+            <input
+              type="text"
+              name="pedidoCliente"
+              value={filtros.pedidoCliente}
+              onChange={handleFiltroChange}
+              placeholder="Filtrar por pedido do cliente"
               className="w-full h-8 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>

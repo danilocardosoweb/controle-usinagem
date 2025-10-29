@@ -73,13 +73,15 @@ const Dashboard = () => {
     const mm = String(totalMin % 60).padStart(2, '0')
     const tempoParadaFmt = msParadaHoje > 0 ? `${hh}:${mm}` : '-'
 
-    // Ordens: regra solicitada -> Concluída quando SEPARADO >= QTD_PEDIDO
+    // Ordens: considerar finalização manual ou quantidade separada atendida
     const concluidas = (pedidos || []).filter(p => {
+      if (p?.finalizado_manual) return true
       const sep = Number(p.separado || 0)
       const qtd = Number(p.qtd_pedido || 0)
       return qtd > 0 && sep >= qtd
     }).length
     const pendentes = (pedidos || []).filter(p => {
+      if (p?.finalizado_manual) return false
       const sep = Number(p.separado || 0)
       const qtd = Number(p.qtd_pedido || 0)
       // pendente quando não atingiu o pedido
@@ -132,7 +134,7 @@ const Dashboard = () => {
         const seq = String(p.pedido_seq || '')
         const info = porPedido[seq]
         if (!info || info.quantidade <= 0) return false
-        const finalizado = ['finalizado','concluido'].includes(statusKey(p.status))
+        const finalizado = ['finalizado','concluido'].includes(statusKey(p.status)) || p.finalizado_manual
         if (finalizado) return false
         const qtd = Number(p.qtd_pedido || 0)
         return !(qtd > 0 && info.quantidade >= qtd)

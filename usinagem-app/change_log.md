@@ -5,6 +5,13 @@
 - Altura dos inputs/selects reduzida (h-8) para caber tudo em uma linha
 - Botão "Limpar Filtros" alinhado na mesma linha dos filtros
 
+[29/10/2025 10:35] - [Frontend/Database] - [PCP: Aba de Finalização Manual de Pedidos] - [Cascade]
+- Criada subaba "Finalização Manual" no PCP com alternância por abas
+- Pedidos finalizados manualmente deixam de aparecer na aba de prioridades
+- Inclusão dos campos finalizado_manual, finalizado_em e finalizado_por na tabela pcp_prioridades
+- Fluxo para finalizar/reabrir pedido com auditoria de edição via AuditoriaService
+- Lista mostra apenas pedidos elegíveis (apontado ≥ quantidade) e permite visualizar finalizados
+
 [16/10/2025 09:10] - [Frontend] - [PCP: Seleção múltipla e exclusão em lote] - [Cascade]
 - Adicionados checkboxes por linha e seletor no cabeçalho
 - Botões "Excluir Selecionados" e "Excluir Todos"

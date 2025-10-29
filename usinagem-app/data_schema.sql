@@ -209,6 +209,14 @@ ALTER TABLE IF EXISTS maquinas
 ALTER TABLE IF EXISTS pedidos
   DROP COLUMN IF EXISTS dados_originais;
 
+-- Finalização manual de pedidos (PCP 29/10/2025)
+ALTER TABLE IF EXISTS public.pedidos
+  ADD COLUMN IF NOT EXISTS finalizado_manual BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS finalizado_em TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS finalizado_por TEXT;
+
+NOTIFY pgrst, 'reload schema';
+
 DROP INDEX IF EXISTS idx_apont_pedido_seq;
 DROP INDEX IF EXISTS idx_apont_inicio;
 DROP INDEX IF EXISTS idx_apont_maquina;
@@ -224,5 +232,13 @@ ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS qtd_refugo;
 -- Rollback melhorias v2.1.0 (13/10/2025)
 ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS dureza_material;
 ALTER TABLE IF EXISTS public.apontamentos DROP COLUMN IF EXISTS comprimento_refugo;
+
+-- Rollback finalização manual
+ALTER TABLE IF EXISTS public.pedidos
+  DROP COLUMN IF EXISTS finalizado_manual,
+  DROP COLUMN IF EXISTS finalizado_em,
+  DROP COLUMN IF EXISTS finalizado_por;
+
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;

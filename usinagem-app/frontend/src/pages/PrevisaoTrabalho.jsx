@@ -20,7 +20,10 @@ const PrevisaoTrabalho = () => {
   // Data inicial para previsões
   const [dataInicialPrevisao, setDataInicialPrevisao] = useState(() => {
     const hoje = new Date()
-    return hoje.toISOString().split('T')[0] // formato YYYY-MM-DD
+    const y = hoje.getFullYear()
+    const m = String(hoje.getMonth() + 1).padStart(2, '0')
+    const d = String(hoje.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   })
   
   // Novos pedidos para estimativa manual
@@ -36,6 +39,17 @@ const PrevisaoTrabalho = () => {
   const [ganttZoomPX, setGanttZoomPX] = useState(36) // px por dia
   const [ganttOrdenacao, setGanttOrdenacao] = useState('prazo') // 'prazo' | 'estimativa' | 'sequencia'
   const [ganttSombrarFds, setGanttSombrarFds] = useState(true)
+  const [filtrosExpandidos, setFiltrosExpandidos] = useState(true)
+  const [apenasSaldoPositivo, setApenasSaldoPositivo] = useState(false)
+  const [mostrarFormManual, setMostrarFormManual] = useState(false)
+  const [mostrarEstimativaImportados, setMostrarEstimativaImportados] = useState(false)
+  const [estimativaPcsDiaImportados, setEstimativaPcsDiaImportados] = useState(15000)
+  const [dataInicioImportadosModo, setDataInicioImportadosModo] = useState('carteira') // 'carteira' | 'manual'
+  const [dataInicioImportados, setDataInicioImportados] = useState(() => {
+    const h = new Date()
+    const y = h.getFullYear(); const m = String(h.getMonth()+1).padStart(2,'0'); const d = String(h.getDate()).padStart(2,'0')
+    return `${y}-${m}-${d}`
+  })
 
   // Filtros e seleção de pedidos da carteira
   const [filtroPedidoCliente, setFiltroPedidoCliente] = useState('')
@@ -78,6 +92,12 @@ const PrevisaoTrabalho = () => {
         const range = XLSX.utils.decode_range(ws['!ref'])
         // Dados a partir da linha 21 (1-index) => índice base 0: 20
         for (let r = 20; r <= range.e.r; r++) {
+          // Parar quando encontrar a linha de totalização
+          const hasStopMarker = ['A','B','C','D','E','F','G','H','I','J','K','L'].some(col => {
+            const val = ws[col + (r + 1)]?.v
+            return String(val || '').toLowerCase().includes('valor total pedido')
+          })
+          if (hasStopMarker) break
           const cellFerr = ws['C' + (r + 1)]
           const cellComp = ws['F' + (r + 1)]
           const cellQtd = ws['I' + (r + 1)]
@@ -135,7 +155,10 @@ const PrevisaoTrabalho = () => {
       // Fallback: se nada foi adicionado, tentar parse genérico
       if (adicionados.length === 0) {
         const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
-        rows.forEach((r) => {
+        for (const r of rows) {
+          // Parar quando encontrar a linha de totalização
+          const rowString = Object.values(r).map(v => String(v || '').toLowerCase()).join(' | ')
+          if (rowString.includes('valor total pedido')) break
           const produto = String(r.produto || r.Produto || '').trim()
           const descricao = String(r.descricao || r.Descricao || '').trim()
           const quantidade = parseFloat(r.quantidade || r.Qtd || r.volume || r.Volume || 0) || 0
@@ -170,7 +193,7 @@ const PrevisaoTrabalho = () => {
             estimativaDias: estimativaDias.toFixed(1),
             confiabilidade
           })
-        })
+        }
       }
 
       if (adicionados.length) {
@@ -309,6 +332,18 @@ const PrevisaoTrabalho = () => {
     return `${letras}-${nums}`
   }
 
+  const parseLocalDate = (s) => {
+    const parts = (s || '').split('-').map(Number)
+    const [y, m, d] = parts
+    if (!y || !m || !d) return new Date(NaN)
+    return new Date(y, m - 1, d)
+  }
+  const ptBrToYMD = (s) => {
+    const [dd, mm, yyyy] = String(s || '').split('/')
+    if (!dd || !mm || !yyyy) return ''
+    return `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`
+  }
+
   // Mapeamento de máquinas (ID -> Nome)
   const maquinasMap = useMemo(() => {
     const map = {}
@@ -391,8 +426,6 @@ const PrevisaoTrabalho = () => {
     if (!pedidos || pedidos.length === 0) return []
     
     let base = pedidos
-      .filter(pedido => pedido.status !== 'concluido')
-      .filter(pedido => parseFloat(pedido.saldo_a_prod) > 0) // Filtra apenas saldos positivos
       .filter(p => !filtroPedidoCliente || (p.pedido_cliente || '').toLowerCase().includes(filtroPedidoCliente.toLowerCase()))
 
     return base
@@ -453,9 +486,12 @@ const PrevisaoTrabalho = () => {
         item.produto?.toLowerCase().includes(filtros.produto.toLowerCase())
       )
     }
+    if (abaSelecionada === 'carteira' && apenasSaldoPositivo) {
+      dados = dados.filter(item => parseFloat(item.saldoProduzir ?? item.saldo_a_prod ?? 0) > 0)
+    }
     
     return dados
-  }, [estimativaCarteira, novosPedidos, filtros, abaSelecionada])
+  }, [estimativaCarteira, novosPedidos, filtros, abaSelecionada, apenasSaldoPositivo])
 
   const handleFiltroChange = (e) => {
     const { name, value } = e.target
@@ -523,6 +559,45 @@ const PrevisaoTrabalho = () => {
     setNovosPedidos(prev => prev.filter(p => p.id !== id))
   }
 
+  const limparNovosPedidos = () => {
+    if (!novosPedidos || novosPedidos.length === 0) return
+    const ok = window.confirm('Deseja remover todas as estimativas manuais importadas/adicionadas?')
+    if (!ok) return
+    setNovosPedidos([])
+  }
+
+  const aplicarEstimativaImportados = () => {
+    const pcsDia = parseFloat(estimativaPcsDiaImportados) || 0
+    if (pcsDia <= 0) return setMostrarEstimativaImportados(false)
+    let inicio = dataInicioImportados
+    if (dataInicioImportadosModo === 'carteira' && terminoDetalhado?.data) {
+      const ymd = ptBrToYMD(terminoDetalhado.data)
+      if (ymd) inicio = ymd
+    }
+    setNovosPedidos(prev => prev.map(p => {
+      const qtd = parseFloat(p.quantidade) || 0
+      const semProdMan = !p.produtividadeManual || parseFloat(p.produtividadeManual) <= 0
+      const semHist = !p.confiabilidade || p.confiabilidade === 'Manual' || Number(p.estimativaHoras) <= 0
+      const alvo = qtd > 0 && semProdMan && semHist
+      if (!alvo) return p
+      const dias = qtd / pcsDia
+      const horas = dias * (horasUteisSelecionadas || 1)
+      return { ...p, estimativaHoras: horas.toFixed(2), estimativaDias: dias.toFixed(2), confiabilidade: 'Estimativa', inicioPrevisto: inicio }
+    }))
+    setMostrarEstimativaImportados(false)
+  }
+
+  const resumoImportados = useMemo(() => {
+    let count = 0, totalPcs = 0
+    for (const p of (novosPedidos || [])) {
+      const qtd = parseFloat(p.quantidade) || 0
+      const semProdMan = !p.produtividadeManual || parseFloat(p.produtividadeManual) <= 0
+      const semHist = !p.confiabilidade || p.confiabilidade === 'Manual' || Number(p.estimativaHoras) <= 0
+      if (qtd > 0 && semProdMan && semHist) { count++; totalPcs += qtd }
+    }
+    return { itens: count, totalPcs }
+  }, [novosPedidos])
+
   // Seleção via checkboxes na tabela
   const isPedidoSelecionado = (pedidoSeq) => pedidosSelecionados.includes(pedidoSeq)
   const togglePedidoSelecionado = (pedidoSeq) => {
@@ -569,16 +644,37 @@ const PrevisaoTrabalho = () => {
   
   const totalEstimativaDias = totalEstimativaHoras / (horasUteisSelecionadas || 1)
 
-  // Data de término prevista considerando a sequência (arredonda para cima os dias)
-  const dataTerminoPrevisto = useMemo(() => {
+  // Cálculo detalhado de término previsto considerando dias úteis e sábado (extras)
+  const terminoDetalhado = useMemo(() => {
     try {
-      const base = new Date(dataInicialPrevisao)
-      const add = Math.max(0, Math.ceil(Number(totalEstimativaDias || 0)))
-      if (isNaN(base.getTime())) return ''
-      base.setDate(base.getDate() + add)
-      return base.toLocaleDateString('pt-BR')
-    } catch { return '' }
-  }, [dataInicialPrevisao, totalEstimativaDias])
+      const base = parseLocalDate(dataInicialPrevisao)
+      if (isNaN(base.getTime())) return { data: '', diasUteis: 0, sabados: 0, domingos: 0, horasAcumuladas: 0 }
+      const totalHoras = Number(totalEstimativaHoras || 0)
+      if (!(totalHoras > 0)) {
+        return { data: base.toLocaleDateString('pt-BR'), diasUteis: 0, sabados: 0, domingos: 0, horasAcumuladas: 0 }
+      }
+      let restante = Math.max(0, totalHoras)
+      let cursor = new Date(base)
+      let diasUteis = 0, sabados = 0, domingos = 0, horasAcumuladas = 0
+      let guard = 0
+      while (restante > 0 && guard < 3660) {
+        const dow = cursor.getDay()
+        let horasDia = 0
+        if (dow >= 1 && dow <= 5) { horasDia = Number(horasUteisDiaUtil || 0); if (horasDia > 0) diasUteis++ }
+        else if (dow === 6) { horasDia = Number(extrasSabado || 0); if (horasDia > 0) sabados++ }
+        else { domingos++ }
+        if (horasDia > 0) {
+          restante -= horasDia
+          horasAcumuladas += horasDia
+        }
+        if (restante <= 0) break
+        cursor.setDate(cursor.getDate() + 1)
+        guard++
+      }
+      const data = cursor.toLocaleDateString('pt-BR')
+      return { data, diasUteis, sabados, domingos, horasAcumuladas }
+    } catch { return { data: '', diasUteis: 0, sabados: 0, domingos: 0, horasAcumuladas: 0 } }
+  }, [dataInicialPrevisao, totalEstimativaHoras, horasUteisDiaUtil, extrasSabado])
 
   // Gantt: calcular tarefas sequenciais a partir da data inicial selecionada (suporta frações de dia)
   const tarefasGantt = useMemo(() => {
@@ -611,7 +707,7 @@ const PrevisaoTrabalho = () => {
       }
       itens.sort((a, b) => getComp(a) - getComp(b))
     } // 'sequencia' mantém ordem atual
-    const inicioBase = new Date(dataInicialPrevisao)
+    const inicioBase = parseLocalDate(dataInicialPrevisao)
     let cursorMs = inicioBase.getTime()
     let startIndex = 0 // em dias (pode ser fracionário)
     const tarefas = itens.map((p) => {
@@ -645,6 +741,14 @@ const PrevisaoTrabalho = () => {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">Previsão de Trabalho</h1>
         <p className="text-gray-600">Estimativas de tempo para conclusão de pedidos</p>
+      </div>
+
+      <div className="text-sm text-gray-600 mb-4">
+        {terminoDetalhado.data && (
+          <span>
+            Contagem: {terminoDetalhado.diasUteis} dias úteis{extrasSabado > 0 ? ` + ${terminoDetalhado.sabados} sábado(s)` : ''} • {Number(horasUteisDiaUtil || 0).toFixed(2)}h/dia útil{extrasSabado > 0 ? ` • ${Number(extrasSabado || 0)}h/sábado` : ''}
+          </span>
+        )}
       </div>
 
       {/* Abas */}
@@ -713,7 +817,12 @@ const PrevisaoTrabalho = () => {
       </div>
 
       {/* Filtros */}
-        <div className="bg-white p-3 rounded-lg shadow mb-4">
+        <div className="flex justify-end mb-2">
+          <button onClick={() => setFiltrosExpandidos(v => !v)} className="text-sm px-3 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50">
+            {filtrosExpandidos ? 'Recolher filtros' : 'Expandir filtros'}
+          </button>
+        </div>
+        <div className={`bg-white p-3 rounded-lg shadow mb-4 ${filtrosExpandidos ? '' : 'hidden'}`}>
         <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
           <div className="min-w-0">
             <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -791,7 +900,7 @@ const PrevisaoTrabalho = () => {
         {/* Configuração de Produtividade */}
         <div className="bg-blue-50 p-4 rounded-lg mt-4">
           <h4 className="text-sm font-medium text-gray-800 mb-3">Modo de Cálculo de Produtividade</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 gap-y-3 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Método de Cálculo
@@ -826,9 +935,14 @@ const PrevisaoTrabalho = () => {
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Status
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filtro</label>
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={apenasSaldoPositivo} onChange={(e)=>setApenasSaldoPositivo(e.target.checked)} />
+                Apenas com saldo {'>'} 0
               </label>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
               <div className="p-2 bg-white border border-gray-300 rounded-md text-sm text-gray-600">
                 {modoProdutividade === 'historica' ? 
                   'Usando dados de apontamentos' : 
@@ -843,7 +957,7 @@ const PrevisaoTrabalho = () => {
       {/* Seleção de Pedidos removida (uso de checkboxes na tabela) */}
 
       {/* Resumo */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-blue-50 p-4 rounded-lg">
           <div className="flex items-center">
             <FaClock className="text-blue-600 text-2xl mr-3" />
@@ -866,6 +980,17 @@ const PrevisaoTrabalho = () => {
             </div>
           </div>
         </div>
+        <div className="bg-indigo-50 p-4 rounded-lg">
+          <div className="flex items-center">
+            <FaBusinessTime className="text-indigo-600 text-2xl mr-3" />
+            <div>
+              <p className="text-sm text-gray-600">Término Previsto</p>
+              <p className="text-2xl font-bold text-indigo-600">
+                {terminoDetalhado.data || '-'}
+              </p>
+            </div>
+          </div>
+        </div>
         <div className="bg-yellow-50 p-4 rounded-lg">
           <div className="flex items-center">
             <FaCalculator className="text-yellow-600 text-2xl mr-3" />
@@ -884,7 +1009,7 @@ const PrevisaoTrabalho = () => {
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900">Gantt da Previsão</h3>
-            <p className="text-sm text-gray-600">Início: {new Date(dataInicialPrevisao).toLocaleDateString('pt-BR')} • Término previsto: {dataTerminoPrevisto || '-'}</p>
+            <p className="text-sm text-gray-600">Início: {parseLocalDate(dataInicialPrevisao).toLocaleDateString('pt-BR')} • Término previsto: {terminoDetalhado.data || '-'}</p>
           </div>
           <div className="p-4 overflow-x-auto">
             {/* Controles Gantt */}
@@ -915,7 +1040,7 @@ const PrevisaoTrabalho = () => {
                 const diasTotais = Math.max(1, Math.ceil(totalSpan))
                 const diaLargura = ganttZoomPX // px por dia
                 const headers = Array.from({ length: diasTotais }, (_, i) => {
-                  const d = new Date(dataInicialPrevisao)
+                  const d = parseLocalDate(dataInicialPrevisao)
                   d.setDate(d.getDate() + i)
                   return d
                 })
@@ -932,7 +1057,7 @@ const PrevisaoTrabalho = () => {
                 }
 
                 const hoje = new Date()
-                const idxHoje = Math.floor((hoje - new Date(dataInicialPrevisao)) / (1000 * 60 * 60 * 24))
+                const idxHoje = Math.floor((hoje - parseLocalDate(dataInicialPrevisao)) / (1000 * 60 * 60 * 24))
 
                 return (
                   <div>
@@ -1015,7 +1140,7 @@ const PrevisaoTrabalho = () => {
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900">Gantt da Previsão</h3>
-            <p className="text-sm text-gray-600">Início: {new Date(dataInicialPrevisao).toLocaleDateString('pt-BR')} • Término previsto: {dataTerminoPrevisto || '-'}</p>
+            <p className="text-sm text-gray-600">Início: {parseLocalDate(dataInicialPrevisao).toLocaleDateString('pt-BR')} • Término previsto: {terminoDetalhado.data || '-'}</p>
           </div>
           <div className="p-4 overflow-x-auto">
             {/* Controles Gantt */}
@@ -1046,7 +1171,7 @@ const PrevisaoTrabalho = () => {
                 const diasTotais = Math.max(1, tarefasGantt.reduce((acc, t) => acc + t.span, 0))
                 const diaLargura = ganttZoomPX // px por dia
                 const headers = Array.from({ length: diasTotais }, (_, i) => {
-                  const d = new Date(dataInicialPrevisao)
+                  const d = parseLocalDate(dataInicialPrevisao)
                   d.setDate(d.getDate() + i)
                   return d
                 })
@@ -1063,7 +1188,7 @@ const PrevisaoTrabalho = () => {
                 }
 
                 const hoje = new Date()
-                const idxHoje = Math.floor((hoje - new Date(dataInicialPrevisao)) / (1000 * 60 * 60 * 24))
+                const idxHoje = Math.floor((hoje - parseLocalDate(dataInicialPrevisao)) / (1000 * 60 * 60 * 24))
 
                 return (
                   <div>
@@ -1235,75 +1360,92 @@ const PrevisaoTrabalho = () => {
         </div>
       )}
 
+      {/* Modal: Estimativa para Importados */}
+      {mostrarEstimativaImportados && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <h4 className="text-lg font-semibold text-gray-900 mb-2">Estimativa (peças/dia) para Importados</h4>
+            <p className="text-sm text-gray-600 mb-3">Defina uma taxa de produção diária para calcular horas e dias dos itens importados sem produtividade histórica.</p>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Estimativa (pcs/dia)</label>
+            <input type="number" value={estimativaPcsDiaImportados} onChange={(e)=>setEstimativaPcsDiaImportados(parseInt(e.target.value)||0)} className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 mb-4" />
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700 mb-4">
+              <div className="mb-1">Quantidade de Itens no pedido: <b>{resumoImportados.itens}</b></div>
+              <div className="mb-3">Quantidade de Pcs para Recortar: <b>{resumoImportados.totalPcs.toLocaleString('pt-BR')}</b></div>
+              <div className="mb-2 font-medium">Data de início</div>
+              <label className="flex items-center gap-2 mb-2">
+                <input type="radio" name="inicioImp" value="carteira" checked={dataInicioImportadosModo==='carteira'} onChange={()=>setDataInicioImportadosModo('carteira')} />
+                <span>Usar "Término Previsto" da Carteira: <b>{terminoDetalhado?.data || '-'}</b></span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="inicioImp" value="manual" checked={dataInicioImportadosModo==='manual'} onChange={()=>setDataInicioImportadosModo('manual')} />
+                <span>Informar manualmente:</span>
+              </label>
+              {dataInicioImportadosModo==='manual' && (
+                <div className="mt-2">
+                  <input type="date" value={dataInicioImportados} onChange={(e)=>setDataInicioImportados(e.target.value)} className="p-2 border border-gray-300 rounded-md" />
+                </div>
+              )}
+              <div className="mt-3">Estimativa (peças/dia) informada: <b>{Number(estimativaPcsDiaImportados||0).toLocaleString('pt-BR')}</b></div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={()=>setMostrarEstimativaImportados(false)} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
+              <button onClick={aplicarEstimativaImportados} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Aplicar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {abaSelecionada === 'manual' && (
         <div className="space-y-6">
-          {/* Formulário para adicionar novo pedido */}
+          {/* Ações e formulário para adicionar/ajustar estimativas manuais */}
           <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Adicionar Estimativa Manual
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Ferramenta</label>
-                <input
-                  type="text"
-                  value={novoPedido.ferramenta}
-                  onChange={(e) => setNovoPedido(prev => ({ ...prev, ferramenta: e.target.value }))}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ex.: TR-0018"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Comprimento (mm)</label>
-                <input
-                  type="number"
-                  step="1"
-                  value={novoPedido.comprimentoMm}
-                  onChange={(e) => setNovoPedido(prev => ({ ...prev, comprimentoMm: e.target.value }))}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ex.: 1100"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Volume (pcs)
-                </label>
-                <input
-                  type="number"
-                  value={novoPedido.quantidade}
-                  onChange={(e) => setNovoPedido(prev => ({ ...prev, quantidade: e.target.value }))}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Qtd a produzir (pcs)"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Produtividade (pcs/h)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={novoPedido.produtividadeManual}
-                  onChange={(e) => setNovoPedido(prev => ({ ...prev, produtividadeManual: e.target.value }))}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Opcional"
-                />
-              </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Adicionar Estimativa Manual</h3>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button onClick={()=>setMostrarFormManual(v=>!v)} className="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <FaPlus className="inline mr-2" /> {mostrarFormManual ? 'Fechar formulário' : 'Abrir formulário manual'}
+              </button>
+              <button onClick={()=>{
+                const hoje = new Date(); const y = hoje.getFullYear(); const m = String(hoje.getMonth()+1).padStart(2,'0'); const d = String(hoje.getDate()).padStart(2,'0')
+                const ymdHoje = `${y}-${m}-${d}`
+                const ymdPrev = ptBrToYMD(terminoDetalhado?.data)
+                setDataInicioImportadosModo('carteira')
+                setDataInicioImportados(ymdPrev || ymdHoje)
+                setMostrarEstimativaImportados(true)
+              }} className="bg-purple-600 text-white px-3 py-2 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                Definir Estimativa (pcs/dia) para Importados
+              </button>
+              <button onClick={() => setMostrarCotacao(true)} className="bg-indigo-600 text-white px-3 py-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" title="Importar formulário de cotação">
+                <FaFileImport className="inline mr-2" /> Importar Cotação
+              </button>
+              <button onClick={limparNovosPedidos} className="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500" title="Remover todas as estimativas manuais">
+                <FaTrash className="inline mr-2" /> Limpar Lista
+              </button>
             </div>
-            <button
-              onClick={adicionarNovoPedido}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <FaPlus className="inline mr-2" />
-              Adicionar
-            </button>
-            <button
-              onClick={() => setMostrarCotacao(true)}
-              className="ml-3 bg-indigo-600 text-white px-3 py-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              title="Importar formulário de cotação"
-            >
-              <FaFileImport className="inline mr-2" /> Importar Cotação
-            </button>
+            {mostrarFormManual && (
+              <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Ferramenta</label>
+                    <input type="text" value={novoPedido.ferramenta} onChange={(e) => setNovoPedido(prev => ({ ...prev, ferramenta: e.target.value }))} className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" placeholder="Ex.: TR-0018" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Comprimento (mm)</label>
+                    <input type="number" step="1" value={novoPedido.comprimentoMm} onChange={(e) => setNovoPedido(prev => ({ ...prev, comprimentoMm: e.target.value }))} className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" placeholder="Ex.: 1100" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Volume (pcs)</label>
+                    <input type="number" value={novoPedido.quantidade} onChange={(e) => setNovoPedido(prev => ({ ...prev, quantidade: e.target.value }))} className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" placeholder="Qtd a produzir (pcs)" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Produtividade (pcs/h)</label>
+                    <input type="number" step="0.1" value={novoPedido.produtividadeManual} onChange={(e) => setNovoPedido(prev => ({ ...prev, produtividadeManual: e.target.value }))} className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" placeholder="Opcional" />
+                  </div>
+                </div>
+                <button onClick={adicionarNovoPedido} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <FaPlus className="inline mr-2" /> Adicionar
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Lista de estimativas manuais */}

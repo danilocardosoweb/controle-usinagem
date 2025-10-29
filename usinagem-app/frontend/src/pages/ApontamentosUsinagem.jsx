@@ -1066,14 +1066,16 @@ const ApontamentosUsinagem = () => {
   }
 
   // Ordens de trabalho derivadas da Carteira (pedidos importados)
-  const ordensTrabalhoTodas = pedidosDB.map(p => {
+  const ordensTrabalhoTodas = pedidosDB
+    .filter(p => !p?.finalizado_manual)
+    .map(p => {
     const comp = extrairComprimentoAcabado(p.produto)
     const ferramenta = extrairFerramenta(p.produto)
     return {
       id: p.pedido_seq,                  // Ex.: "82594/10"
       codigoPerfil: p.produto || '',     // Código do produto
       descricao: p.descricao || '',      // Descrição do produto
-      qtdPedido: p.qtd_pedido || 0,      // Quantidade pedida
+      quantidadePedido: Number(p.qtd_pedido || 0),      // Quantidade pedida
       perfilLongo: p.item_perfil || '',  // Item/Perfil
       separado: p.separado || 0,         // Quantidade separada
       cliente: getCampoOriginal(p, 'CLIENTE') || p.cliente || '',
