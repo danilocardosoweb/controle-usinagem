@@ -22,6 +22,7 @@ import ApontamentoModal from '../components/exp-usinagem/modals/ApontamentoModal
 import AprovarModal from '../components/exp-usinagem/modals/AprovarModal'
 import ReabrirModal from '../components/exp-usinagem/modals/ReabrirModal'
 import useApontamentoModal from '../hooks/useApontamentoModal'
+import useAlunicaModals from '../hooks/useAlunicaModals'
 import {
   TABS,
   TECNOPERFIL_STATUS,
@@ -385,6 +386,17 @@ const ExpUsinagem = () => {
     ? useApontamentoModal({
         user,
         pedidosTecnoPerfil,
+        loadApontamentosFor,
+        loadFluxo
+      })
+    : null;
+
+  // Hook de modais Alúnica (opcional via feature flag)
+  const alunicaModalsHook = REFACTOR.USE_ALUNICA_MODALS_HOOK
+    ? useAlunicaModals({
+        user,
+        alunicaStages,
+        setAlunicaStages,
         loadApontamentosFor,
         loadFluxo
       })
@@ -2026,7 +2038,8 @@ const ExpUsinagem = () => {
     
     const orderId = String(pedidoCtx.id)
     const actions = ALUNICA_ACTIONS[stageKey] || []
-    const isLoading = alunicaActionLoading.has(orderId)
+    const actionLoadingSet = REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaActionLoading : alunicaActionLoading
+    const isLoading = actionLoadingSet?.has(orderId)
     const totalInsp = (summarizeApontamentos(orderId, ['para-inspecao']) || []).reduce((acc, r) => acc + (toIntegerRound(r?.inspecao) || 0), 0)
     const totalEmb = (summarizeApontamentos(orderId, ['para-embarque']) || []).reduce((acc, r) => acc + (toIntegerRound(r?.embalagem) || 0), 0)
     
@@ -2139,7 +2152,11 @@ const ExpUsinagem = () => {
         {stageKey === 'para-inspecao' && (
           <button
             type="button"
-            onClick={() => handleAprovarTudoOneClick(orderId)}
+            onClick={() => 
+              REFACTOR.USE_ALUNICA_MODALS_HOOK 
+                ? alunicaModalsHook?.handleAprovarTudoOneClick(orderId)
+                : handleAprovarTudoOneClick(orderId)
+            }
             className={getButtonClasses('success')}
             disabled={isLoading || totalInsp <= 0}
             title="Aprovar tudo (1 clique)"
@@ -2150,7 +2167,11 @@ const ExpUsinagem = () => {
         {stageKey === 'para-embarque' && (
           <button
             type="button"
-            onClick={() => handleReabrirTudoOneClick(orderId)}
+            onClick={() => 
+              REFACTOR.USE_ALUNICA_MODALS_HOOK 
+                ? alunicaModalsHook?.handleReabrirTudoOneClick(orderId)
+                : handleReabrirTudoOneClick(orderId)
+            }
             className={getButtonClasses('warning')}
             disabled={isLoading || totalEmb <= 0}
             title="Reabrir tudo (1 clique)"
@@ -2544,15 +2565,15 @@ const ExpUsinagem = () => {
 
       {REFACTOR.USE_NEW_APROVAR_MODAL ? (
         <AprovarModal
-          open={alunicaAprovarOpen}
-          pedido={alunicaAprovarPedido}
-          itens={alunicaAprovarItens}
-          saving={alunicaAprovarSaving}
-          error={alunicaAprovarError}
-          onClose={closeAprovarModal}
-          onConfirm={handleAprovarConfirm}
-          onSetMover={setAprovarMover}
-          onAprovarTudo={aprovarTudoFill}
+          open={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaAprovarOpen : alunicaAprovarOpen}
+          pedido={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaAprovarPedido : alunicaAprovarPedido}
+          itens={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaAprovarItens : alunicaAprovarItens}
+          saving={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaAprovarSaving : alunicaAprovarSaving}
+          error={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaAprovarError : alunicaAprovarError}
+          onClose={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.closeAprovarModal : closeAprovarModal}
+          onConfirm={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.handleAprovarConfirm : handleAprovarConfirm}
+          onSetMover={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.setAprovarMover : setAprovarMover}
+          onAprovarTudo={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.aprovarTudoFill : aprovarTudoFill}
         />
       ) : (
         alunicaAprovarOpen && (
@@ -2660,15 +2681,15 @@ const ExpUsinagem = () => {
 
       {REFACTOR.USE_NEW_REABRIR_MODAL ? (
         <ReabrirModal
-          open={alunicaReabrirOpen}
-          pedido={alunicaReabrirPedido}
-          itens={alunicaReabrirItens}
-          saving={alunicaReabrirSaving}
-          error={alunicaReabrirError}
-          onClose={closeReabrirModal}
-          onConfirm={handleReabrirConfirm}
-          onSetMover={setReabrirMover}
-          onReabrirTudo={reabrirTudoFill}
+          open={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaReabrirOpen : alunicaReabrirOpen}
+          pedido={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaReabrirPedido : alunicaReabrirPedido}
+          itens={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaReabrirItens : alunicaReabrirItens}
+          saving={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaReabrirSaving : alunicaReabrirSaving}
+          error={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.alunicaReabrirError : alunicaReabrirError}
+          onClose={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.closeReabrirModal : closeReabrirModal}
+          onConfirm={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.handleReabrirConfirm : handleReabrirConfirm}
+          onSetMover={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.setReabrirMover : setReabrirMover}
+          onReabrirTudo={REFACTOR.USE_ALUNICA_MODALS_HOOK ? alunicaModalsHook?.reabrirTudoFill : reabrirTudoFill}
         />
       ) : (
         alunicaReabrirOpen && (

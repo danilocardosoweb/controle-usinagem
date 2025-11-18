@@ -1,5 +1,25 @@
 # Log de Alterações
 
+[18/11/2025 14:42] - [Refatoração/Fase5] - [Progresso: 100% concluído] - [Cascade]
+- **Arquivo criado:** `frontend/src/hooks/useAlunicaModals.js` (649 linhas)
+- **Arquivos modificados:** 
+  - `frontend/src/pages/ExpUsinagem.jsx`: Integração do hook com feature flag
+  - `frontend/src/config/refactorFlags.js`: Flag `USE_ALUNICA_MODALS_HOOK` adicionada
+- **Descrição:** Hook customizado para gerenciar modais de Aprovação e Reabertura da Alúnica
+  - **Estados de Aprovação:** open, pedido, itens, saving, error
+  - **Estados de Reabertura:** open, pedido, itens, saving, error
+  - **Estado Geral:** alunicaActionLoading (Set para rastrear ações em andamento)
+  - **Funções de Aprovação:** openModal, closeModal, setMover, fill, confirm, oneClick
+  - **Funções de Reabertura:** openModal, closeModal, setMover, fill, confirm, oneClick
+  - Encapsula toda a lógica complexa de movimentação de lotes entre estágios
+  - Divide/agrupa apontamentos automaticamente conforme quantidade movida
+  - Registra movimentações no histórico com motivo (total/parcial)
+  - Atualiza estágios no banco quando movimentação é total
+- **Integração:** Hook inicializado condicionalmente, modais e botões usam dados do hook quando flag ativada
+- **Validação:** Build bem-sucedido, flag desativada por padrão (rollback seguro)
+- **Documentação:** Hook detalhadamente documentado com JSDoc
+- **Impacto:** Encapsula ~400 linhas de lógica complexa do ExpUsinagem.jsx
+
 [18/11/2025 14:11] - [Refatoração/Fase4] - [Progresso: 100% concluído] - [Cascade]
 - **Arquivos criados:** 
   - `frontend/src/components/exp-usinagem/modals/AprovarModal.jsx` (176 linhas)

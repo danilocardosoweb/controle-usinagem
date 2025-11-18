@@ -19,6 +19,7 @@ export const REFACTOR = {
   
   // Hooks
   USE_APONTAMENTO_HOOK: false,
+  USE_ALUNICA_MODALS_HOOK: false,
   USE_NEW_ALUNICA_HOOK: false,
   USE_NEW_TECNO_HOOK: false,
   

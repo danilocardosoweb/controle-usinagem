@@ -1,8 +1,8 @@
 # 📊 STATUS DA REFATORAÇÃO - ExpUsinagem.jsx
 
-**Data:** 18/11/2024 14:11  
+**Data:** 18/11/2024 14:42  
 **Branch:** `refactor/exp-usinagem-safe`  
-**Progresso:** 55% concluído (Fases 0-4)
+**Progresso:** 70% concluído (Fases 0-5)
 
 ---
 
@@ -86,12 +86,34 @@ USE_NEW_APONTAMENTO_MODAL: false  // Volta para código original
 
 **Status:** ✅ PRONTO E ATIVO (flags ativadas)
 
+### ✅ FASE 5: HOOK MODAIS ALÚNICA (100%)
+- [x] Hook `useAlunicaModals.js` criado (649 linhas)
+- [x] Integrado com feature flag `USE_ALUNICA_MODALS_HOOK`
+- [x] Encapsula toda lógica dos modais Aprovar e Reabrir
+- [x] Build testado e funcionando
+
+**Funcionalidades do hook:**
+- **Aprovação:** openModal, closeModal, setMover, fill, confirm, oneClick (6 funções)
+- **Reabertura:** openModal, closeModal, setMover, fill, confirm, oneClick (6 funções)
+- **Estados:** 11 estados gerenciados (5 aprovação + 5 reabertura + 1 loading)
+- Divide/agrupa apontamentos por lote automaticamente
+- Registra movimentações com histórico (motivo total/parcial)
+- Atualiza estágios no banco conforme necessário
+- Operações complexas com transações múltiplas
+
+**Status:** ✅ PRONTO (flag desativada aguardando validação)
+
 ---
 
 ## 🔄 EM PROGRESSO
 
-### 🔄 FASE 5: HOOKS MAIORES (0%)
-**Hook planejado:** `useAlunicaState.js`
+Nenhuma fase em progresso no momento.
+
+---
+
+## ⏳ PENDENTES
+
+### ⏳ FASE 6: TABS COMPLETAS (próxima)
 
 **Estados identificados para extração:**
 ```javascript
@@ -157,28 +179,30 @@ USE_NEW_APONTAMENTO_MODAL: false  // Volta para código original
 ### Redução de Linhas
 ```
 ExpUsinagem.jsx original:     3.124 linhas
-Extraído até agora:           -600 linhas (3 modais)
+Extraído até agora:           -1.000 linhas (3 modais + 2 hooks)
   - ApontamentoModal:         -227 linhas
   - AprovarModal:             -100 linhas
   - ReabrirModal:             -100 linhas
-  - Hook useApontamentoModal: -173 linhas (lógica encapsulada)
+  - useApontamentoModal:      -173 linhas (lógica encapsulada)
+  - useAlunicaModals:         -400 linhas (lógica encapsulada)
 ```
 
-**ExpUsinagem.jsx atual:** ~2.524 linhas  
+**ExpUsinagem.jsx atual:** ~2.124 linhas  
 **Meta final:** 400-500 linhas no ExpUsinagem.jsx  
-**Progresso:** 19% de redução
+**Progresso:** 32% de redução
 
 ### Arquivos Criados
 ```
-✅ frontend/src/config/refactorFlags.js (53 linhas)
+✅ frontend/src/config/refactorFlags.js (56 linhas)
 ✅ frontend/src/components/exp-usinagem/modals/ApontamentoModal.jsx (227 linhas)
 ✅ frontend/src/components/exp-usinagem/modals/AprovarModal.jsx (176 linhas)
 ✅ frontend/src/components/exp-usinagem/modals/ReabrirModal.jsx (176 linhas)
 ✅ frontend/src/utils/apontamentosLogic.js (234 linhas)
 ✅ frontend/src/hooks/useApontamentoModal.js (410 linhas)
+✅ frontend/src/hooks/useAlunicaModals.js (649 linhas)
 ```
 
-**Total:** 1.276 linhas de código novo (organizado, testável e reutilizável)
+**Total:** 1.928 linhas de código novo (organizado, testável e reutilizável)
 
 ---
 
