@@ -72,8 +72,13 @@ const ApontamentoModal = ({
   const saldoKg = Math.max(pedidoKgTotal - apontadoKg, 0);
 
   const total = toIntegerRound(qtdPc) || 0;
-  const insp = toIntegerRound(qtdPcInspecao) || 0;
+  const insp = stage === 'para-embarque' ? 0 : (toIntegerRound(qtdPcInspecao) || 0);
   const emb = Math.max(total - insp, 0);
+  const isStageEmbalagem = stage === 'para-embarque';
+  const gridColsClass = isStageEmbalagem ? 'sm:grid-cols-2' : 'sm:grid-cols-3';
+  const instructionText = isStageEmbalagem
+    ? 'Informe a quantidade embalada e o período trabalhado nesta atividade.'
+    : 'Informe a quantidade total produzida em peças e quantas vão para inspeção. Pelo menos 20 peças devem passar por inspeção antes de enviar o restante direto para embalagem.';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -128,7 +133,7 @@ const ApontamentoModal = ({
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className={`grid gap-3 ${gridColsClass}`}>
             <div className="sm:col-span-1">
               <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">
                 Quantidade produzida (Pc)
@@ -143,32 +148,36 @@ const ApontamentoModal = ({
                 disabled={saving}
               />
             </div>
-            <div className="sm:col-span-1">
-              <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">
-                Para Inspeção (Pc)
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                value={qtdPcInspecao}
-                onChange={(e) => onQtdPcInspecaoChange(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                placeholder="Ex.: 5"
-                disabled={saving}
-              />
-            </div>
-            <div className="sm:col-span-1">
-              <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">
-                Direto p/ Embalagem (Pc)
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                value={emb || ''}
-                readOnly
-                className="w-full rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-600"
-              />
-            </div>
+            {!isStageEmbalagem && (
+              <>
+                <div className="sm:col-span-1">
+                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">
+                    Para Inspeção (Pc)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={qtdPcInspecao}
+                    onChange={(e) => onQtdPcInspecaoChange(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                    placeholder="Ex.: 5"
+                    disabled={saving}
+                  />
+                </div>
+                <div className="sm:col-span-1">
+                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">
+                    Direto p/ Embalagem (Pc)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={emb || ''}
+                    readOnly
+                    className="w-full rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-600"
+                  />
+                </div>
+              </>
+            )}
             <div className="sm:col-span-1">
               <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">
                 Início
@@ -209,10 +218,7 @@ const ApontamentoModal = ({
           </div>
 
           <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
-            <span>
-              Informe a quantidade total produzida em peças e quantas vão para inspeção.
-              Pelo menos 20 peças devem passar por inspeção antes de enviar o restante direto para embalagem.
-            </span>
+            <span>{instructionText}</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
