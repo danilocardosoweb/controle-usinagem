@@ -381,27 +381,6 @@ const ExpUsinagem = () => {
     cancelInventario
   } = useInventarios({ fluxoPedidos, pedidosTecnoPerfil, alunicaStages, user })
 
-  // Hook de apontamento (opcional via feature flag)
-  const apontamentoHook = REFACTOR.USE_APONTAMENTO_HOOK
-    ? useApontamentoModal({
-        user,
-        pedidosTecnoPerfil,
-        loadApontamentosFor,
-        loadFluxo
-      })
-    : null;
-
-  // Hook de modais Alúnica (opcional via feature flag)
-  const alunicaModalsHook = REFACTOR.USE_ALUNICA_MODALS_HOOK
-    ? useAlunicaModals({
-        user,
-        alunicaStages,
-        setAlunicaStages,
-        loadApontamentosFor,
-        loadFluxo
-      })
-    : null;
-
   useEffect(() => {
     if (activeTab === 'Estoque da Usinagem' && estoqueSubTab === 'inventarios') {
       loadInventarios()
@@ -626,6 +605,29 @@ const ExpUsinagem = () => {
       console.error('Erro ao carregar apontamentos:', e)
     }
   }, [])
+
+  // Hook de apontamento (opcional via feature flag)
+  // Declarado APÓS loadApontamentosFor para evitar erro de inicialização
+  const apontamentoHook = REFACTOR.USE_APONTAMENTO_HOOK
+    ? useApontamentoModal({
+        user,
+        pedidosTecnoPerfil,
+        loadApontamentosFor,
+        loadFluxo
+      })
+    : null;
+
+  // Hook de modais Alúnica (opcional via feature flag)
+  // Declarado APÓS loadApontamentosFor para evitar erro de inicialização
+  const alunicaModalsHook = REFACTOR.USE_ALUNICA_MODALS_HOOK
+    ? useAlunicaModals({
+        user,
+        alunicaStages,
+        setAlunicaStages,
+        loadApontamentosFor,
+        loadFluxo
+      })
+    : null;
 
   const importadosDisponiveis = useMemo(() => {
     if (!Array.isArray(importados)) return []
