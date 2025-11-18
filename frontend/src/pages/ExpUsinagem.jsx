@@ -17,6 +17,8 @@ import useFluxoExpUsinagem from '../hooks/useFluxoExpUsinagem'
 import useInventarios from '../hooks/useInventarios'
 import { useAuth } from '../contexts/AuthContext'
 import { isAdmin as isAdminCheck } from '../utils/auth'
+import { REFACTOR } from '../config/refactorFlags'
+import ApontamentoModal from '../components/exp-usinagem/modals/ApontamentoModal'
 import {
   TABS,
   TECNOPERFIL_STATUS,
@@ -2903,178 +2905,201 @@ const ExpUsinagem = () => {
         isSavingSelection={isSavingSelection}
       />
 
-      {alunicaApontOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-800">Apontar produção - Alúnica</h2>
+      {REFACTOR.USE_NEW_APONTAMENTO_MODAL ? (
+        <ApontamentoModal
+          open={alunicaApontOpen}
+          pedido={alunicaApontPedido}
+          stage={alunicaApontStage}
+          qtdPc={alunicaApontQtdPc}
+          qtdPcInspecao={alunicaApontQtdPcInspecao}
+          obs={alunicaApontObs}
+          inicio={alunicaApontInicio}
+          fim={alunicaApontFim}
+          saving={alunicaApontSaving}
+          error={alunicaApontError}
+          fluxoPedidos={fluxoPedidos}
+          onClose={closeAlunicaApontamento}
+          onSave={handleSalvarAlunicaApont}
+          onQtdPcChange={setAlunicaApontQtdPc}
+          onQtdPcInspecaoChange={setAlunicaApontQtdPcInspecao}
+          onObsChange={setAlunicaApontObs}
+          onInicioChange={handleInicioChange}
+          onFimChange={handleFimChange}
+        />
+      ) : (
+        alunicaApontOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-800">Apontar produção - Alúnica</h2>
+                  {alunicaApontPedido && (
+                    <p className="text-xs text-gray-500">
+                      Pedido <span className="font-semibold">{alunicaApontPedido.pedido}</span> · Cliente {alunicaApontPedido.cliente} · Ferramenta {alunicaApontPedido.ferramenta}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={closeAlunicaApontamento}
+                  disabled={alunicaApontSaving}
+                  className="text-gray-500 hover:text-gray-700 disabled:opacity-60"
+                >
+                  <FaTimes className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="px-6 py-4 space-y-4 text-sm text-gray-700">
                 {alunicaApontPedido && (
-                  <p className="text-xs text-gray-500">
-                    Pedido <span className="font-semibold">{alunicaApontPedido.pedido}</span> · Cliente {alunicaApontPedido.cliente} · Ferramenta {alunicaApontPedido.ferramenta}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={closeAlunicaApontamento}
-                disabled={alunicaApontSaving}
-                className="text-gray-500 hover:text-gray-700 disabled:opacity-60"
-              >
-                <FaTimes className="h-4 w-4" />
-              </button>
-            </div>
+                  <div className="rounded-md bg-purple-50 border border-purple-100 px-3 py-2 text-xs text-purple-700">
+                    {(() => {
+                      const raw = (Array.isArray(fluxoPedidos)
+                        ? fluxoPedidos.find((f) => String(f.id) === String(alunicaApontPedido.id))
+                        : null) || {}
 
-            <div className="px-6 py-4 space-y-4 text-sm text-gray-700">
-              {alunicaApontPedido && (
-                <div className="rounded-md bg-purple-50 border border-purple-100 px-3 py-2 text-xs text-purple-700">
-                  {(() => {
-                    const raw = (Array.isArray(fluxoPedidos)
-                      ? fluxoPedidos.find((f) => String(f.id) === String(alunicaApontPedido.id))
-                      : null) || {}
+                      const pedidoPcTotal = toIntegerRound(
+                        alunicaApontPedido.pedidoPcNumber ?? alunicaApontPedido.pedidoPc
+                      ) || 0
+                      const pedidoKgTotal = toDecimal(
+                        alunicaApontPedido.pedidoKgNumber ?? alunicaApontPedido.pedidoKg
+                      ) || 0
 
-                    const pedidoPcTotal = toIntegerRound(
-                      alunicaApontPedido.pedidoPcNumber ?? alunicaApontPedido.pedidoPc
-                    ) || 0
-                    const pedidoKgTotal = toDecimal(
-                      alunicaApontPedido.pedidoKgNumber ?? alunicaApontPedido.pedidoKg
-                    ) || 0
+                      const apontadoPc = toIntegerRound(raw?.saldo_pc_total) || 0
+                      const apontadoKg = toDecimal(raw?.saldo_kg_total) || 0
 
-                    const apontadoPc = toIntegerRound(raw?.saldo_pc_total) || 0
-                    const apontadoKg = toDecimal(raw?.saldo_kg_total) || 0
+                      const saldoPc = Math.max(pedidoPcTotal - apontadoPc, 0)
+                      const saldoKg = Math.max(pedidoKgTotal - apontadoKg, 0)
 
-                    const saldoPc = Math.max(pedidoPcTotal - apontadoPc, 0)
-                    const saldoKg = Math.max(pedidoKgTotal - apontadoKg, 0)
-
-                    return (
-                      <div className="flex flex-wrap gap-3">
-                        <span>
-                          <span className="font-semibold">Qtd pedido Kg:</span> {alunicaApontPedido.pedidoKg}
-                        </span>
-                        <span>
-                          <span className="font-semibold">Qtd pedido Pc:</span> {alunicaApontPedido.pedidoPc}
-                        </span>
-                        <span>
-                          <span className="font-semibold">Saldo Kg:</span> {formatNumber(saldoKg)}
-                        </span>
-                        <span>
-                          <span className="font-semibold">Saldo Pc:</span> {formatInteger(saldoPc)}
-                        </span>
-                        <span>
-                          <span className="font-semibold">Estágio:</span> {alunicaApontStage}
-                        </span>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
-
-              {alunicaApontError && (
-                <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
-                  {alunicaApontError}
-                </div>
-              )}
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="sm:col-span-1">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Quantidade produzida (Pc)</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={alunicaApontQtdPc}
-                    onChange={(e) => setAlunicaApontQtdPc(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                    placeholder="Ex.: 50"
-                    disabled={alunicaApontSaving}
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Para Inspeção (Pc)</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={alunicaApontQtdPcInspecao}
-                    onChange={(e) => setAlunicaApontQtdPcInspecao(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                    placeholder="Ex.: 5"
-                    disabled={alunicaApontSaving}
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Direto p/ Embalagem (Pc)</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={(() => {
-                      const total = toIntegerRound(alunicaApontQtdPc) || 0
-                      const insp = toIntegerRound(alunicaApontQtdPcInspecao) || 0
-                      const emb = Math.max(total - insp, 0)
-                      return emb || ''
+                      return (
+                        <div className="flex flex-wrap gap-3">
+                          <span>
+                            <span className="font-semibold">Qtd pedido Kg:</span> {alunicaApontPedido.pedidoKg}
+                          </span>
+                          <span>
+                            <span className="font-semibold">Qtd pedido Pc:</span> {alunicaApontPedido.pedidoPc}
+                          </span>
+                          <span>
+                            <span className="font-semibold">Saldo Kg:</span> {formatNumber(saldoKg)}
+                          </span>
+                          <span>
+                            <span className="font-semibold">Saldo Pc:</span> {formatInteger(saldoPc)}
+                          </span>
+                          <span>
+                            <span className="font-semibold">Estágio:</span> {alunicaApontStage}
+                          </span>
+                        </div>
+                      )
                     })()}
-                    readOnly
-                    className="w-full rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-600"
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Início</label>
-                  <input
-                    type="datetime-local"
-                    value={alunicaApontInicio}
-                    onChange={(e) => handleInicioChange(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                    disabled={alunicaApontSaving}
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Fim</label>
-                  <input
-                    type="datetime-local"
-                    value={alunicaApontFim}
-                    onChange={(e) => handleFimChange(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                    disabled={alunicaApontSaving}
-                  />
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Observações</label>
-                  <textarea
-                    rows={3}
-                    value={alunicaApontObs}
-                    onChange={(e) => setAlunicaApontObs(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200 resize-y"
-                    placeholder="Comentários rápidos sobre o apontamento (opcional)"
-                    disabled={alunicaApontSaving}
-                  />
-                </div>
-              </div>
+                  </div>
+                )}
 
-              <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
-                <span>
-                  Informe a quantidade total produzida em peças e quantas vão para inspeção.
-                  Pelo menos 20 peças devem passar por inspeção antes de enviar o restante direto para embalagem.
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={closeAlunicaApontamento}
-                    disabled={alunicaApontSaving}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSalvarAlunicaApont}
-                    disabled={alunicaApontSaving}
-                    className="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {alunicaApontSaving ? 'Salvando...' : 'Salvar apontamento'}
-                  </button>
+                {alunicaApontError && (
+                  <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
+                    {alunicaApontError}
+                  </div>
+                )}
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="sm:col-span-1">
+                    <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Quantidade produzida (Pc)</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={alunicaApontQtdPc}
+                      onChange={(e) => setAlunicaApontQtdPc(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                      placeholder="Ex.: 50"
+                      disabled={alunicaApontSaving}
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Para Inspeção (Pc)</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={alunicaApontQtdPcInspecao}
+                      onChange={(e) => setAlunicaApontQtdPcInspecao(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                      placeholder="Ex.: 5"
+                      disabled={alunicaApontSaving}
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Direto p/ Embalagem (Pc)</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={(() => {
+                        const total = toIntegerRound(alunicaApontQtdPc) || 0
+                        const insp = toIntegerRound(alunicaApontQtdPcInspecao) || 0
+                        const emb = Math.max(total - insp, 0)
+                        return emb || ''
+                      })()}
+                      readOnly
+                      className="w-full rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-600"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Início</label>
+                    <input
+                      type="datetime-local"
+                      value={alunicaApontInicio}
+                      onChange={(e) => handleInicioChange(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                      disabled={alunicaApontSaving}
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Fim</label>
+                    <input
+                      type="datetime-local"
+                      value={alunicaApontFim}
+                      onChange={(e) => handleFimChange(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                      disabled={alunicaApontSaving}
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Observações</label>
+                    <textarea
+                      rows={3}
+                      value={alunicaApontObs}
+                      onChange={(e) => setAlunicaApontObs(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200 resize-y"
+                      placeholder="Comentários rápidos sobre o apontamento (opcional)"
+                      disabled={alunicaApontSaving}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
+                  <span>
+                    Informe a quantidade total produzida em peças e quantas vão para inspeção.
+                    Pelo menos 20 peças devem passar por inspeção antes de enviar o restante direto para embalagem.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={closeAlunicaApontamento}
+                      disabled={alunicaApontSaving}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSalvarAlunicaApont}
+                      disabled={alunicaApontSaving}
+                      className="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {alunicaApontSaving ? 'Salvando...' : 'Salvar apontamento'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )
       )}
     </div>
   )
