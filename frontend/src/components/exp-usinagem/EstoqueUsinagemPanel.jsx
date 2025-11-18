@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FaUpload, FaClipboardCheck, FaChevronRight, FaMinusCircle } from 'react-icons/fa'
+import { FaUpload, FaClipboardCheck, FaMinusCircle } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import { formatDateBR, formatInteger, formatNumber, toDecimal, toIntegerRound } from '../../utils/expUsinagem'
 import BaixaEstoqueModal from './modals/BaixaEstoqueModal'
@@ -249,27 +249,16 @@ const EstoqueUsinagemPanel = ({
                 <td className="py-2 pr-3 text-right">{formatInteger(r.saldoPc)}</td>
                 <td className="py-2 pr-3">{r.updatedAt ? formatDateBR(r.updatedAt) : '—'}</td>
                 <td className="py-2 pr-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      onClick={() => handleOpenBaixa(r)}
-                      disabled={r.saldoPc === 0 && r.saldoKg === 0}
-                      title="Dar baixa no estoque"
-                      aria-label="Dar baixa no estoque"
-                    >
-                      <FaMinusCircle />
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100"
-                      onClick={() => setActiveTab(r.unidade === 'Alúnica' ? 'Alúnica' : 'TecnoPerfil')}
-                      title={`Abrir no quadro ${r.unidade}`}
-                      aria-label={`Abrir no quadro ${r.unidade}`}
-                    >
-                      <FaChevronRight />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    onClick={() => handleOpenBaixa(r)}
+                    disabled={r.saldoPc === 0 && r.saldoKg === 0}
+                    title="Dar baixa no estoque"
+                    aria-label="Dar baixa no estoque"
+                  >
+                    <FaMinusCircle />
+                  </button>
                 </td>
               </tr>
             ))}
