@@ -36,10 +36,19 @@ export function extrairFerramenta(produto) {
   return `${letras}-${nums}`
 }
 
+const getTodayDateInput = () => {
+  const pad = (n) => String(n).padStart(2, '0')
+  const hoje = new Date()
+  const ano = hoje.getFullYear()
+  const mes = pad(hoje.getMonth() + 1)
+  const dia = pad(hoje.getDate())
+  return `${ano}-${mes}-${dia}`
+}
+
 const Relatorios = () => {
-  const [filtros, setFiltros] = useState({
+  const [filtros, setFiltros] = useState(() => ({
     tipoRelatorio: 'producao',
-    dataInicio: '',
+    dataInicio: getTodayDateInput(),
     dataFim: '',
     maquina: '',
     operador: '',
@@ -48,7 +57,7 @@ const Relatorios = () => {
     comprimento: '', // filtro por comprimento (ex: "810 mm")
     formato: 'excel',
     modo: 'detalhado' // para rastreabilidade: detalhado|compacto
-  })
+  }))
   const [filtrosAberto, setFiltrosAberto] = useState(true)
   
   // Dados reais do IndexedDB

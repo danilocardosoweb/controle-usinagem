@@ -34,9 +34,7 @@ const Configuracoes = () => {
     nivel_acesso: 'operador'
   })
 
-  // =====================
-  // Expedição • Parâmetros por Ferramenta
-  // =====================
+  // Configurações de Ferramentas
   const {
     items: ferramentasCfg,
     addItem: addCfg,

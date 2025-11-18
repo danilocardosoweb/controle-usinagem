@@ -1,21 +1,27 @@
 # Esquema do Banco de Dados
 
+## Tabela: `configuracoes`
+Parâmetros chave/valor utilizados pelo sistema.
+- `chave`: Identificador textual único.
+- `valor`: Valor associado à chave.
+- `updated_at`: Data/hora (TIMESTAMPTZ) da última atualização, padrão `timezone('utc', now())`.
+
 ## Tabela: `usuarios`
 Armazena as informações dos usuários do sistema.
-- `id`: Identificador único do usuário.
+- `id`: UUID com `DEFAULT gen_random_uuid()`.
 - `nome`: Nome do usuário.
 - `email`: E-mail para login (único).
 - `senha_hash`: Senha criptografada.
 - `nivel_acesso`: Perfil de permissão ('operador', 'supervisor', 'admin').
-- `created_at`: Data de criação do registro.
+- `created_at`: Data/hora de criação (TIMESTAMPTZ UTC).
 
 ## Tabela: `maquinas`
 Catálogo das máquinas da usinagem.
-- `id`: Identificador único da máquina.
+- `id`: UUID com `DEFAULT gen_random_uuid()`.
 - `nome`: Nome da máquina.
 - `descricao`: Descrição ou detalhes técnicos.
 - `status`: Status atual ('ativa', 'inativa', 'manutencao').
-- `created_at`: Data de criação do registro.
+- `created_at`: Data/hora de criação (TIMESTAMPTZ UTC).
 - `codigo`: Código visível/etiqueta (opcional).
 - `modelo`: Modelo do equipamento (opcional).
 - `fabricante`: Fabricante (opcional).
@@ -33,15 +39,21 @@ Armazena as ordens de trabalho carregadas via Excel.
 
 ## Tabela: `apontamentos_producao`
 Registra os apontamentos de produção feitos pelos operadores.
-- `id`: Identificador único do apontamento.
-- `ordem_trabalho_id`: Chave estrangeira para `carteira_encomendas`.
-- `usuario_id`: Chave estrangeira para `usuarios` (operador).
-- `maquina_id`: Chave estrangeira para `maquinas`.
-- `inicio_timestamp`: Data e hora de início da produção.
-- `fim_timestamp`: Data e hora de término da produção.
-- `quantidade_produzida`: Total de peças produzidas no período.
+- `id`: UUID com `DEFAULT gen_random_uuid()`.
+- `ordem_trabalho_id`: Referência para `carteira_encomendas`.
+- `usuario_id`: Referência para `usuarios` (operador).
+- `maquina_id`: Referência para `maquinas`.
+- `inicio`: Data/hora (TIMESTAMPTZ) de início da produção.
+- `fim`: Data/hora (TIMESTAMPTZ) de término da produção.
+- `quantidade`: Total de peças produzidas no período.
+- `rack_ou_pallet`: Identificação do rack/pallet utilizado.
 - `observacoes`: Notas adicionais.
-- `created_at`: Data de criação do registro.
+- `created_at`: Data/hora de criação (TIMESTAMPTZ UTC).
+
+## View: `apontamentos_parada`
+Camada de compatibilidade que projeta a tabela canônica `paradas` no formato antigo.
+- Seleciona `id`, `maquina`, `motivo_parada`, `tipo_parada`, `inicio` (como `inicio_timestamp`), `fim` (como `fim_timestamp`), `observacoes` e `created_at`.
+- Útil para relatórios legados que esperam os campos com sufixo `_timestamp`.
 
 ## Tabela: `apontamentos`
 Registra os apontamentos operacionais efetivamente usados pelo app (campos ricos e rastreabilidade).
@@ -69,6 +81,12 @@ Registra os apontamentos operacionais efetivamente usados pelo app (campos ricos
 - `amarrados_detalhados`: Detalhes completos dos amarrados para rastreabilidade (JSONB).
 - `observacoes`: Observações.
 - `created_at`: Data de criação.
+- `qtd_refugo`: Quantidade de refugo/sucata apontada.
+- `dureza_material`: Dureza informada no apontamento (texto livre).
+- `comprimento_refugo`: Comprimento médio das peças refugadas (mm).
+- `exp_fluxo_id`: Referência opcional para o registro em `exp_pedidos_fluxo` associado ao apontamento.
+- `exp_unidade`: Unidade/módulo de expedição onde o apontamento foi realizado (ex.: `alunica`, `tecnoperfil`).
+- `exp_stage`: Estágio do fluxo EXP no momento do apontamento (ex.: `para-usinar`, `para-embarque`).
 
 ### Campo `amarrados_detalhados` (JSONB)
 Armazena informações completas dos amarrados selecionados para rastreabilidade total:
@@ -169,3 +187,37 @@ Parâmetros por ferramenta para estimativas de expedição.
 - `embalagem`: 'pallet' | 'caixa'.
 - `pcs_por_caixa`: Peças por caixa (quando embalagem = 'caixa').
 - `created_at`: Data de criação.
+
+## Tabela: `exp_pedidos_fluxo`
+Pedidos selecionados para acompanhamento na aba EXP - Usinagem.
+- `id`: UUID gerado com `gen_random_uuid()`.
+- `pedido_id`: Referência para o pedido original (quando existir).
+- `importado_id`: Referência para `exp_pedidos_importados` (staging da planilha).
+- `origem`: Fonte do registro (`carteira`, `arquivo` ou `manual`).
+- `pedido_seq`: Identificador amigável Pedido/Seq.
+- `cliente`: Nome do cliente.
+- `numero_pedido`: Pedido do cliente.
+- `data_entrega`: Data prevista de entrega.
+- `ferramenta`: Código da ferramenta/perfil.
+- `pedido_kg` / `pedido_pc`: Totais solicitados.
+- `kg_disponivel` / `pc_disponivel`: Quantidade ainda disponível para apontamentos parciais (NUMERIC(18,3)).
+- `saldo_kg_total` / `saldo_pc_total`: Quantidade total acumulada apontada em kg e peças (NUMERIC(18,3)).
+- `saldo_atualizado_em`: Timestamp da última atualização de saldos.
+- `status_atual`: Estágio atual no fluxo TecnoPerfil.
+- `alunica_stage`: Estágio persistido da unidade Alúnica no fluxo EXP (`para-usinar`, `para-inspecao`, `para-embarque`).
+- `dados_originais`: Payload JSON com dados de origem.
+- `selecionado_por`: Usuário responsável pela inclusão no fluxo.
+- `selecionado_em` / `criado_em` / `atualizado_em`: Timestamps em UTC.
+
+## Tabela: `exp_pedidos_movimentacoes`
+Histórico de movimentações do fluxo EXP - Usinagem.
+- `id`: UUID gerado automaticamente.
+- `fluxo_id`: Referência para `exp_pedidos_fluxo`.
+- `status_anterior` / `status_novo`: Estágios envolvidos na movimentação.
+- `motivo`: Justificativa livre.
+- `movimentado_por`: Usuário responsável (texto livre).
+- `movimentado_em`: Data/hora UTC da movimentação.
+- `tipo_movimentacao`: Classificação (`status`, `quantidade` ou `ajuste`).
+- `kg_movimentado` / `pc_movimentado`: Quantidade movimentada na operação (NUMERIC(18,3)).
+- `kg_disponivel_anterior` / `kg_disponivel_atual`: Saldo disponível em kg antes/depois da movimentação.
+- `pc_disponivel_anterior` / `pc_disponivel_atual`: Saldo disponível em peças antes/depois da movimentação.

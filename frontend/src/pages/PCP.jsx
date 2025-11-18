@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { FaArrowUp, FaArrowDown, FaEdit, FaSave, FaTimes, FaPlus, FaTrash, FaClock, FaExclamationTriangle, FaSearch, FaCheckSquare, FaSquare } from 'react-icons/fa'
+import { useState, useEffect, useMemo } from 'react'
+import { FaArrowUp, FaArrowDown, FaEdit, FaSave, FaTimes, FaPlus, FaTrash, FaClock, FaExclamationTriangle, FaSearch, FaCheckSquare, FaSquare, FaCheckCircle, FaUndo } from 'react-icons/fa'
 import supabaseService from '../services/SupabaseService'
 import auditoriaService from '../services/AuditoriaService'
 import { useAuth } from '../contexts/AuthContext'
@@ -9,8 +9,10 @@ const PCP = () => {
   
   const [prioridades, setPrioridades] = useState([])
   const [pedidos, setPedidos] = useState([])
+  const [pedidosFinalizaveis, setPedidosFinalizaveis] = useState([])
+  const [pedidosFinalizados, setPedidosFinalizados] = useState([])
   const [loading, setLoading] = useState(true)
-  const [apontadoPorPedido, setApontadoPorPedido] = useState({}) // chave: pedido_numero, valor: soma quantidade
+  const [apontadoPorPedido, setApontadoPorPedido] = useState({}) // chave: pedido_seq, valor: soma quantidade apontada
   const [editando, setEditando] = useState(null)
   const [novaPrioridade, setNovaPrioridade] = useState({
     pedido_id: '',
@@ -30,7 +32,37 @@ const PCP = () => {
   const [sugestoesPedidoCliente, setSugestoesPedidoCliente] = useState([])
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false)
   const [selecionados, setSelecionados] = useState(new Set())
-  const todosSelecionados = prioridades.length > 0 && selecionados.size === prioridades.length
+  const [abaAtiva, setAbaAtiva] = useState('prioridades')
+  const [mostrarFinalizados, setMostrarFinalizados] = useState(false)
+
+  const prioridadesOrdenadas = useMemo(() => {
+    const lista = [...prioridades]
+    return lista.sort((a, b) => {
+      const flagA = a?.finalizado_manual ? 1 : 0
+      const flagB = b?.finalizado_manual ? 1 : 0
+      if (flagA !== flagB) return flagA - flagB
+      return (a?.prioridade || 0) - (b?.prioridade || 0)
+    })
+  }, [prioridades])
+
+  const prioridadesAtivas = useMemo(
+    () => prioridadesOrdenadas.filter(p => !p?.finalizado_manual),
+    [prioridadesOrdenadas]
+  )
+
+  const todosSelecionados = prioridadesAtivas.length > 0 && selecionados.size === prioridadesAtivas.length
+
+  const listaFinalizacao = useMemo(() => {
+    const base = mostrarFinalizados ? [...pedidosFinalizaveis, ...pedidosFinalizados] : pedidosFinalizaveis
+    const mapa = new Map()
+    for (const item of base) {
+      if (!item) continue
+      if (!mapa.has(item.id)) {
+        mapa.set(item.id, item)
+      }
+    }
+    return Array.from(mapa.values())
+  }, [mostrarFinalizados, pedidosFinalizaveis, pedidosFinalizados])
 
   useEffect(() => {
     carregarDados()
@@ -38,59 +70,96 @@ const PCP = () => {
 
   // Carrega somatório "Apontado" para a lista de pedidos informada
   const carregarApontados = async (listaPedidos) => {
-    try {
-      const unicos = Array.from(new Set(listaPedidos))
-      if (unicos.length === 0) {
-        setApontadoPorPedido({})
-        return
-      }
-      // Buscar por pedido_seq e por ordem_trabalho (varia nas origens)
-      const [apsSeq, apsOt] = await Promise.all([
-        supabaseService.getByIn('apontamentos', 'pedido_seq', unicos).catch(() => []),
-        supabaseService.getByIn('apontamentos', 'ordem_trabalho', unicos).catch(() => []),
-      ])
-      const mapa = {}
-      const acumular = (arr, campoPedido) => {
-        for (const a of arr || []) {
-          const key = String(a[campoPedido] || '').trim()
-          if (!key) continue
-          const qtd = Number(a.quantidade || 0)
-          mapa[key] = (mapa[key] || 0) + (isFinite(qtd) ? qtd : 0)
+    const unicos = Array.from(new Set((listaPedidos || []).filter(Boolean)))
+    if (unicos.length === 0) {
+      setApontadoPorPedido({})
+      return {}
+    }
+
+    const mapa = {}
+    const acumularQuantidade = (dados, camposPossiveis) => {
+      for (const registro of dados || []) {
+        const quantidade = Number(registro?.quantidade ?? registro?.quantidade_produzida ?? 0)
+        if (!Number.isFinite(quantidade) || quantidade === 0) continue
+        for (const campo of camposPossiveis) {
+          if (!(campo in (registro || {}))) continue
+          const valor = String(registro[campo] || '').trim()
+          if (!valor) continue
+          mapa[valor] = (mapa[valor] || 0) + quantidade
         }
       }
-      acumular(apsSeq, 'pedido_seq')
-      acumular(apsOt, 'ordem_trabalho')
-      setApontadoPorPedido(mapa)
-    } catch (e) {
-      console.warn('Não foi possível carregar apontamentos para PCP:', e?.message || e)
-      setApontadoPorPedido({})
     }
+
+    const tentarCarregarPorCampo = async (campo, aliases) => {
+      try {
+        const dados = await supabaseService.getByIn('apontamentos', campo, unicos)
+        acumularQuantidade(dados, aliases)
+        return true
+      } catch (error) {
+        if (error?.code === '42703') {
+          // Estrutura incompatível: será tratado com fallback
+          return false
+        }
+        console.warn(`Não foi possível carregar apontamentos por ${campo}:`, error?.message || error)
+        return true
+      }
+    }
+
+    const suportePedidoSeq = await tentarCarregarPorCampo('pedido_seq', ['pedido_seq', 'pedidoSeq'])
+    const suporteOrdemTrabalho = await tentarCarregarPorCampo('ordem_trabalho', ['ordem_trabalho', 'ordemTrabalho'])
+
+    if ((!suportePedidoSeq || !suporteOrdemTrabalho) && Object.keys(mapa).length === 0) {
+      try {
+        const todos = await supabaseService.getAll('apontamentos')
+        acumularQuantidade(todos, ['pedido_seq', 'pedidoSeq', 'ordem_trabalho', 'ordemTrabalho'])
+      } catch (error) {
+        console.warn('Não foi possível carregar apontamentos (fallback):', error?.message || error)
+      }
+    }
+
+    setApontadoPorPedido(mapa)
+    return mapa
   }
 
   const carregarDados = async () => {
     try {
       setLoading(true)
-      
-      // Carregar prioridades e pedidos em paralelo
+
       const [prioridadesData, pedidosData] = await Promise.all([
         supabaseService.getAll('pcp_prioridades'),
         supabaseService.getAll('pedidos')
       ])
-      
-      // Ordenar prioridades por ordem de prioridade
-      setPrioridades(prioridadesData.sort((a, b) => a.prioridade - b.prioridade))
-      
-      // Filtrar apenas pedidos com saldo a produzir > 0
-      const pedidosAtivos = pedidosData.filter(p => 
-        p.saldo_a_prod > 0 || p.qt_saldo_op > 0 || !p.saldo_a_prod
-      )
-      setPedidos(pedidosAtivos)
-      
-      // Calcular "Apontado" somando quantidade em apontamentos por pedido
-      await carregarApontados(prioridadesData.map(p => p.pedido_numero).filter(Boolean))
 
-      console.log(`✅ Carregados: ${prioridadesData.length} prioridades, ${pedidosAtivos.length} pedidos ativos`)
-      
+      const mapaApontados = await carregarApontados(pedidosData.map(p => p.pedido_seq).filter(Boolean))
+
+      const pedidosComDados = pedidosData.map((p) => {
+        const apontado = Number(mapaApontados[p.pedido_seq] || 0)
+        return {
+          ...p,
+          apontadoManual: apontado
+        }
+      })
+
+      setPrioridades(prioridadesData.sort((a, b) => (a?.prioridade || 0) - (b?.prioridade || 0)))
+
+      const naoFinalizados = pedidosComDados.filter(p => !p.finalizado_manual)
+      const finalizados = pedidosComDados.filter(p => p.finalizado_manual)
+
+      const elegiveis = naoFinalizados.filter(p => {
+        const qtd = Number(p.qtd_pedido || 0)
+        const apontado = Number(p.apontadoManual || 0)
+        const saldo = Number(p.saldo_a_prod || 0)
+        if (Number.isNaN(qtd)) return false
+        if (!qtd) return false
+        if (apontado >= qtd) return true
+        if (saldo <= 0) return true
+        return false
+      })
+
+      setPedidos(naoFinalizados)
+      setPedidosFinalizaveis(elegiveis)
+      setPedidosFinalizados(finalizados)
+
     } catch (error) {
       console.error('❌ Erro ao carregar dados:', error)
       alert('Erro ao carregar dados do PCP: ' + (error.message || 'Erro desconhecido'))
@@ -264,7 +333,8 @@ const PCP = () => {
   }
 
   const handleMoverPrioridade = async (index, direcao) => {
-    const novasPrioridades = [...prioridades]
+    const listaBase = prioridadesAtivas
+    const novasPrioridades = [...listaBase]
     const novoIndex = direcao === 'cima' ? index - 1 : index + 1
 
     if (novoIndex < 0 || novoIndex >= novasPrioridades.length) return
@@ -328,7 +398,7 @@ const PCP = () => {
     if (todosSelecionados) {
       setSelecionados(new Set())
     } else {
-      setSelecionados(new Set(prioridades.map(p => p.id)))
+      setSelecionados(new Set(prioridadesAtivas.map(p => p.id)))
     }
   }
 
@@ -350,13 +420,63 @@ const PCP = () => {
     if (prioridades.length === 0) return
     if (!window.confirm('Excluir TODOS os registros da lista?')) return
     try {
-      await supabaseService.removeMany('pcp_prioridades', prioridades.map(p => p.id))
+      await supabaseService.removeMany('pcp_prioridades', prioridadesAtivas.map(p => p.id))
       setSelecionados(new Set())
       await carregarDados()
       alert('Todos os registros foram excluídos!')
     } catch (error) {
       console.error('Erro ao excluir todos:', error)
       alert('Erro ao excluir todos')
+    }
+  }
+
+  const finalizarPedido = async (pedido) => {
+    try {
+      const payload = {
+        id: pedido.id,
+        finalizado_manual: true,
+        finalizado_em: new Date().toISOString(),
+        finalizado_por: user?.nome || user?.email || 'Sistema',
+        status: 'concluido'
+      }
+      await supabaseService.update('pedidos', payload)
+      await auditoriaService.registrarEdicao(
+        user,
+        'pcp',
+        `Finalizou manualmente o pedido ${pedido.pedido_seq}`,
+        pedido,
+        payload
+      )
+      await carregarDados()
+      alert(`Pedido ${pedido.pedido_seq} finalizado com sucesso!`)
+    } catch (error) {
+      console.error('Erro ao finalizar prioridade:', error)
+      alert('Erro ao finalizar prioridade')
+    }
+  }
+
+  const reabrirPedido = async (pedido) => {
+    try {
+      const payload = {
+        id: pedido.id,
+        finalizado_manual: false,
+        finalizado_em: null,
+        finalizado_por: null,
+        status: 'em_producao'
+      }
+      await supabaseService.update('pedidos', payload)
+      await auditoriaService.registrarEdicao(
+        user,
+        'pcp',
+        `Reabriu manualmente o pedido ${pedido.pedido_seq}`,
+        pedido,
+        payload
+      )
+      await carregarDados()
+      alert(`Pedido ${pedido.pedido_seq} reaberto com sucesso!`)
+    } catch (error) {
+      console.error('Erro ao reabrir prioridade:', error)
+      alert('Erro ao reabrir prioridade')
     }
   }
 
@@ -396,31 +516,53 @@ const PCP = () => {
         <p className="text-gray-600">Gerencie as prioridades de produção da usinagem</p>
       </div>
 
+      {/* Abas principais do PCP */}
       <div className="mb-6">
-        <div className="flex flex-wrap gap-2">
+        <div className="inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden">
           <button
-            onClick={() => setMostrarFormulario(!mostrarFormulario)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            type="button"
+            className={`px-4 py-2 text-sm font-medium transition-colors ${abaAtiva === 'prioridades' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            onClick={() => setAbaAtiva('prioridades')}
           >
-            <FaPlus />
-            {mostrarFormulario ? 'Cancelar' : 'Adicionar Prioridade'}
+            Prioridades
           </button>
           <button
-            onClick={handleExcluirSelecionados}
-            disabled={selecionados.size === 0}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+            type="button"
+            className={`px-4 py-2 text-sm font-medium transition-colors border-l border-gray-200 ${abaAtiva === 'finalizacao' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            onClick={() => setAbaAtiva('finalizacao')}
           >
-            Excluir Selecionados ({selecionados.size})
-          </button>
-          <button
-            onClick={handleExcluirTodos}
-            disabled={prioridades.length === 0}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-400"
-          >
-            Excluir Todos
+            Finalização Manual
           </button>
         </div>
       </div>
+
+      {abaAtiva === 'prioridades' && (
+        <div className="mb-6">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setMostrarFormulario(!mostrarFormulario)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FaPlus />
+              {mostrarFormulario ? 'Cancelar' : 'Adicionar Prioridade'}
+            </button>
+            <button
+              onClick={handleExcluirSelecionados}
+              disabled={selecionados.size === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+            >
+              Excluir Selecionados ({selecionados.size})
+            </button>
+            <button
+              onClick={handleExcluirTodos}
+              disabled={prioridades.length === 0}
+              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-400"
+            >
+              Excluir Todos
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Formulário de Nova Prioridade */}
       {mostrarFormulario && (
@@ -651,202 +793,93 @@ const PCP = () => {
         </div>
       )}
 
-      {/* Lista de Prioridades */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3">
-                  <input type="checkbox" checked={todosSelecionados} onChange={selecionarTodosPrioridades} />
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Prioridade
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Pedido
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Produto
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Quantidade
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Apontado
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Data Entrega
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Observações
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ações
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {prioridades.length === 0 ? (
-                <tr>
-                  <td colSpan="9" className="px-6 py-4 text-center text-gray-500">
-                    Nenhuma prioridade cadastrada
-                  </td>
-                </tr>
-              ) : (
-                prioridades.map((prioridade, index) => (
-                  <tr key={prioridade.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={selecionados.has(prioridade.id)}
-                        onChange={() => toggleSelecionadoPrioridade(prioridade.id)}
-                      />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${getPrioridadeColor(prioridade.prioridade)}`}>
-                          #{prioridade.prioridade}
-                        </span>
-                        <div className="flex flex-col gap-1">
-                          <button
-                            onClick={() => handleMoverPrioridade(index, 'cima')}
-                            disabled={index === 0}
-                            className="text-gray-600 hover:text-blue-600 disabled:text-gray-300"
-                          >
-                            <FaArrowUp size={12} />
-                          </button>
-                          <button
-                            onClick={() => handleMoverPrioridade(index, 'baixo')}
-                            disabled={index === prioridades.length - 1}
-                            className="text-gray-600 hover:text-blue-600 disabled:text-gray-300"
-                          >
-                            <FaArrowDown size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {prioridade.pedido_numero}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {prioridade.produto}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {prioridade.quantidade}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {(() => {
-                        const apont = Number(apontadoPorPedido[prioridade.pedido_numero] || 0)
-                        const qtd = Number(prioridade.quantidade || 0)
-                        const perc = qtd > 0 ? Math.min(100, Math.round((apont / qtd) * 100)) : 0
-                        return (
-                          <div className="flex items-center gap-2">
-                            <span>{apont.toLocaleString('pt-BR')}</span>
-                            <span className="text-xs text-gray-500">({perc}%)</span>
-                          </div>
-                        )
-                      })()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex items-center gap-1">
-                        <FaClock className="text-gray-400" />
-                        {formatarData(prioridade.data_entrega)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(prioridade.status)}`}>
-                        {prioridade.status.replace('_', ' ').toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                      {prioridade.observacoes || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditarPrioridade(prioridade)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Editar"
-                        >
-                          <FaEdit />
-                        </button>
-                        <button
-                          onClick={() => handleExcluirPrioridade(prioridade.id)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Excluir"
-                        >
-                          <FaTrash />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modal de Edição */}
-      {editando && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
-            <h2 className="text-xl font-bold mb-4">Editar Prioridade</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {abaAtiva === 'finalizacao' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow-md p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Data de Entrega</label>
+                <h2 className="text-xl font-semibold text-gray-800">Finalização Manual de Pedidos</h2>
+                <p className="text-gray-600 text-sm">
+                  Utilize esta aba para finalizar ou reabrir pedidos manualmente. Consideramos elegível quem já possui quantidade apontada maior ou igual ao pedido, ou saldo a produzir menor ou igual a zero.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input
-                  type="date"
-                  value={editando.data_entrega || ''}
-                  onChange={(e) => setEditando({ ...editando, data_entrega: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  type="checkbox"
+                  checked={mostrarFinalizados}
+                  onChange={(e) => setMostrarFinalizados(e.target.checked)}
+                  className="h-4 w-4 text-blue-600"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                <select
-                  value={editando.status}
-                  onChange={(e) => setEditando({ ...editando, status: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="pendente">Pendente</option>
-                  <option value="em_producao">Em Produção</option>
-                  <option value="concluido">Concluído</option>
-                  <option value="atrasado">Atrasado</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Observações</label>
-                <textarea
-                  value={editando.observacoes || ''}
-                  onChange={(e) => setEditando({ ...editando, observacoes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows="3"
-                />
-              </div>
+                Mostrar pedidos finalizados
+              </label>
             </div>
+          </div>
 
-            <div className="mt-6 flex gap-2 justify-end">
-              <button
-                onClick={() => setEditando(null)}
-                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
-              >
-                <FaTimes className="inline mr-2" />
-                Cancelar
-              </button>
-              <button
-                onClick={handleSalvarEdicao}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <FaSave className="inline mr-2" />
-                Salvar
-              </button>
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produto</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd. Pedido</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Apontado</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Separado</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Saldo a Produzir</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {listaFinalizacao.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
+                        Nenhum pedido elegível para finalização no momento.
+                      </td>
+                    </tr>
+                  ) : (
+                    listaFinalizacao.map((pedido) => {
+                        const qtd = Number(pedido.qtd_pedido || 0)
+                        const apontado = Number(apontadoPorPedido[pedido.pedido_seq] || pedido.apontadoManual || 0)
+                        const perc = qtd > 0 ? Math.round((apontado / qtd) * 100) : 0
+                        return (
+                          <tr key={`${pedido.id}-finalizacao`} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{pedido.pedido_seq}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{pedido.produto || '-'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{qtd.toLocaleString('pt-BR')}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              <div className="flex items-center gap-2">
+                                <span>{apontado.toLocaleString('pt-BR')}</span>
+                                <span className={`text-xs font-medium ${apontado >= qtd ? 'text-green-600' : 'text-gray-500'}`}>({perc}%)</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{Number(pedido.separado || 0).toLocaleString('pt-BR')}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{Number(pedido.saldo_a_prod || 0).toLocaleString('pt-BR')}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              <div className="flex gap-2">
+                                {!pedido.finalizado_manual && (
+                                  <button
+                                    onClick={() => finalizarPedido(pedido)}
+                                    className="px-3 py-1 bg-green-600 text-white text-xs font-semibold rounded-md hover:bg-green-700"
+                                  >
+                                    Finalizar
+                                  </button>
+                                )}
+                                {pedido.finalizado_manual && (
+                                  <button
+                                    onClick={() => reabrirPedido(pedido)}
+                                    className="px-3 py-1 bg-yellow-500 text-white text-xs font-semibold rounded-md hover:bg-yellow-600"
+                                  >
+                                    Reabrir
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

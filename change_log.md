@@ -1,9 +1,117 @@
 # Log de Alterações
 
+[18/11/2025 09:05] - [Frontend] - [EXP - Usinagem: Ajustes fluxo Alúnica e lotes] - [Cascade]
+- Ajustado `status_atual`/`status_novo` para `finalizado` ao concluir transferência, eliminando erro de constraint
+- `AlunicaStageCard` agora usa `__rowKey` exclusivo para evitar avisos de chaves duplicadas
+- Lotes dos apontamentos passam a incluir sufixo `-insp` ou `-emb` diretamente na gravação
+
+[18/11/2025 09:38] - [Frontend] - [EXP - Usinagem: Migração de lotes e ajustes de renderização Alúnica] - [Cascade]
+- Ao aprovar inspeção (para-inspecao → para-embarque), migra `apontamentos.exp_stage` mantendo o mesmo lote
+- Evitada duplicidade base+resumo no mesmo card (exibe resumo quando houver lotes no estágio atual)
+- Pré-carregamento de históricos ampliado para `para-usinar`, `para-inspecao` e `para-embarque`
+
+[18/11/2025 09:49] - [Frontend] - [EXP - Usinagem: Reabrir Inspeção e ajustes menores] - [Cascade]
+- Ação "Reabrir Inspeção" no estágio de Embalagem (migra lotes de `para-embarque` → `para-inspecao`)
+- Título das ações prioriza o `label` configurado (
+  metadados passam a ser fallback)
+- Correção de texto no modal de apontamento (remoção de caractere extra)
+- Persistência de "finalizados" em chave atual e legada para evitar divergências
+
+[18/11/2025 10:33] - [Frontend] - [EXP - Usinagem: Modais por lote e correções sintáticas] - [Cascade]
+- Modal de Aprovação por lote (Inspeção → Embalagem) com movimentação total/parcial
+- Modal de Reabertura por lote (Embalagem → Inspeção) com movimentação total/parcial
+- Ajustes de sintaxe no ExpUsinagem.jsx (fechamento de useMemo e inicializador de estado) para compilar
+
+[18/11/2025 11:40] - [Fullstack] - [EXP - Usinagem: Persistência de estágio Alúnica e totais no cabeçalho] - [Cascade]
+- Banco: adicionada coluna `alunica_stage` em `exp_pedidos_fluxo` com CHECK e índice parcial; DOWN incluído
+- Frontend: leitura/escrita de `alunica_stage` (totais: persistir somente em transições totais e na entrada da Alúnica)
+- Cabeçalho Alúnica: exibidos totais (pcs) por estágio no `WorkflowHeader`
+
+[18/11/2025 11:56] - [Frontend] - [EXP - Alúnica: Ações rápidas por card] - [Cascade]
+- Adicionados botões de 1 clique nos cards: "Aprovar tudo" (Inspeção → Embalagem) e "Reabrir tudo" (Embalagem → Inspeção)
+- Persistência do `alunica_stage` atualizada nessas transições totais e histórico registrado em `exp_pedidos_movimentacoes`
+
+[17/11/2025 22:30] - [Frontend] - [EXP - Usinagem: Correção de erros críticos na Alúnica] - [Cascade]
+- Corrigido erro `renderAlunicaActions is not defined` implementando a função completa
+- Corrigido erro `insert is not a function` trocando `supabaseService.insert()` por `supabaseService.add()`
+- Adicionada função `handleAlunicaAction` para gerenciar transições de estágios da Alúnica
+- Implementados botões de ação: Apontar, Finalizar/Reabrir, e transições entre estágios
+- Adicionados imports de ícones `FaCheck` e `FaPlay`
+- Sistema de loading por pedido para desabilitar botões durante ações
+
+[17/11/2025 16:05] - [Frontend] - [EXP - Usinagem: Refatoração inicial de ExpUsinagem.jsx em componentes e hooks] - [Cascade]
+- Extraído painel de Inventários para `components/exp-usinagem/InventariosPanel.jsx`
+- Extraído painel de Estoque para `components/exp-usinagem/EstoqueUsinagemPanel.jsx`
+- Extraído Modal de Seleção para `components/exp-usinagem/SelectionModal.jsx`
+- Criado hook `useFluxoExpUsinagem` para carregar fluxo/importados
+- Criado hook `useInventarios` para gerenciar inventários e itens
+- Criado util `utils/auth.js` com `isAdmin`
+
+[17/11/2025 16:10] - [Frontend] - [EXP - Usinagem: Correções de escopo e imports] - [Cascade]
+- Corrigido erro "can't access lexical declaration 'pedidosTecnoPerfil' before initialization" movendo sua definição para antes do uso
+- Removida declaração duplicada de `pedidosTecnoPerfil`
+- Adicionado import de `FaUpload` e limpeza de imports não utilizados em `ExpUsinagem.jsx`
+
+[17/11/2025 16:12] - [Frontend] - [EXP - Usinagem: Botão admin de exclusão padronizado] - [Cascade]
+- Criado `components/exp-usinagem/DeletePedidoButton.jsx`
+- Substituídos botões inline por componente reutilizável (visível apenas para admin)
+
+[08/11/2025 22:26] - [Frontend] - [EXP - Usinagem: Limpeza da aba Resumo e ajuste dos textos da Alúnica] - [Cascade]
+- Aba Resumo redefinida com placeholder para permitir recriação completa do layout
+- Descrições textuais removidas dos estágios da Alúnica conforme solicitação
+
+[10/11/2025 09:45] - [Frontend] - [EXP - Usinagem: Exportação funcional e tabelas compactas] - [Cascade]
+- Botão "Exportar Excel" da aba Resumo conectado ao utilitário `exportResumoExcel`
+- Tabelas de TecnoPerfil e Alúnica compactadas, com coluna de "Último movimento" e truncamento elegante
+- `normalizeFluxoRecord` passa a fornecer `ultimaMovimentacao`, refletido também no arquivo exportado
+
 [16/10/2025 09:14] - [Frontend] - [Pedidos: Botão "Limpar Filtros" na mesma linha e filtros compactos] - [Cascade]
 - Grid de filtros alterado para 7 colunas em `Pedidos.jsx`
 - Altura dos inputs/selects reduzida (h-8) para caber tudo em uma linha
 - Botão "Limpar Filtros" alinhado na mesma linha dos filtros
+
+[07/11/2025 13:20] - [Frontend] - [EXP - Usinagem: Card Pedido com dados da carteira] - [Cascade]
+- Card "Pedido" da aba TecnoPerfil agora exibe tabela com Pedido, Cliente, Nº Pedido, Data Entrega, Ferramenta, Pedido Kg e Pedido Pc
+- Integração com hook `useSupabase('pedidos')` para carregar dados reais com formatação PT-BR
+
+[07/11/2025 13:24] - [Frontend] - [EXP - Usinagem: Workflow de movimentação TecnoPerfil] - [Cascade]
+- Adicionada etapa "Embalagem" e linha do tempo visual do processo
+- Pedidos podem ser movimentados entre Pedido → Produzido → Inspeção → {Embalagem, Expedição Alúnica, Expedição Cliente} com ações contextuais
+- Estado das movimentações persistido em `localStorage` e alerta de último movimento exibido na interface
+
+[07/11/2025 13:31] - [Frontend] - [EXP - Usinagem: Cards empilhados por estágio] - [Cascade]
+- Layout reorganizado para exibir os cards TecnoPerfil de forma empilhada na ordem do processo com conectores visuais
+- Atualização da documentação refletindo o novo layout sequencial
+
+[07/11/2025 13:46] - [Frontend] - [EXP - Usinagem: Integração Alúnica e Finalização de Pedidos] - [Cascade]
+- Expedição Alúnica passa pedidos para o fluxo da aba Alúnica, com controle persistido
+- Expedição Cliente permite finalizar pedidos e manter histórico em `localStorage`
+- Cartões da aba Alúnica exibem ações para evolução interna do material
+
+[07/11/2025 14:31] - [Frontend] - [EXP - Usinagem: Importação e cadastro manual de pedidos] - [Cascade]
+- Card "Pedido" ganhou botão discreto de upload (.xlsx/.csv) com parse flexível de colunas
+- Formulário manual validando campos essenciais e integrando com Supabase via `useSupabase`
+- Feedback visual de processamento/erros e reset fácil do formulário
+
+[07/11/2025 11:33] - [Frontend] - [EXP - Usinagem: Cartões de status TecnoPerfil/Alúnica] - [Cascade]
+- Estrutura de cartões com descrição dos status logísticos tanto para TecnoPerfil quanto Alúnica
+- Placeholders preparados para integrar indicadores de volume e alertas por estágio
+
+[07/11/2025 11:25] - [Frontend] - [EXP - Usinagem: Abas TecnoPerfil/Alúnica inline] - [Cascade]
+- Abas "TecnoPerfil" e "Alúnica" exibidas diretamente na página `ExpUsinagem.jsx`
+- Estrutura pronta para receber conteúdos específicos de cada operação
+
+[07/11/2025 11:19] - [Frontend] - [EXP - Usinagem: Página base adicionada] - [Cascade]
+- Nova rota `exp-usinagem` registrada em `App.jsx`
+- Item do menu lateral "EXP - Usinagem" disponível para todos os perfis
+- Página inicial criada com título e mensagem placeholder em `ExpUsinagem.jsx`
+
+[29/10/2025 10:35] - [Frontend/Database] - [PCP: Aba de Finalização Manual de Pedidos] - [Cascade]
+- Criada subaba "Finalização Manual" no PCP com alternância por abas
+- Pedidos finalizados manualmente deixam de aparecer na aba de prioridades
+- Inclusão dos campos finalizado_manual, finalizado_em e finalizado_por na tabela pcp_prioridades
+- Fluxo para finalizar/reabrir pedido com auditoria de edição via AuditoriaService
+- Lista mostra apenas pedidos elegíveis (apontado ≥ quantidade) e permite visualizar finalizados
 
 [16/10/2025 09:10] - [Frontend] - [PCP: Seleção múltipla e exclusão em lote] - [Cascade]
 - Adicionados checkboxes por linha e seletor no cabeçalho

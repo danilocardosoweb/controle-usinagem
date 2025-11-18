@@ -7,6 +7,7 @@ import ApontamentosParadas from './pages/ApontamentosParadas'
 import CarteiraEncomendas from './pages/CarteiraEncomendas'
 import Relatorios from './pages/Relatorios'
 import PrevisaoTrabalho from './pages/PrevisaoTrabalho'
+import ExpUsinagem from './pages/ExpUsinagem'
 import Configuracoes from './pages/Configuracoes'
 import Pedidos from './pages/Pedidos'
 import PCP from './pages/PCP'
@@ -44,6 +45,7 @@ function App() {
         <Route path="apontamentos-paradas" element={<ApontamentosParadas />} />
         <Route path="relatorios" element={<Relatorios />} />
         <Route path="previsao-trabalho" element={<PrevisaoTrabalho />} />
+        <Route path="exp-usinagem" element={<ExpUsinagem />} />
         <Route path="pcp" element={<PCP />} />
         <Route path="configuracoes" element={
           <ProtectedRoute allowedRoles={['admin']}>

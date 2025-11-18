@@ -351,6 +351,8 @@ const Pedidos = () => {
   // - Finalizado: separado >= qtd_pedido
   // - Em Produção: separado > 0 e < qtd_pedido
   const calcularStatus = (pedido) => {
+    if (pedido?.finalizado_manual) return 'Finalizado'
+
     const sep = Number(pedido?.separado || 0)
     const qtd = Number(pedido?.qtd_pedido || 0)
     if (sep === 0) return 'Pendente'
