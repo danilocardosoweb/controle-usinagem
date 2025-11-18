@@ -1,6 +1,9 @@
-import { FaUpload, FaClipboardCheck, FaChevronRight } from 'react-icons/fa'
+import { useState } from 'react'
+import { FaUpload, FaClipboardCheck, FaChevronRight, FaMinusCircle } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import { formatDateBR, formatInteger, formatNumber, toDecimal, toIntegerRound } from '../../utils/expUsinagem'
+import BaixaEstoqueModal from './modals/BaixaEstoqueModal'
+import supabaseService from '../../services/SupabaseService'
 
 const EstoqueUsinagemPanel = ({
   fluxoPedidos,
@@ -19,6 +22,12 @@ const EstoqueUsinagemPanel = ({
   onOpenInventarios,
   setActiveTab
 }) => {
+  // Estados do modal de baixa
+  const [baixaModalOpen, setBaixaModalOpen] = useState(false)
+  const [selectedItem, setSelectedItem] = useState(null)
+  const [baixaSaving, setBaixaSaving] = useState(false)
+  const [baixaError, setBaixaError] = useState(null)
+
   const byIdRaw = (Array.isArray(fluxoPedidos) ? fluxoPedidos : []).reduce((acc, r) => {
     if (r && r.id) acc[String(r.id)] = r
     return acc
@@ -78,6 +87,64 @@ const EstoqueUsinagemPanel = ({
     }
     return true
   })
+
+  // Abrir modal de baixa
+  const handleOpenBaixa = (item) => {
+    setSelectedItem(item)
+    setBaixaModalOpen(true)
+    setBaixaError(null)
+  }
+
+  // Fechar modal de baixa
+  const handleCloseBaixa = () => {
+    if (!baixaSaving) {
+      setBaixaModalOpen(false)
+      setSelectedItem(null)
+      setBaixaError(null)
+    }
+  }
+
+  // Confirmar baixa de estoque
+  const handleConfirmBaixa = async (dados) => {
+    setBaixaSaving(true)
+    setBaixaError(null)
+
+    try {
+      const { item, tipoBaixa, quantidadePc, quantidadeKg, observacao } = dados
+
+      // Criar registro de movimentação de estoque
+      const movimentacao = {
+        fluxo_id: item.id,
+        tipo_movimentacao: 'baixa_estoque',
+        tipo_baixa: tipoBaixa, // 'consumo' ou 'venda'
+        quantidade_pc: quantidadePc,
+        quantidade_kg: quantidadeKg,
+        observacoes: observacao || null,
+        movimentado_em: new Date().toISOString(),
+        movimentado_por: 'Sistema' // Pode ser substituído por user atual
+      }
+
+      // Salvar movimentação
+      await supabaseService.add('exp_pedidos_movimentacoes', movimentacao)
+
+      // Atualizar saldos no fluxo (se necessário)
+      // Nota: O saldo já é calculado dinamicamente, então não precisa atualizar
+      // Mas podemos adicionar um campo de controle se necessário
+
+      // Fechar modal e atualizar
+      handleCloseBaixa()
+      
+      // Recarregar dados se necessário
+      // window.location.reload() // ou chamar função de reload passada por props
+      
+      alert(`Baixa de estoque registrada com sucesso!\nTipo: ${tipoBaixa}\nPc: ${quantidadePc} | Kg: ${quantidadeKg}`)
+    } catch (error) {
+      console.error('Erro ao dar baixa no estoque:', error)
+      setBaixaError(error?.message || 'Falha ao processar baixa.')
+    } finally {
+      setBaixaSaving(false)
+    }
+  }
 
   const handleExport = () => {
     if (exportandoEstoque) return
@@ -182,21 +249,43 @@ const EstoqueUsinagemPanel = ({
                 <td className="py-2 pr-3 text-right">{formatInteger(r.saldoPc)}</td>
                 <td className="py-2 pr-3">{r.updatedAt ? formatDateBR(r.updatedAt) : '—'}</td>
                 <td className="py-2 pr-3">
-                  <button
-                    type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100"
-                    onClick={() => setActiveTab(r.unidade === 'Alúnica' ? 'Alúnica' : 'TecnoPerfil')}
-                    title={`Abrir no quadro ${r.unidade}`}
-                    aria-label={`Abrir no quadro ${r.unidade}`}
-                  >
-                    <FaChevronRight />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      onClick={() => handleOpenBaixa(r)}
+                      disabled={r.saldoPc === 0 && r.saldoKg === 0}
+                      title="Dar baixa no estoque"
+                      aria-label="Dar baixa no estoque"
+                    >
+                      <FaMinusCircle />
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100"
+                      onClick={() => setActiveTab(r.unidade === 'Alúnica' ? 'Alúnica' : 'TecnoPerfil')}
+                      title={`Abrir no quadro ${r.unidade}`}
+                      aria-label={`Abrir no quadro ${r.unidade}`}
+                    >
+                      <FaChevronRight />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Modal de Baixa de Estoque */}
+      <BaixaEstoqueModal
+        open={baixaModalOpen}
+        item={selectedItem}
+        onClose={handleCloseBaixa}
+        onConfirm={handleConfirmBaixa}
+        saving={baixaSaving}
+        error={baixaError}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-export const TABS = ['Resumo', 'TecnoPerfil', 'Alúnica', 'Estoque da Usinagem']
+export const TABS = ['Resumo', 'TecnoPerfil', 'Alúnica', 'Estoque da Usinagem', 'Análise da Produtividade']
 
 export const TECNOPERFIL_STATUS = [
   {

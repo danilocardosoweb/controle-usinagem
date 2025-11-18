@@ -11,6 +11,7 @@ import WorkflowHeader from '../components/exp-usinagem/WorkflowHeader'
 import ResumoDashboard from '../components/exp-usinagem/ResumoDashboard'
 import InventariosPanel from '../components/exp-usinagem/InventariosPanel'
 import EstoqueUsinagemPanel from '../components/exp-usinagem/EstoqueUsinagemPanel'
+import AnaliseProdutividadePanel from '../components/exp-usinagem/AnaliseProdutividadePanel'
 import SelectionModal from '../components/exp-usinagem/SelectionModal'
 import DeletePedidoButton from '../components/exp-usinagem/DeletePedidoButton'
 import useFluxoExpUsinagem from '../hooks/useFluxoExpUsinagem'
@@ -2908,6 +2909,10 @@ const ExpUsinagem = () => {
           setActiveTab={setActiveTab}
         />
       )
+    }
+
+    if (activeTab === 'Análise da Produtividade') {
+      return <AnaliseProdutividadePanel />
     }
 
     return (
