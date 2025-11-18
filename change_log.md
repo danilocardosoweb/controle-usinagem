@@ -1,5 +1,12 @@
 # Log de Alterações
 
+[18/11/2025 13:40] - [Refatoração Fase 1] - [Extraído ApontamentoModal + Feature Flags] - [Cascade]
+- Criado sistema de feature flags (frontend/src/config/refactorFlags.js) para refatoração segura
+- Extraído ApontamentoModal.jsx (227 linhas) do ExpUsinagem.jsx para componente separado
+- Modal integrado com feature flag USE_NEW_APONTAMENTO_MODAL (ativado)
+- Build testado - compilação bem-sucedida
+- Código antigo mantido como fallback para rollback seguro
+
 [18/11/2025 09:05] - [Frontend] - [EXP - Usinagem: Ajustes fluxo Alúnica e lotes] - [Cascade]
 - Ajustado `status_atual`/`status_novo` para `finalizado` ao concluir transferência, eliminando erro de constraint
 - `AlunicaStageCard` agora usa `__rowKey` exclusivo para evitar avisos de chaves duplicadas
