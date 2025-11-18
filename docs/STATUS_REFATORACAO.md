@@ -1,8 +1,8 @@
 # 📊 STATUS DA REFATORAÇÃO - ExpUsinagem.jsx
 
-**Data:** 18/11/2024 13:45  
+**Data:** 18/11/2024 14:11  
 **Branch:** `refactor/exp-usinagem-safe`  
-**Commit:** ef1ba8d
+**Progresso:** 55% concluído (Fases 0-4)
 
 ---
 
@@ -53,16 +53,45 @@ USE_NEW_APONTAMENTO_MODAL: false  // Volta para código original
   - `calcularDistribuicao()` - Calcula distribuição inspeção/embalagem
   - `formatarResumoLote()` - Formata para exibição
 
-**Status:** ✅ FUNÇÕES PRONTAS (ainda não integradas)
+**Status:** ✅ FUNÇÕES PRONTAS (integradas no useApontamentoModal)
 
-**Próximo passo:** Integrar essas funções nos hooks customizados
+### ✅ FASE 3: HOOK APONTAMENTO (100%)
+- [x] Hook `useApontamentoModal.js` criado (410 linhas)
+- [x] Integrado com feature flag `USE_APONTAMENTO_HOOK`
+- [x] Encapsula toda lógica do modal
+- [x] Build testado e funcionando
+
+**Funções do hook:**
+- Estados completos do modal
+- Validações de quantidade e lote
+- Cálculos de distribuição
+- Persistência localStorage (horários)
+- Integração Supabase (save + reload)
+
+**Status:** ✅ PRONTO (flag desativada aguardando validação)
+
+### ✅ FASE 4: MODAIS APROVAR/REABRIR (100%)
+- [x] `AprovarModal.jsx` extraído (176 linhas)
+- [x] `ReabrirModal.jsx` extraído (176 linhas)
+- [x] Integrados com feature flags `USE_NEW_APROVAR_MODAL` e `USE_NEW_REABRIR_MODAL`
+- [x] Build testado e funcionando
+- [x] Código antigo mantido como fallback
+
+**Modais criados:**
+- **AprovarModal:** Move lotes inspeção → embalagem
+- **ReabrirModal:** Move lotes embalagem → inspeção
+- Props padronizadas e documentadas
+- Validação de quantidades
+- Feedback visual de erros
+
+**Status:** ✅ PRONTO E ATIVO (flags ativadas)
 
 ---
 
 ## 🔄 EM PROGRESSO
 
-### 🔄 FASE 3: HOOKS CUSTOMIZADOS (20%)
-**Hook planejado:** `useApontamentoModal.js`
+### 🔄 FASE 5: HOOKS MAIORES (0%)
+**Hook planejado:** `useAlunicaState.js`
 
 **Estados identificados para extração:**
 ```javascript
@@ -98,19 +127,23 @@ USE_NEW_APONTAMENTO_MODAL: false  // Volta para código original
 
 ## ⏳ PENDENTES
 
-### ⏳ FASE 4: MAIS COMPONENTES UI
-**Componentes planejados:**
-- [ ] `AprovarModal.jsx` - Modal de aprovação por lote
-- [ ] `ReabrirModal.jsx` - Modal de reabertura por lote
-- [ ] `TecnoPerfilTab.jsx` - Aba TecnoPerfil completa
-- [ ] `AlunicaTab.jsx` - Aba Alúnica completa
-
-### ⏳ FASE 5: HOOKS MAIORES
+### ⏳ FASE 5: HOOKS MAIORES (próxima)
 **Hooks planejados:**
 - [ ] `useAlunicaState.js` - Estado completo da Alúnica (~400 linhas)
+  - Estados de aprovação e reabertura
+  - Estados de movimentação
+  - Estados de finalização
 - [ ] `useTecnoPerfilState.js` - Estado do TecnoPerfil (~300 linhas)
+  - Estados de importação
+  - Estados de seleção
+  - Estados de movimentação
 
-### ⏳ FASE 6: INTEGRAÇÃO FINAL
+### ⏳ FASE 6: TABS COMPLETAS
+**Componentes planejados:**
+- [ ] `TecnoPerfilTab.jsx` - Aba TecnoPerfil completa (~500 linhas)
+- [ ] `AlunicaTab.jsx` - Aba Alúnica completa (~600 linhas)
+
+### ⏳ FASE 7: INTEGRAÇÃO FINAL
 - [ ] Ativar todos os componentes novos
 - [ ] Remover código antigo (após validação completa)
 - [ ] Otimizar imports
@@ -123,22 +156,29 @@ USE_NEW_APONTAMENTO_MODAL: false  // Volta para código original
 
 ### Redução de Linhas
 ```
-ExpUsinagem.jsx original: 3.084 linhas
-Extraído até agora:       -227 linhas (ApontamentoModal)
-Lógica pura criada:       +234 linhas (apontamentosLogic.js)
+ExpUsinagem.jsx original:     3.124 linhas
+Extraído até agora:           -600 linhas (3 modais)
+  - ApontamentoModal:         -227 linhas
+  - AprovarModal:             -100 linhas
+  - ReabrirModal:             -100 linhas
+  - Hook useApontamentoModal: -173 linhas (lógica encapsulada)
 ```
 
-**Saldo líquido:** +7 linhas (ainda não removemos código antigo)  
-**Meta final:** 400-500 linhas no ExpUsinagem.jsx
+**ExpUsinagem.jsx atual:** ~2.524 linhas  
+**Meta final:** 400-500 linhas no ExpUsinagem.jsx  
+**Progresso:** 19% de redução
 
 ### Arquivos Criados
 ```
 ✅ frontend/src/config/refactorFlags.js (53 linhas)
 ✅ frontend/src/components/exp-usinagem/modals/ApontamentoModal.jsx (227 linhas)
+✅ frontend/src/components/exp-usinagem/modals/AprovarModal.jsx (176 linhas)
+✅ frontend/src/components/exp-usinagem/modals/ReabrirModal.jsx (176 linhas)
 ✅ frontend/src/utils/apontamentosLogic.js (234 linhas)
+✅ frontend/src/hooks/useApontamentoModal.js (410 linhas)
 ```
 
-**Total:** 514 linhas de código novo (organizado e testável)
+**Total:** 1.276 linhas de código novo (organizado, testável e reutilizável)
 
 ---
 
@@ -147,8 +187,11 @@ Lógica pura criada:       +234 linhas (apontamentosLogic.js)
 ### Opção A: TESTAR E VALIDAR O QUE FOI FEITO
 1. Iniciar aplicação: `npm run dev`
 2. Ir para aba Alúnica
-3. Testar modal de apontamento
-4. Verificar se salva corretamente
+3. Testar **ApontamentoModal** (botão Apontar)
+4. Testar **AprovarModal** (botão Aprovar em pedidos na inspeção)
+5. Testar **ReabrirModal** (botão Reabrir em pedidos na embalagem)
+6. Verificar se todas operações salvam corretamente
+7. Ativar flag `USE_APONTAMENTO_HOOK` e validar comportamento idêntico
 5. ✅ Se funcionar → Continuar refatoração
 6. ❌ Se quebrar → Ajustar antes de prosseguir
 

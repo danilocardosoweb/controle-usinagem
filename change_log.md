@@ -1,12 +1,21 @@
 # Log de Alterações
 
-[18/11/2025 14:10] - [Refatoração Fase 3] - [Progresso: 45% concluído] - [Cascade]
-- Hook useApontamentoModal.js criado (410 linhas de lógica encapsulada)
-- Gerencia completamente o estado e funções do modal de apontamento
-- Integrado no ExpUsinagem.jsx com feature flag USE_APONTAMENTO_HOOK (desativada)
-- Build testado - compilação 100% funcional
-- Botão "Apontar" atualizado para usar hook quando flag ativada
-- 11 estados + 5 funções movidas para o hook
+[18/11/2025 14:11] - [Refatoração/Fase4] - [Progresso: 100% concluído] - [Cascade]
+- **Arquivos criados:** 
+  - `frontend/src/components/exp-usinagem/modals/AprovarModal.jsx` (176 linhas)
+  - `frontend/src/components/exp-usinagem/modals/ReabrirModal.jsx` (176 linhas)
+- **Arquivos modificados:** 
+  - `frontend/src/pages/ExpUsinagem.jsx`: Integração condicional dos modais
+  - `frontend/src/config/refactorFlags.js`: Flags `USE_NEW_APROVAR_MODAL` e `USE_NEW_REABRIR_MODAL` ativadas
+- **Descrição:** Extração dos modais de aprovação e reabertura de lotes por inspeção
+  - **AprovarModal:** Move lotes da inspeção para embalagem (total ou parcial)
+  - **ReabrirModal:** Move lotes da embalagem de volta para inspeção (total ou parcial)
+  - Ambos com validação de quantidades e feedback visual
+  - Props: open, pedido, itens, saving, error, handlers
+- **Integração:** Renderização condicional via feature flags mantém código antigo como fallback
+- **Validação:** Build bem-sucedido, sem erros de compilação
+- **Documentação:** Componentes documentados com JSDoc completo
+- **Impacto:** Redução de ~200 linhas no ExpUsinagem.jsx
 
 [18/11/2025 13:50] - [Refatoração Fases 0-2] - [Progresso: 30% concluído] - [Cascade]
 - FASE 0: Branch refactor/exp-usinagem-safe criada + snapshot + estrutura de pastas

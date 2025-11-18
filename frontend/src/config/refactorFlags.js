@@ -10,8 +10,8 @@
 export const REFACTOR = {
   // Modais
   USE_NEW_APONTAMENTO_MODAL: true,
-  USE_NEW_APROVAR_MODAL: false,
-  USE_NEW_REABRIR_MODAL: false,
+  USE_NEW_APROVAR_MODAL: true,
+  USE_NEW_REABRIR_MODAL: true,
   
   // Tabs
   USE_NEW_TECNO_TAB: false,

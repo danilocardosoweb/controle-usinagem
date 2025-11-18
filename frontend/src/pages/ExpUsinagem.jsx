@@ -19,6 +19,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin as isAdminCheck } from '../utils/auth'
 import { REFACTOR } from '../config/refactorFlags'
 import ApontamentoModal from '../components/exp-usinagem/modals/ApontamentoModal'
+import AprovarModal from '../components/exp-usinagem/modals/AprovarModal'
+import ReabrirModal from '../components/exp-usinagem/modals/ReabrirModal'
 import useApontamentoModal from '../hooks/useApontamentoModal'
 import {
   TABS,
@@ -2540,208 +2542,236 @@ const ExpUsinagem = () => {
         </div>
       )}
 
-      {alunicaAprovarOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <h3 className="text-base font-semibold text-gray-800">Aprovar Inspeção e Embalar</h3>
-              <button
-                type="button"
-                onClick={closeAprovarModal}
-                className="inline-flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100"
-              >
-                <FaTimes />
-              </button>
-            </div>
-            <div className="px-6 py-4 space-y-4">
-              {alunicaAprovarPedido && (
-                <div className="text-sm text-gray-700">
-                  <div className="flex flex-wrap gap-3">
-                    <span><span className="font-semibold">Pedido:</span> {alunicaAprovarPedido.pedido}</span>
-                    <span><span className="font-semibold">Cliente:</span> {alunicaAprovarPedido.cliente}</span>
-                    <span><span className="font-semibold">Ferramenta:</span> {alunicaAprovarPedido.ferramenta}</span>
-                  </div>
-                </div>
-              )}
-
-              {alunicaAprovarError && (
-                <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">{alunicaAprovarError}</div>
-              )}
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-[13px] text-gray-700">
-                  <thead>
-                    <tr className="text-[11px] uppercase tracking-wide text-gray-500">
-                      <th className="py-1.5 pr-3">Lote</th>
-                      <th className="py-1.5 pr-3 text-right">Disponível (Pc)</th>
-                      <th className="py-1.5 pr-3 text-right">Mover (Pc)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {alunicaAprovarItens.length === 0 ? (
-                      <tr>
-                        <td className="py-2 pr-3 text-sm text-gray-500" colSpan={3}>Nenhum lote disponível para aprovação.</td>
-                      </tr>
-                    ) : (
-                      alunicaAprovarItens.map((it) => (
-                        <tr key={`aprov-${alunicaAprovarPedido?.id}-${it.lote}`}>
-                          <td className="py-1.5 pr-3 font-semibold text-gray-800">{it.lote}</td>
-                          <td className="py-1.5 pr-3 text-right">{formatInteger(it.disponivel)}</td>
-                          <td className="py-1.5 pr-3 text-right">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              className="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                              value={toIntegerRound(it.mover) || ''}
-                              onChange={(e) => setAprovarMover(it.lote, e.target.value)}
-                              min={0}
-                              max={toIntegerRound(it.disponivel) || 0}
-                              disabled={alunicaAprovarSaving}
-                            />
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+      {REFACTOR.USE_NEW_APROVAR_MODAL ? (
+        <AprovarModal
+          open={alunicaAprovarOpen}
+          pedido={alunicaAprovarPedido}
+          itens={alunicaAprovarItens}
+          saving={alunicaAprovarSaving}
+          error={alunicaAprovarError}
+          onClose={closeAprovarModal}
+          onConfirm={handleAprovarConfirm}
+          onSetMover={setAprovarMover}
+          onAprovarTudo={aprovarTudoFill}
+        />
+      ) : (
+        alunicaAprovarOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b px-6 py-4">
+                <h3 className="text-base font-semibold text-gray-800">Aprovar Inspeção e Embalar</h3>
+                <button
+                  type="button"
+                  onClick={closeAprovarModal}
+                  className="inline-flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100"
+                >
+                  <FaTimes />
+                </button>
               </div>
+              <div className="px-6 py-4 space-y-4">
+                {alunicaAprovarPedido && (
+                  <div className="text-sm text-gray-700">
+                    <div className="flex flex-wrap gap-3">
+                      <span><span className="font-semibold">Pedido:</span> {alunicaAprovarPedido.pedido}</span>
+                      <span><span className="font-semibold">Cliente:</span> {alunicaAprovarPedido.cliente}</span>
+                      <span><span className="font-semibold">Ferramenta:</span> {alunicaAprovarPedido.ferramenta}</span>
+                    </div>
+                  </div>
+                )}
 
-              <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
-                <span>
-                  Ajuste as quantidades por lote. Se mover tudo, o pedido avança para Embalagem; caso contrário, permanece em Inspeção.
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={aprovarTudoFill}
-                    disabled={alunicaAprovarSaving || alunicaAprovarItens.length === 0}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Aprovar tudo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeAprovarModal}
-                    disabled={alunicaAprovarSaving}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAprovarConfirm}
-                    disabled={alunicaAprovarSaving || alunicaAprovarItens.length === 0}
-                    className="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {alunicaAprovarSaving ? 'Processando...' : 'Confirmar aprovação'}
-                  </button>
+                {alunicaAprovarError && (
+                  <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">{alunicaAprovarError}</div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[13px] text-gray-700">
+                    <thead>
+                      <tr className="text-[11px] uppercase tracking-wide text-gray-500">
+                        <th className="py-1.5 pr-3">Lote</th>
+                        <th className="py-1.5 pr-3 text-right">Disponível (Pc)</th>
+                        <th className="py-1.5 pr-3 text-right">Mover (Pc)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {alunicaAprovarItens.length === 0 ? (
+                        <tr>
+                          <td className="py-2 pr-3 text-sm text-gray-500" colSpan={3}>Nenhum lote disponível para aprovação.</td>
+                        </tr>
+                      ) : (
+                        alunicaAprovarItens.map((it) => (
+                          <tr key={`aprov-${alunicaAprovarPedido?.id}-${it.lote}`}>
+                            <td className="py-1.5 pr-3 font-semibold text-gray-800">{it.lote}</td>
+                            <td className="py-1.5 pr-3 text-right">{formatInteger(it.disponivel)}</td>
+                            <td className="py-1.5 pr-3 text-right">
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                                value={toIntegerRound(it.mover) || ''}
+                                onChange={(e) => setAprovarMover(it.lote, e.target.value)}
+                                min={0}
+                                max={toIntegerRound(it.disponivel) || 0}
+                                disabled={alunicaAprovarSaving}
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
+                  <span>
+                    Ajuste as quantidades por lote. Se mover tudo, o pedido avança para Embalagem; caso contrário, permanece em Inspeção.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={aprovarTudoFill}
+                      disabled={alunicaAprovarSaving || alunicaAprovarItens.length === 0}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Aprovar tudo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeAprovarModal}
+                      disabled={alunicaAprovarSaving}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAprovarConfirm}
+                      disabled={alunicaAprovarSaving || alunicaAprovarItens.length === 0}
+                      className="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {alunicaAprovarSaving ? 'Processando...' : 'Confirmar aprovação'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
-      {alunicaReabrirOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <h3 className="text-base font-semibold text-gray-800">Reabrir Inspeção</h3>
-              <button
-                type="button"
-                onClick={closeReabrirModal}
-                className="inline-flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100"
-              >
-                <FaTimes />
-              </button>
-            </div>
-            <div className="px-6 py-4 space-y-4">
-              {alunicaReabrirPedido && (
-                <div className="text-sm text-gray-700">
-                  <div className="flex flex-wrap gap-3">
-                    <span><span className="font-semibold">Pedido:</span> {alunicaReabrirPedido.pedido}</span>
-                    <span><span className="font-semibold">Cliente:</span> {alunicaReabrirPedido.cliente}</span>
-                    <span><span className="font-semibold">Ferramenta:</span> {alunicaReabrirPedido.ferramenta}</span>
-                  </div>
-                </div>
-              )}
-
-              {alunicaReabrirError && (
-                <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">{alunicaReabrirError}</div>
-              )}
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-[13px] text-gray-700">
-                  <thead>
-                    <tr className="text-[11px] uppercase tracking-wide text-gray-500">
-                      <th className="py-1.5 pr-3">Lote</th>
-                      <th className="py-1.5 pr-3 text-right">Disponível (Pc)</th>
-                      <th className="py-1.5 pr-3 text-right">Mover (Pc)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {alunicaReabrirItens.length === 0 ? (
-                      <tr>
-                        <td className="py-2 pr-3 text-sm text-gray-500" colSpan={3}>Nenhum lote disponível para reabrir.</td>
-                      </tr>
-                    ) : (
-                      alunicaReabrirItens.map((it) => (
-                        <tr key={`reabr-${alunicaReabrirPedido?.id}-${it.lote}`}>
-                          <td className="py-1.5 pr-3 font-semibold text-gray-800">{it.lote}</td>
-                          <td className="py-1.5 pr-3 text-right">{formatInteger(it.disponivel)}</td>
-                          <td className="py-1.5 pr-3 text-right">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              className="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                              value={toIntegerRound(it.mover) || ''}
-                              onChange={(e) => setReabrirMover(it.lote, e.target.value)}
-                              min={0}
-                              max={toIntegerRound(it.disponivel) || 0}
-                              disabled={alunicaReabrirSaving}
-                            />
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+      {REFACTOR.USE_NEW_REABRIR_MODAL ? (
+        <ReabrirModal
+          open={alunicaReabrirOpen}
+          pedido={alunicaReabrirPedido}
+          itens={alunicaReabrirItens}
+          saving={alunicaReabrirSaving}
+          error={alunicaReabrirError}
+          onClose={closeReabrirModal}
+          onConfirm={handleReabrirConfirm}
+          onSetMover={setReabrirMover}
+          onReabrirTudo={reabrirTudoFill}
+        />
+      ) : (
+        alunicaReabrirOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b px-6 py-4">
+                <h3 className="text-base font-semibold text-gray-800">Reabrir Inspeção</h3>
+                <button
+                  type="button"
+                  onClick={closeReabrirModal}
+                  className="inline-flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100"
+                >
+                  <FaTimes />
+                </button>
               </div>
+              <div className="px-6 py-4 space-y-4">
+                {alunicaReabrirPedido && (
+                  <div className="text-sm text-gray-700">
+                    <div className="flex flex-wrap gap-3">
+                      <span><span className="font-semibold">Pedido:</span> {alunicaReabrirPedido.pedido}</span>
+                      <span><span className="font-semibold">Cliente:</span> {alunicaReabrirPedido.cliente}</span>
+                      <span><span className="font-semibold">Ferramenta:</span> {alunicaReabrirPedido.ferramenta}</span>
+                    </div>
+                  </div>
+                )}
 
-              <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
-                <span>
-                  Ajuste as quantidades por lote para retornar peças à Inspeção.
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={reabrirTudoFill}
-                    disabled={alunicaReabrirSaving || alunicaReabrirItens.length === 0}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Reabrir tudo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeReabrirModal}
-                    disabled={alunicaReabrirSaving}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReabrirConfirm}
-                    disabled={alunicaReabrirSaving || alunicaReabrirItens.length === 0}
-                    className="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {alunicaReabrirSaving ? 'Processando...' : 'Confirmar reabertura'}
-                  </button>
+                {alunicaReabrirError && (
+                  <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">{alunicaReabrirError}</div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[13px] text-gray-700">
+                    <thead>
+                      <tr className="text-[11px] uppercase tracking-wide text-gray-500">
+                        <th className="py-1.5 pr-3">Lote</th>
+                        <th className="py-1.5 pr-3 text-right">Disponível (Pc)</th>
+                        <th className="py-1.5 pr-3 text-right">Mover (Pc)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {alunicaReabrirItens.length === 0 ? (
+                        <tr>
+                          <td className="py-2 pr-3 text-sm text-gray-500" colSpan={3}>Nenhum lote disponível para reabrir.</td>
+                        </tr>
+                      ) : (
+                        alunicaReabrirItens.map((it) => (
+                          <tr key={`reabr-${alunicaReabrirPedido?.id}-${it.lote}`}>
+                            <td className="py-1.5 pr-3 font-semibold text-gray-800">{it.lote}</td>
+                            <td className="py-1.5 pr-3 text-right">{formatInteger(it.disponivel)}</td>
+                            <td className="py-1.5 pr-3 text-right">
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                                value={toIntegerRound(it.mover) || ''}
+                                onChange={(e) => setReabrirMover(it.lote, e.target.value)}
+                                min={0}
+                                max={toIntegerRound(it.disponivel) || 0}
+                                disabled={alunicaReabrirSaving}
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 text-xs text-gray-500">
+                  <span>
+                    Ajuste as quantidades por lote para retornar peças à Inspeção.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={reabrirTudoFill}
+                      disabled={alunicaReabrirSaving || alunicaReabrirItens.length === 0}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Reabrir tudo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeReabrirModal}
+                      disabled={alunicaReabrirSaving}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleReabrirConfirm}
+                      disabled={alunicaReabrirSaving || alunicaReabrirItens.length === 0}
+                      className="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {alunicaReabrirSaving ? 'Processando...' : 'Confirmar reabertura'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
     </div>
