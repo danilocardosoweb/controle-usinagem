@@ -58,8 +58,8 @@ const AnaliseProdutividadePanel = () => {
       dataLimite.setDate(dataLimite.getDate() - diasAtras)
       
       filtrados = filtrados.filter(a => {
-        if (!a.criado_em) return false
-        const dataApont = new Date(a.criado_em)
+        if (!a.created_at) return false
+        const dataApont = new Date(a.created_at)
         return dataApont >= dataLimite
       })
     }
@@ -104,8 +104,8 @@ const AnaliseProdutividadePanel = () => {
       }
 
       // Agrupar por dia
-      if (a.criado_em) {
-        const data = new Date(a.criado_em)
+      if (a.created_at) {
+        const data = new Date(a.created_at)
         const diaKey = data.toISOString().split('T')[0] // YYYY-MM-DD
         
         if (!porDia[diaKey]) {
@@ -285,7 +285,7 @@ const AnaliseProdutividadePanel = () => {
 
         detalhes.push([
           a.id || '',
-          a.criado_em ? formatDateBR(a.criado_em) : '',
+          a.created_at ? formatDateBR(a.created_at) : '',
           a.exp_fluxo_id || '',
           a.exp_unidade || '',
           a.exp_stage || '',

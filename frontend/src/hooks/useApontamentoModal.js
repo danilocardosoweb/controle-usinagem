@@ -268,7 +268,7 @@ export const useApontamentoModal = ({
         inicio: inicioISO,
         fim: fimISO,
         qtd_refugo: 0,
-        criado_em: agora,
+        created_at: agora,
         perfil_longo: '',
         comprimento_acabado_mm: null,
         ordem_trabalho: ordemTrabalho,

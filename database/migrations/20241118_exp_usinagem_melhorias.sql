@@ -36,8 +36,8 @@ ON apontamentos(exp_fluxo_id);
 CREATE INDEX IF NOT EXISTS idx_apontamentos_unidade_stage 
 ON apontamentos(exp_unidade, exp_stage);
 
-CREATE INDEX IF NOT EXISTS idx_apontamentos_criado_em 
-ON apontamentos(criado_em DESC);
+CREATE INDEX IF NOT EXISTS idx_apontamentos_created_at 
+ON apontamentos(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_apontamentos_lote 
 ON apontamentos(lote) WHERE lote IS NOT NULL;
@@ -170,7 +170,7 @@ DROP COLUMN IF EXISTS quantidade_kg;
 -- Remover índices
 DROP INDEX IF EXISTS idx_apontamentos_exp_fluxo_id;
 DROP INDEX IF EXISTS idx_apontamentos_unidade_stage;
-DROP INDEX IF EXISTS idx_apontamentos_criado_em;
+DROP INDEX IF EXISTS idx_apontamentos_created_at;
 DROP INDEX IF EXISTS idx_apontamentos_lote;
 DROP INDEX IF EXISTS idx_movimentacoes_fluxo_id;
 DROP INDEX IF EXISTS idx_movimentacoes_tipo;
