@@ -68,6 +68,14 @@ const localDateTimeToISO = (value) => {
   return date.toISOString()
 }
 
+const addMinutesToLocalInput = (value, minutes = 5) => {
+  if (!value) return ''
+  const date = value instanceof Date ? new Date(value) : new Date(String(value))
+  if (Number.isNaN(date.getTime())) return ''
+  date.setMinutes(date.getMinutes() + minutes)
+  return toLocalDateTimeInput(date)
+}
+
 const FINALIZADOS_STORAGE_KEY = 'exp_usinagem_finalizados_alunica'
 const LEGACY_FINALIZADOS_STORAGE_KEY = 'exp_usinagem_finalizados_v1'
 
@@ -301,6 +309,7 @@ const ExpUsinagem = () => {
   const [alunicaApontError, setAlunicaApontError] = useState(null)
   const [alunicaApontInicio, setAlunicaApontInicio] = useState('')
   const [alunicaApontFim, setAlunicaApontFim] = useState('')
+  const [alunicaApontFimTouched, setAlunicaApontFimTouched] = useState(false)
   const [apontByFluxo, setApontByFluxo] = useState(/** @type {Record<string, any[]>} */({}))
   const [alunicaActionLoading, setAlunicaActionLoading] = useState(() => new Set())
   const [alunicaAprovarOpen, setAlunicaAprovarOpen] = useState(false)
@@ -869,6 +878,15 @@ const ExpUsinagem = () => {
         
         // Usa o status_atual do banco se for um estágio válido
         const stageFromDb = mapStageFromDb(registro.status_atual);
+        // Não manter em orderStages quando estiver finalizado, para não voltar ao quadro TecnoPerfil
+        if (stageFromDb === 'finalizado') {
+          if (id in next) {
+            delete next[id];
+            hasChanges = true;
+          }
+          return;
+        }
+
         const validStage = TECNO_STAGE_KEYS.includes(stageFromDb) 
           ? stageFromDb 
           : DEFAULT_STAGE;
@@ -1056,6 +1074,7 @@ const ExpUsinagem = () => {
 
     pedidosTecnoPerfil.forEach((pedido) => {
       const id = String(pedido.id)
+      if (pedido?.status === 'finalizado') return
       const stage = orderStages[id] && TECNO_STAGE_KEYS.includes(orderStages[id])
         ? orderStages[id]
         : DEFAULT_STAGE
@@ -1555,14 +1574,30 @@ const ExpUsinagem = () => {
       setAlunicaApontQtdPc('')
       setAlunicaApontQtdPcInspecao('')
       setAlunicaApontObs('')
-      setAlunicaApontInicio(toLocalDateTimeInput(new Date()))
-      setAlunicaApontFim(toLocalDateTimeInput(new Date()))
+      const now = new Date()
+      const startStr = toLocalDateTimeInput(now)
+      const endStr = toLocalDateTimeInput(new Date(now.getTime() + 5 * 60000))
+      setAlunicaApontInicio(startStr)
+      setAlunicaApontFim(endStr)
+      setAlunicaApontFimTouched(false)
       setAlunicaApontError(null)
       setAlunicaApontOpen(true)
     } catch {
       setAlunicaApontError('Falha ao preparar o apontamento. Tente novamente.')
       setAlunicaApontOpen(true)
     }
+  }
+
+  const handleInicioChange = (value) => {
+    setAlunicaApontInicio(value)
+    if (!alunicaApontFimTouched) {
+      setAlunicaApontFim(addMinutesToLocalInput(value, 5))
+    }
+  }
+
+  const handleFimChange = (value) => {
+    setAlunicaApontFimTouched(true)
+    setAlunicaApontFim(value)
   }
 
   const closeAlunicaApontamento = () => {
@@ -1575,6 +1610,7 @@ const ExpUsinagem = () => {
     setAlunicaApontObs('')
     setAlunicaApontInicio('')
     setAlunicaApontFim('')
+    setAlunicaApontFimTouched(false)
     setAlunicaApontError(null)
   }
 
@@ -1827,6 +1863,7 @@ const ExpUsinagem = () => {
       setAlunicaApontObs('')
       setAlunicaApontInicio('')
       setAlunicaApontFim('')
+      setAlunicaApontFimTouched(false)
       setAlunicaApontError(null)
     } catch (error) {
       console.error('Erro ao salvar apontamento Alúnica:', error)
@@ -2983,7 +3020,7 @@ const ExpUsinagem = () => {
                   <input
                     type="datetime-local"
                     value={alunicaApontInicio}
-                    onChange={(e) => setAlunicaApontInicio(e.target.value)}
+                    onChange={(e) => handleInicioChange(e.target.value)}
                     className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
                     disabled={alunicaApontSaving}
                   />
@@ -2993,7 +3030,7 @@ const ExpUsinagem = () => {
                   <input
                     type="datetime-local"
                     value={alunicaApontFim}
-                    onChange={(e) => setAlunicaApontFim(e.target.value)}
+                    onChange={(e) => handleFimChange(e.target.value)}
                     className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-200"
                     disabled={alunicaApontSaving}
                   />
