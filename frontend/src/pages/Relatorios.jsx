@@ -45,10 +45,30 @@ const getTodayDateInput = () => {
   return `${ano}-${mes}-${dia}`
 }
 
+const get7BusinessDaysAgoDateInput = () => {
+  const pad = (n) => String(n).padStart(2, '0')
+  const data = new Date()
+  let diasUteis = 0
+  
+  while (diasUteis < 7) {
+    data.setDate(data.getDate() - 1)
+    const diaSemana = data.getDay()
+    // 0 = domingo, 6 = sábado
+    if (diaSemana !== 0 && diaSemana !== 6) {
+      diasUteis++
+    }
+  }
+  
+  const ano = data.getFullYear()
+  const mes = pad(data.getMonth() + 1)
+  const dia = pad(data.getDate())
+  return `${ano}-${mes}-${dia}`
+}
+
 const Relatorios = () => {
   const [filtros, setFiltros] = useState(() => ({
     tipoRelatorio: 'producao',
-    dataInicio: getTodayDateInput(),
+    dataInicio: get7BusinessDaysAgoDateInput(),
     dataFim: '',
     maquina: '',
     operador: '',

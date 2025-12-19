@@ -1,4 +1,5 @@
 # Log de Alterações
+[19/12/2025 08:57] - [Frontend/Database] - [Apontamentos da Embalagem: suporte a etapas (Rebarbar/Limpeza e Embalagem) via campo etapa_embalagem, seleção de tipo de processo e cálculo de saldo considerando apenas Embalagem] - [Cascade]
 [12/12/2025 10:25] - [Frontend] - [Relatórios Inteligentes: cards de indicadores (produção, tempo, produtividade, refugo), insights automáticos, colunas de tempo (Início/Fim/Duração/Pcs por hora) nos relatórios de produção, UI modernizada] - [Cascade]
 [12/12/2025 09:24] - [Frontend] - [Estoque: Status de Ferramentas editável (vida útil, última troca, responsável) via modal] - [Cascade]
 [12/12/2025 09:09] - [Frontend] - [Estoque: edição de estoque mínimo (Itens Acabados via configuracoes e Insumos via qtd_minima)] - [Cascade]

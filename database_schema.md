@@ -87,6 +87,7 @@ Registra os apontamentos operacionais efetivamente usados pelo app (campos ricos
 - `exp_fluxo_id`: Referência opcional para o registro em `exp_pedidos_fluxo` associado ao apontamento.
 - `exp_unidade`: Unidade/módulo de expedição onde o apontamento foi realizado (ex.: `alunica`, `tecnoperfil`).
 - `exp_stage`: Estágio do fluxo EXP no momento do apontamento (ex.: `para-usinar`, `para-embarque`).
+- `etapa_embalagem`: Etapa do apontamento quando `exp_unidade='embalagem'` (ex.: `REBARBAR_LIMPEZA` ou `EMBALAGEM`).
 
 ### Campo `amarrados_detalhados` (JSONB)
 Armazena informações completas dos amarrados selecionados para rastreabilidade total:
@@ -301,3 +302,32 @@ Histórico de movimentações do fluxo EXP - Usinagem.
 - `kg_movimentado` / `pc_movimentado`: Quantidade movimentada na operação (NUMERIC(18,3)).
 - `kg_disponivel_anterior` / `kg_disponivel_atual`: Saldo disponível em kg antes/depois da movimentação.
 - `pc_disponivel_anterior` / `pc_disponivel_atual`: Saldo disponível em peças antes/depois da movimentação.
+
+## Tabela: `apontamentos_correcoes`
+Auditoria de correções realizadas em apontamentos (apenas admin).
+- `id`: UUID gerado automaticamente.
+- `apontamento_id`: Referência para `apontamentos(id)` com cascata de exclusão.
+- `valor_anterior`: JSONB com dados originais antes da correção.
+- `valor_novo`: JSONB com dados após a correção.
+- `campos_alterados`: Array de TEXT com nomes dos campos corrigidos (ex: `['quantidade', 'inicio']`).
+- `corrigido_por`: UUID referência para `usuarios(id)` - quem fez a correção.
+- `corrigido_em`: TIMESTAMPTZ com data/hora da correção (padrão: agora em UTC).
+- `motivo_correcao`: Texto obrigatório explicando por que foi corrigido.
+- `revertido`: BOOLEAN indicando se a correção foi revertida (padrão: false).
+- `revertido_por`: UUID referência para `usuarios(id)` - quem reverteu (opcional).
+- `revertido_em`: TIMESTAMPTZ com data/hora da reversão (opcional).
+- `motivo_reversao`: Texto explicando por que foi revertido (opcional).
+- `created_at`: TIMESTAMPTZ de criação do registro.
+
+**Índices:**
+- `idx_correcoes_apontamento` em `apontamento_id`
+- `idx_correcoes_corrigido_por` em `corrigido_por`
+- `idx_correcoes_data` em `corrigido_em DESC`
+
+**RLS Policies:**
+- `admin_can_insert_correcoes`: Apenas usuários com `nivel_acesso = 'admin'` podem inserir.
+- `admin_can_view_correcoes`: Apenas usuários com `nivel_acesso IN ('admin', 'supervisor')` podem visualizar.
+- `admin_can_update_correcoes`: Apenas usuários com `nivel_acesso = 'admin'` podem atualizar (reversões).
+
+**Propósito:**
+Manter rastreabilidade completa de todas as correções de apontamentos, incluindo dados anteriores, novos, quem corrigiu, quando e por quê. Suporta reversão de correções com justificativa.

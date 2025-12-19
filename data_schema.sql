@@ -157,6 +157,14 @@ ALTER TABLE public.ferramentas_cfg
   ADD COLUMN IF NOT EXISTS ultima_troca timestamptz,
   ADD COLUMN IF NOT EXISTS pcs_por_pallet numeric(14,3);
 
+-- Campos adicionais esperados pelo frontend (Configurações de Ferramentas)
+ALTER TABLE public.ferramentas_cfg
+  ADD COLUMN IF NOT EXISTS peso_linear numeric(14,3),
+  ADD COLUMN IF NOT EXISTS comprimento_mm int,
+  ADD COLUMN IF NOT EXISTS ripas_por_pallet int,
+  ADD COLUMN IF NOT EXISTS embalagem text,
+  ADD COLUMN IF NOT EXISTS pcs_por_caixa int;
+
 UPDATE public.ferramentas_cfg
 SET ferramenta = codigo
 WHERE ferramenta IS NULL AND codigo IS NOT NULL;
@@ -307,6 +315,27 @@ END$$;
 
 NOTIFY pgrst, 'reload schema';
 
+-- Política adicional para permitir INSERT por role "anon" (ambiente de desenvolvimento)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname = 'historico_acoes'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename  = 'historico_acoes'
+        AND policyname = 'allow_insert_anon'
+    ) THEN
+      EXECUTE 'CREATE POLICY allow_insert_anon ON public.historico_acoes FOR INSERT TO anon WITH CHECK (true)';
+    END IF;
+  END IF;
+END$$;
+
+NOTIFY pgrst, 'reload schema';
+
 -- ============================
 -- MELHORIAS DE RASTREABILIDADE (v2.0.0)
 -- ============================
@@ -345,6 +374,9 @@ ALTER TABLE public.apontamentos
   ADD COLUMN IF NOT EXISTS exp_fluxo_id UUID REFERENCES public.exp_pedidos_fluxo(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS exp_unidade TEXT,
   ADD COLUMN IF NOT EXISTS exp_stage TEXT;
+
+ALTER TABLE public.apontamentos
+  ADD COLUMN IF NOT EXISTS etapa_embalagem TEXT;
 
 COMMENT ON COLUMN public.apontamentos.exp_fluxo_id IS 'Referência opcional para exp_pedidos_fluxo (fluxo EXP - Usinagem).';
 COMMENT ON COLUMN public.apontamentos.exp_unidade IS 'Unidade/módulo de expedição associada ao apontamento (ex.: alunica, tecnoperfil).';
@@ -575,6 +607,7 @@ BEGIN
     ALTER TABLE public.apontamentos DROP COLUMN IF EXISTS exp_fluxo_id;
     ALTER TABLE public.apontamentos DROP COLUMN IF EXISTS exp_unidade;
     ALTER TABLE public.apontamentos DROP COLUMN IF EXISTS exp_stage;
+    ALTER TABLE public.apontamentos DROP COLUMN IF EXISTS etapa_embalagem;
   END IF;
 END $$;
 
@@ -596,13 +629,136 @@ ALTER TABLE IF EXISTS public.ferramentas_cfg
   DROP COLUMN IF EXISTS responsavel,
   DROP COLUMN IF EXISTS vida_util_dias,
   DROP COLUMN IF EXISTS ultima_troca,
-  DROP COLUMN IF EXISTS pcs_por_pallet;
+  DROP COLUMN IF EXISTS pcs_por_pallet,
+  DROP COLUMN IF EXISTS peso_linear,
+  DROP COLUMN IF EXISTS comprimento_mm,
+  DROP COLUMN IF EXISTS ripas_por_pallet,
+  DROP COLUMN IF EXISTS embalagem,
+  DROP COLUMN IF EXISTS pcs_por_caixa;
+
+-- Remover política de desenvolvimento caso exista
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname = 'historico_acoes'
+  ) THEN
+    BEGIN
+      EXECUTE 'DROP POLICY IF EXISTS allow_insert_anon ON public.historico_acoes';
+    EXCEPTION WHEN others THEN
+      NULL;
+    END;
+  END IF;
+END $$;
 
 -- Rollback finalização manual
 ALTER TABLE IF EXISTS public.pedidos
   DROP COLUMN IF EXISTS finalizado_manual,
   DROP COLUMN IF EXISTS finalizado_em,
   DROP COLUMN IF EXISTS finalizado_por;
+
+-- Tabela de correções de apontamentos (auditoria)
+CREATE TABLE IF NOT EXISTS apontamentos_correcoes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  apontamento_id UUID NOT NULL REFERENCES apontamentos(id) ON DELETE CASCADE,
+  
+  -- Dados anteriores (antes da correção)
+  valor_anterior JSONB NOT NULL,
+  
+  -- Dados novos (após a correção)
+  valor_novo JSONB NOT NULL,
+  
+  -- Campos corrigidos (array de nomes: ['quantidade', 'inicio', 'operador', etc])
+  campos_alterados TEXT[] NOT NULL,
+  
+  -- Rastreabilidade
+  corrigido_por UUID NOT NULL REFERENCES usuarios(id),
+  corrigido_em TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  motivo_correcao TEXT NOT NULL,
+  
+  -- Reversão (se necessário)
+  revertido BOOLEAN DEFAULT false,
+  revertido_por UUID REFERENCES usuarios(id),
+  revertido_em TIMESTAMPTZ,
+  motivo_reversao TEXT,
+  
+  created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_correcoes_apontamento ON apontamentos_correcoes(apontamento_id);
+CREATE INDEX IF NOT EXISTS idx_correcoes_corrigido_por ON apontamentos_correcoes(corrigido_por);
+CREATE INDEX IF NOT EXISTS idx_correcoes_data ON apontamentos_correcoes(corrigido_em DESC);
+
+-- RLS: Apenas admin pode inserir/atualizar correções
+ALTER TABLE apontamentos_correcoes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "admin_can_insert_correcoes" ON apontamentos_correcoes
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM usuarios
+      WHERE id = auth.uid()
+      AND nivel_acesso = 'admin'
+    )
+  );
+
+CREATE POLICY "admin_can_view_correcoes" ON apontamentos_correcoes
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM usuarios
+      WHERE id = auth.uid()
+      AND nivel_acesso IN ('admin', 'supervisor')
+    )
+  );
+
+CREATE POLICY "admin_can_update_correcoes" ON apontamentos_correcoes
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM usuarios
+      WHERE id = auth.uid()
+      AND nivel_acesso = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM usuarios
+      WHERE id = auth.uid()
+      AND nivel_acesso = 'admin'
+    )
+  );
+
+-- DEV ONLY: como o app usa autenticação própria (sem Supabase Auth), auth.uid() fica NULL.
+-- Para desenvolvimento/local, permitir operações via role 'anon' nesta tabela.
+DROP POLICY IF EXISTS "allow_select_anon_correcoes" ON apontamentos_correcoes;
+CREATE POLICY "allow_select_anon_correcoes" ON apontamentos_correcoes
+  FOR SELECT
+  TO anon
+  USING (true);
+
+DROP POLICY IF EXISTS "allow_insert_anon_correcoes" ON apontamentos_correcoes;
+CREATE POLICY "allow_insert_anon_correcoes" ON apontamentos_correcoes
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "allow_update_anon_correcoes" ON apontamentos_correcoes;
+CREATE POLICY "allow_update_anon_correcoes" ON apontamentos_correcoes
+  FOR UPDATE
+  TO anon
+  USING (true)
+  WITH CHECK (true);
+
+-- Rollback: remover tabela de correções
+-- DROP TABLE IF EXISTS apontamentos_correcoes CASCADE;
+
+-- Rollback DEV ONLY (policies anon)
+-- DROP POLICY IF EXISTS "allow_select_anon_correcoes" ON apontamentos_correcoes;
+-- DROP POLICY IF EXISTS "allow_insert_anon_correcoes" ON apontamentos_correcoes;
+-- DROP POLICY IF EXISTS "allow_update_anon_correcoes" ON apontamentos_correcoes;
 
 NOTIFY pgrst, 'reload schema';
 

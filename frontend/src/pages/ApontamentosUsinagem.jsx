@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar } from 'react-icons/fa'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
+import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
 const buildHttpPdfUrl = (basePath, fileName) => {
@@ -83,9 +84,28 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Lotes importados (Dados • Lotes) via Supabase
   const { items: lotesDB } = useSupabase('lotes')
   
+  // Debug: verificar se user está sendo carregado corretamente
+  useEffect(() => {
+    console.log('🔍 DEBUG ApontamentosUsinagem - User:', user)
+    console.log('🔍 DEBUG ApontamentosUsinagem - nivel_acesso:', user?.nivel_acesso)
+    console.log('🔍 DEBUG ApontamentosUsinagem - role:', user?.role)
+    console.log('🔍 DEBUG ApontamentosUsinagem - isAdmin check:', user?.nivel_acesso === 'admin' || user?.nivel_acesso === 'Administrador')
+  }, [user])
+  
+  // Helper para verificar se é admin
+  const isAdmin = () => {
+    const nivel = String(user?.nivel_acesso ?? user?.role ?? '').trim().toLowerCase()
+    const isAdminCheck = nivel === 'admin' || nivel === 'administrador'
+    console.log('🔍 isAdmin() called - result:', isAdminCheck, 'nivel(normalizado):', nivel)
+    return isAdminCheck
+  }
+  
   // Filtro de prioridades
   const [filtrarPrioridades, setFiltrarPrioridades] = useState(false)
   const [pedidosPrioritarios, setPedidosPrioritarios] = useState(new Set())
+  
+  // Modal de correção de apontamentos
+  const [apontamentoParaCorrigir, setApontamentoParaCorrigir] = useState(null)
   
   // Carregar prioridades do PCP
   useEffect(() => {
@@ -111,6 +131,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [formData, setFormData] = useState({
     operador: user ? user.nome : '',
     maquina: '',
+    processoEmbalagem: 'somente_embalagem',
+    etapaEmbalagem: 'EMBALAGEM',
     codigoPerfil: '',
     ordemTrabalho: '',
     inicio: '',
@@ -956,6 +978,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     setFormData({
       operador: user ? user.nome : '',
       maquina: '',
+      processoEmbalagem: 'somente_embalagem',
+      etapaEmbalagem: 'EMBALAGEM',
       codigoPerfil: '',
       ordemTrabalho: '',
       inicio: '',
@@ -1303,6 +1327,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const concluirRegistro = async () => {
     const qtdForm = Number(formData.quantidade || 0)
     const qtdConf = Number(qtdConfirmada || 0)
+    if (modo === 'embalagem' && formData.processoEmbalagem === 'rebarbar_embalar' && !String(formData.etapaEmbalagem || '').trim()) {
+      alert('Selecione a Etapa (Rebarbar/Limpeza ou Embalagem).')
+      return
+    }
     if (!rackOuPallet) {
       alert('Informe o Número do Rack ou Pallet.')
       return
@@ -1346,7 +1374,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const expFields = (modo === 'embalagem')
       ? {
           exp_unidade: 'embalagem',
-          exp_stage: 'para-embarque'
+          exp_stage: 'para-embarque',
+          etapa_embalagem: (formData.processoEmbalagem === 'somente_embalagem')
+            ? 'EMBALAGEM'
+            : (String(formData.etapaEmbalagem || '').trim() || 'EMBALAGEM')
         }
       : {}
 
@@ -1470,12 +1501,16 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const seq = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '')
         const qtd = Number(a.quantidade || a.quantidadeProduzida || 0)
         const match = seq === chave
+        const etapa = String(a.etapa_embalagem || '').trim().toUpperCase()
+        const matchEtapa = (modo !== 'embalagem')
+          ? true
+          : (!etapa || etapa === 'EMBALAGEM')
         
         if (match) {
           console.log('Match encontrado:', { seq, qtd, apontamento: a })
         }
         
-        return acc + (match ? (isNaN(qtd) ? 0 : qtd) : 0)
+        return acc + (match && matchEtapa ? (isNaN(qtd) ? 0 : qtd) : 0)
       }, 0)
       
       console.log('Total calculado:', total)
@@ -1498,7 +1533,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const chave = String(formData.ordemTrabalho || '')
     if (!chave) return []
     try {
-      return (apontamentosDB || []).filter(a => String(a.ordemTrabalho || a.pedido_seq || '') === chave)
+      return (apontamentosDB || []).filter(a => {
+        const seq = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '').trim()
+        return seq === chave
+      })
     } catch {
       return []
     }
@@ -1704,6 +1742,22 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
               </div>
             </div>
+
+            {modo === 'embalagem' && formData.processoEmbalagem === 'rebarbar_embalar' && (
+              <div>
+                <label className="block label-sm font-medium text-gray-700 mb-1">Etapa</label>
+                <select
+                  name="etapaEmbalagem"
+                  value={formData.etapaEmbalagem}
+                  onChange={handleChange}
+                  required
+                  className="input-field input-field-sm"
+                >
+                  <option value="REBARBAR_LIMPEZA">Rebarbar/Limpeza</option>
+                  <option value="EMBALAGEM">Embalagem</option>
+                </select>
+              </div>
+            )}
             
             <div className="mt-4 flex justify-between">
               <div className="flex gap-2">
@@ -2208,7 +2262,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-3 form-compact">
-          <div className="grid grid-cols-1 md:grid-cols-5 grid-compact">
+          <div className={`grid grid-cols-1 ${modo === 'embalagem' ? 'md:grid-cols-6' : 'md:grid-cols-5'} grid-compact`}>
             <div>
               <label className="block label-sm font-medium text-gray-700 mb-1">
                 Operador
@@ -2239,6 +2293,28 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 ))}
               </select>
             </div>
+
+            {modo === 'embalagem' && (
+              <div>
+                <label className="block label-sm font-medium text-gray-700 mb-1">Tipo de Processo</label>
+                <select
+                  name="processoEmbalagem"
+                  value={formData.processoEmbalagem}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setFormData(prev => ({
+                      ...prev,
+                      processoEmbalagem: v,
+                      etapaEmbalagem: v === 'somente_embalagem' ? 'EMBALAGEM' : (prev.etapaEmbalagem || 'REBARBAR_LIMPEZA')
+                    }))
+                  }}
+                  className="input-field input-field-sm"
+                >
+                  <option value="somente_embalagem">Somente Embalagem</option>
+                  <option value="rebarbar_embalar">Rebarbar/Limpeza + Embalagem</option>
+                </select>
+              </div>
+            )}
             
             <div>
               <div className="flex items-center justify-between mb-1">
@@ -2738,10 +2814,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   <tr>
                     <th className="text-left px-3 py-2">Início</th>
                     <th className="text-left px-3 py-2">Fim</th>
+                    {modo === 'embalagem' && <th className="text-left px-3 py-2">Etapa</th>}
                     <th className="text-left px-3 py-2">Quantidade</th>
                     <th className="text-left px-3 py-2">Operador</th>
                     <th className="text-left px-3 py-2">Rack/Pallet</th>
                     <th className="text-left px-3 py-2">Obs.</th>
+                    {isAdmin() && <th className="text-center px-3 py-2">Ações</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -2749,15 +2827,32 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <tr key={idx} className="border-t hover:bg-gray-50">
                       <td className="px-3 py-2">{a.inicio ? new Date(a.inicio).toLocaleString('pt-BR') : ''}</td>
                       <td className="px-3 py-2">{a.fim ? new Date(a.fim).toLocaleString('pt-BR') : ''}</td>
+                      {modo === 'embalagem' && (
+                        <td className="px-3 py-2">
+                          {String(a.etapa_embalagem || '').trim() ? String(a.etapa_embalagem).replace(/_/g, '/').toLowerCase() : 'embalagem'}
+                        </td>
+                      )}
                       <td className="px-3 py-2">{a.quantidade}</td>
                       <td className="px-3 py-2">{a.operador || ''}</td>
                       <td className="px-3 py-2">{a.rackOuPallet || ''}</td>
                       <td className="px-3 py-2">{a.observacoes || ''}</td>
+                      {isAdmin() && (
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            onClick={() => setApontamentoParaCorrigir(a)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline text-xs font-medium"
+                            title="Corrigir apontamento"
+                          >
+                            <FaWrench className="inline mr-1" />
+                            Corrigir
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {apontamentosDaOrdem.length === 0 && (
                     <tr>
-                      <td colSpan="6" className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para este pedido</td>
+                      <td colSpan={String((isAdmin() ? 6 : 5) + (modo === 'embalagem' ? 1 : 0))} className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para este pedido</td>
                     </tr>
                   )}
                 </tbody>
@@ -2890,6 +2985,19 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Modal: Correção de Apontamento */}
+      {apontamentoParaCorrigir && (
+        <CorrecaoApontamentoModal
+          apontamento={apontamentoParaCorrigir}
+          usuarioId={user?.id}
+          onClose={() => setApontamentoParaCorrigir(null)}
+          onSucesso={() => {
+            recarregarApontamentos()
+            setApontamentoParaCorrigir(null)
+          }}
+        />
       )}
     </div>
   )
