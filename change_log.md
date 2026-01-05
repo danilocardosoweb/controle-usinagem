@@ -1,4 +1,5 @@
 # Log de Alterações
+[05/01/2026 14:07] - [Frontend] - [Etiqueta térmica: adicionado QR Code com dados compactos de rastreabilidade do lote] - [Cascade]
 [19/12/2025 09:25] - [Frontend] - [Manual do Usuário: nova página geral com guia de uso e item no menu lateral] - [Cascade]
 [19/12/2025 08:57] - [Frontend/Database] - [Apontamentos da Embalagem: suporte a etapas (Rebarbar/Limpeza e Embalagem) via campo etapa_embalagem, seleção de tipo de processo e cálculo de saldo considerando apenas Embalagem] - [Cascade]
 [12/12/2025 10:25] - [Frontend] - [Relatórios Inteligentes: cards de indicadores (produção, tempo, produtividade, refugo), insights automáticos, colunas de tempo (Início/Fim/Duração/Pcs por hora) nos relatórios de produção, UI modernizada] - [Cascade]

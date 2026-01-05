@@ -10,6 +10,7 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 
 - Registro das ordens de trabalho em execução
 - Seleção de atividades a partir da Carteira de Encomendas
+- Impressão de etiqueta térmica (100mm x 45mm) com QR Code contendo dados compactos de rastreabilidade do lote
 - Campos para registro:
   - Operador
   - Máquina

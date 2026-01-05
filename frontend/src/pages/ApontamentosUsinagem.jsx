@@ -4,6 +4,7 @@ import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
+import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
@@ -198,7 +199,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   }
 
   // Cria etiqueta térmica compacta 100x45mm para impressora térmica
-  const imprimirEtiquetaTermica = (lote, quantidade, rackOuPalletValor, dureza) => {
+  const imprimirEtiquetaTermica = async (lote, quantidade, rackOuPalletValor, dureza, loteMP, numeroEtiqueta, totalEtiquetas) => {
     // Verificar configuração da impressora térmica
     const impressoraTermica = getConfiguracaoImpressoras().termica
     
@@ -216,7 +217,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const comprimento = formData.comprimentoAcabado || ''
     const qtde = quantidade || ''
     const pallet = rackOuPalletValor || ''
-    const durezaVal = dureza || 'N/A'
+    const durezaVal = (dureza && String(dureza).trim()) ? dureza : 'N/A'
+    const durezaDisplay = durezaVal
+    const loteMPVal = loteMP || formData.loteExterno || (formData.lotesExternos && formData.lotesExternos.length ? formData.lotesExternos[0] : '')
+    const loteMPDisplay = loteMPVal || 'MP não informado'
     
     // Extrai ferramenta do código do produto
     const extrairFerramenta = (prod) => {
@@ -240,103 +244,200 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     
     const ferramenta = extrairFerramenta(perfil)
 
+    const loteUsinagemPrint = String(lote || '').replace(/-/g, '-<wbr>')
+    const loteMpPrint = String(loteMPDisplay || '').replace(/(.{12})/g, '$1<wbr>')
+    const bigCode = String(lote || '').replace(/-/g, '')
+    const bigCodeTight = bigCode.length > 18
+
+    const qrText = `L=${String(lote || '')}|MP=${String(loteMPVal || '')}|P=${String(ferramenta || '')}|R=${String(pallet || '')}|Q=${String(qtde || '')}|D=${String(durezaDisplay || '')}|E=${String(numeroEtiqueta || '')}/${String(totalEtiquetas || '')}`
+    let qrDataUrl = ''
+    try {
+      qrDataUrl = await QRCode.toDataURL(qrText, { errorCorrectionLevel: 'M', margin: 0, scale: 4 })
+    } catch (e) {
+      qrDataUrl = ''
+    }
+
+    const qrImgHtml = qrDataUrl
+      ? `<div class="qr-wrap"><img class="qr" src="${qrDataUrl}" alt="QR" /></div>`
+      : ''
+
     const html = `<!DOCTYPE html>
     <html><head><meta charset="utf-8" />
     <style>
-      @page { size: 100mm 45mm; margin: 1mm; }
-      body { 
-        font-family: Arial, sans-serif; 
-        color: #000; 
-        margin: 0; 
-        padding: 1mm;
-        font-size: 13pt;
-        line-height: 1.3;
-        -webkit-print-color-adjust: exact; 
-        print-color-adjust: exact;
+      @page { size: 100mm 45mm; margin: 0; }
+      @media print {
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        html, body { margin: 0; }
       }
-      .header { 
-        background: #000; 
-        color: #fff; 
-        text-align: center; 
-        font-weight: bold; 
-        font-size: 14pt;
-        padding: 1.5mm 0;
-        margin-bottom: 1.5mm;
+      * { box-sizing: border-box; }
+      html, body {
+        width: 378px;
+        height: 170px;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        page-break-after: avoid;
+        page-break-before: avoid;
+        page-break-inside: avoid;
+        break-after: avoid;
+        break-before: avoid;
+        break-inside: avoid;
       }
-      .content {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1mm 3mm;
-        margin-bottom: 1.5mm;
-      }
-      .info-item {
-        margin-bottom: 1mm;
-      }
-      .label { 
-        font-size: 10pt;
-        color: #666;
-        display: block;
-        margin-bottom: 0.3mm;
-      }
-      .value { 
-        font-weight: bold;
-        font-size: 14pt;
+      body {
+        width: 378px;
+        height: 170px;
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        line-height: 1.1;
+        background: #fff;
         color: #000;
-        display: block;
+        page-break-after: avoid;
+        page-break-before: avoid;
+        page-break-inside: avoid;
+        break-after: avoid;
+        break-before: avoid;
+        break-inside: avoid;
       }
-      .barcode-section {
+      .header {
+        background: #000;
+        color: #fff;
         text-align: center;
-        margin-top: 1mm;
-        padding-top: 1mm;
-        border-top: 1px solid #ccc;
-      }
-      .barcode-text {
-        font-family: 'Libre Barcode 128', 'Courier New', monospace;
-        font-size: 32pt;
-        letter-spacing: -1px;
-        line-height: 1;
         font-weight: bold;
+        font-size: 12px;
+        height: 22px;
+        line-height: 22px;
+        overflow: hidden;
+      }
+      .container {
+        height: 134px;
+        display: flex;
+        flex-direction: row;
+        padding: 4px 7px 0 7px;
+        overflow: hidden;
+      }
+      .left-col {
+        width: 65%;
+        display: flex;
+        flex-direction: column;
+      }
+      .right-col {
+        width: 35%;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: space-between;
+        padding-top: 8px;
+        padding-bottom: 4px;
+        padding-right: 2px;
+      }
+      .row {
+        display: flex;
+        align-items: baseline;
+        margin-bottom: 2px;
+      }
+      .lbl {
+        font-weight: bold;
+        color: #000;
+        margin-right: 5px;
+        width: 45px;
+        flex-shrink: 0;
+        font-size: 11px;
+      }
+      .val {
+        font-weight: bold;
+        color: #000;
+        font-size: 12px;
+      }
+      .lote-group {
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .lote-row { display: block; }
+      .lote-lbl {
+        font-weight: bold;
+        color: #000;
+        font-size: 10px;
+        margin-bottom: 1px;
+      }
+      .lote-val {
+        font-family: 'Courier New', monospace;
+        font-size: 9px;
+        font-weight: bold;
+        word-break: break-all;
+        line-height: 1.05;
+        white-space: normal;
+      }
+      .big-code {
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        font-weight: bold;
+        text-align: right;
+        white-space: nowrap;
+        line-height: 1;
+        letter-spacing: -0.8px;
+        max-width: 100%;
+        overflow: visible;
+        padding-right: 1px;
+      }
+      .big-code.tight {
+        font-size: 11px;
+        letter-spacing: -0.6px;
+        transform: scaleX(0.92);
+        transform-origin: right top;
+      }
+      .qr-wrap {
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+        padding-right: 2px;
+        padding-bottom: 2px;
+      }
+      .qr {
+        width: 80px;
+        height: 80px;
+        object-fit: contain;
+      }
+      .footer {
+        width: 100%;
+        height: 14px;
+        text-align: center;
+        font-size: 9px;
+        font-weight: bold;
+        border-top: 1px solid #000;
+        line-height: 14px;
+        overflow: hidden;
+        page-break-inside: avoid;
+        break-inside: avoid;
       }
     </style>
     </head><body>
       <div class="header">TECNOPERFIL ALUMÍNIO</div>
-      <div class="content">
-        <div class="col-left">
-          <div class="info-item">
-            <span class="label">Cliente:</span>
-            <span class="value">${cliente}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Pedido:</span>
-            <span class="value">${pedidoSeq}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Perfil:</span>
-            <span class="value">${ferramenta}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Dureza:</span>
-            <span class="value">${durezaVal}</span>
-          </div>
-        </div>
-        <div class="col-right">
-          <div class="info-item">
-            <span class="label">Comprimento:</span>
-            <span class="value">${comprimento} mm</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Turno:</span>
-            <span class="value">TB</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Quantidade:</span>
-            <span class="value">${qtde} PC</span>
+      <div class="container">
+        <div class="left-col">
+          <div class="row"><span class="lbl">Qtde:</span><span class="val">${qtde} PC</span></div>
+          <div class="row"><span class="lbl">Rack:</span><span class="val">${pallet}</span></div>
+          <div class="row"><span class="lbl">Perfil:</span><span class="val">${ferramenta}</span></div>
+          <div class="row"><span class="lbl">Dureza:</span><span class="val">${durezaDisplay}</span></div>
+          
+          <div class="lote-group">
+            <div class="lote-row">
+              <div class="lote-lbl">Lote Usinagem:</div>
+              <div class="lote-val">${loteUsinagemPrint}</div>
+            </div>
+            <div class="lote-row">
+              <div class="lote-lbl">Lote Extrusão (MP):</div>
+              <div class="lote-val">${loteMpPrint}</div>
+            </div>
           </div>
         </div>
+        <div class="right-col">
+          <div class="big-code ${bigCodeTight ? 'tight' : ''}">${bigCode}</div>
+          ${qrImgHtml}
+        </div>
       </div>
-      <div class="barcode-section">
-        <div class="barcode-text">${lote.replace(/-/g, '')}</div>
-      </div>
+      <div class="footer">Etiqueta ${numeroEtiqueta}/${totalEtiquetas}</div>
     </body></html>`
 
     // Criar blob HTML para impressão direta
@@ -354,7 +455,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   }
 
   // Cria conteúdo HTML estilizado para o formulário e dispara download .doc
-  const imprimirDocumentoIdentificacao = (lote, quantidade, rackOuPalletValor, dureza) => {
+  const imprimirDocumentoIdentificacao = (lote, quantidade, rackOuPalletValor, dureza, loteMP) => {
     // Verificar configuração da impressora comum
     const impressoraComum = getConfiguracaoImpressoras().comum
     
@@ -375,6 +476,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const qtde = quantidade || ''
     const pallet = rackOuPalletValor || ''
     const durezaVal = dureza || ''
+    const loteMPVal = loteMP || ''
 
     const html = `<!DOCTYPE html>
     <html><head><meta charset="utf-8" />
@@ -426,6 +528,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         font-size: 11pt; 
         font-weight: 600; 
         color: #333;
+        display: flex;
+        gap: 8mm;
+        justify-content: center;
+        flex-wrap: nowrap;
+      }
+      .sub-item {
+        white-space: nowrap;
       }
       .form-grid { 
         display: grid;
@@ -474,7 +583,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       <div class="container">
         <div class="header">
           <div class="titulo">Formulário de Identificação do Material Cortado</div>
-          <div class="sub">Lote: ${lote}</div>
+          <div class="sub">
+            <span class="sub-item">Lote: ${lote}</span>
+            ${loteMPVal ? `<span class="sub-item">| Lote MP: ${loteMPVal}</span>` : ''}
+          </div>
         </div>
         
         <div class="form-grid">
@@ -575,6 +687,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [imprimirAberto, setImprimirAberto] = useState(false)
   const [ultimoLote, setUltimoLote] = useState('')
   const [tipoImpressao, setTipoImpressao] = useState('documento') // 'documento' | 'etiqueta'
+  const [loteMPSelecionado, setLoteMPSelecionado] = useState('')
+  const [etiquetasDistribuicao, setEtiquetasDistribuicao] = useState([{ qtdPorEtiqueta: '', qtdEtiquetas: '' }])
   // Modal para romaneio e lote externo (fluxo antigo – mantendo disponível se necessário)
   const [romaneioAberto, setRomaneioAberto] = useState(false)
   const [tmpRomaneio, setTmpRomaneio] = useState('')
@@ -1447,13 +1561,92 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     clearForm()
   }
 
+  // Helpers de distribuição de etiquetas
+  const addLinhaDistribuicao = () => {
+    setEtiquetasDistribuicao(prev => [...prev, { qtdPorEtiqueta: '', qtdEtiquetas: '' }])
+  }
+
+  const removeLinhaDistribuicao = (idx) => {
+    setEtiquetasDistribuicao(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const atualizarDistribuicao = (idx, campo, valor) => {
+    setEtiquetasDistribuicao(prev => prev.map((item, i) => i === idx ? { ...item, [campo]: valor } : item))
+  }
+
+  const lotesMPDisponiveis = useMemo(() => {
+    const set = new Set()
+    if (amarradosSelecionadosRack?.length) {
+      amarradosSelecionadosRack.forEach(a => { if (a.lote) set.add(a.lote) })
+    } else if (formData.lotesExternos?.length) {
+      formData.lotesExternos.forEach(l => { if (l) set.add(l) })
+    } else if (formData.loteExterno) {
+      set.add(formData.loteExterno)
+    }
+    return Array.from(set)
+  }, [amarradosSelecionadosRack, formData.lotesExternos, formData.loteExterno])
+
+  useEffect(() => {
+    if (!imprimirAberto) return
+    if (!loteMPSelecionado && lotesMPDisponiveis.length > 0) {
+      setLoteMPSelecionado(lotesMPDisponiveis[0])
+    }
+  }, [imprimirAberto, lotesMPDisponiveis, loteMPSelecionado])
+
+  const preencherAmostraDoAmarrado = () => {
+    const primeiro = amarradosSelecionadosRack && amarradosSelecionadosRack[0]
+    if (!primeiro) return
+    const qtd = Number(primeiro.qtd_pc || 0)
+    setEtiquetasDistribuicao([{ qtdPorEtiqueta: qtd ? String(qtd) : '', qtdEtiquetas: '1' }])
+    if (primeiro.lote) setLoteMPSelecionado(primeiro.lote)
+  }
+
   // Ações do modal de imprimir
-  const handleImprimirAgora = () => {
+  const handleImprimirAgora = async () => {
+    const parseNum = (v) => {
+      if (v === undefined || v === null || v === '') return 0
+      const n = Number(String(v).replace(',', '.'))
+      return Number.isFinite(n) ? n : 0
+    }
+
+    // Monta distribuição informada; se vazia, usa 1 etiqueta com total
+    let dist = etiquetasDistribuicao
+      .map((item) => ({
+        qtdPorEtiqueta: parseNum(item.qtdPorEtiqueta),
+        qtdEtiquetas: parseNum(item.qtdEtiquetas)
+      }))
+      .filter((d) => d.qtdPorEtiqueta > 0 && d.qtdEtiquetas > 0)
+
+    const qtdTotal = parseNum(formData.quantidade)
+    if (!qtdTotal || qtdTotal <= 0) {
+      alert('Informe a quantidade produzida para calcular as etiquetas.')
+      return
+    }
+
+    if (dist.length === 0) {
+      dist = [{ qtdPorEtiqueta: qtdTotal, qtdEtiquetas: 1 }]
+    }
+
+    const soma = dist.reduce((acc, d) => acc + d.qtdPorEtiqueta * d.qtdEtiquetas, 0)
+    const totalEtiquetas = dist.reduce((acc, d) => acc + d.qtdEtiquetas, 0)
+    if (soma !== qtdTotal) {
+      alert(`A soma das etiquetas (${soma}) não bate com a quantidade produzida (${qtdTotal}). Ajuste a distribuição.`)
+      return
+    }
+
+    const loteMP = loteMPSelecionado || (formData.lotesExternos && formData.lotesExternos[0]) || formData.loteExterno || ''
+
     setImprimirAberto(false)
     if (tipoImpressao === 'etiqueta') {
-      imprimirEtiquetaTermica(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial)
+      let seq = 1
+      for (const d of dist) {
+        for (let i = 0; i < d.qtdEtiquetas; i++) {
+          await imprimirEtiquetaTermica(ultimoLote, d.qtdPorEtiqueta, rackOuPallet, durezaMaterial, loteMP, seq, totalEtiquetas)
+          seq += 1
+        }
+      }
     } else {
-      imprimirDocumentoIdentificacao(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial)
+      imprimirDocumentoIdentificacao(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial, loteMP)
     }
     // Depois que escolher imprimir ou não, segue para a decisão de continuar no mesmo item
     setContinuarMesmoItemAberto(true)
@@ -2177,6 +2370,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             <div className="text-sm text-gray-700 space-y-3">
               <p>Apontamento registrado com sucesso.</p>
               <p><strong>Lote gerado:</strong> {ultimoLote}</p>
+
+              {/* Seleção do tipo de impressão */}
               <p>Escolha o tipo de impressão:</p>
               <div className="space-y-2">
                 {(() => {
@@ -2227,6 +2422,98 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   )
                 })()}
               </div>
+
+              {/* Lote MP e distribuição (apenas para etiqueta térmica) */}
+              {tipoImpressao === 'etiqueta' && (
+                <div className="space-y-3 border-t pt-3 mt-3">
+                  <div className="space-y-1">
+                    <div className="font-semibold text-gray-800">Lote de Extrusão (MP)</div>
+                    {lotesMPDisponiveis.length > 0 ? (
+                      <select
+                        className="w-full border rounded px-2 py-1"
+                        value={loteMPSelecionado}
+                        onChange={(e) => setLoteMPSelecionado(e.target.value)}
+                      >
+                        {lotesMPDisponiveis.map((lote) => (
+                          <option key={lote} value={lote}>{lote}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="text-xs text-gray-500">Nenhum lote MP disponível. Use o lote externo digitado.</div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-gray-800">Dividir etiquetas</div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                          onClick={preencherAmostraDoAmarrado}
+                        >
+                          Copiar amostra do amarrado
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                          onClick={addLinhaDistribuicao}
+                        >
+                          + Linha
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      {etiquetasDistribuicao.map((row, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            className="w-24 border rounded px-2 py-1 text-sm"
+                            placeholder="Qtd/etq"
+                            value={row.qtdPorEtiqueta}
+                            onChange={(e) => atualizarDistribuicao(idx, 'qtdPorEtiqueta', e.target.value)}
+                          />
+                          <span className="text-xs text-gray-500">pcs</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            className="w-20 border rounded px-2 py-1 text-sm"
+                            placeholder="Qtde"
+                            value={row.qtdEtiquetas}
+                            onChange={(e) => atualizarDistribuicao(idx, 'qtdEtiquetas', e.target.value)}
+                          />
+                          <span className="text-xs text-gray-500">etqs</span>
+                          {etiquetasDistribuicao.length > 1 && (
+                            <button
+                              type="button"
+                              className="text-xs text-red-600 hover:text-red-800 px-2 py-1"
+                              onClick={() => removeLinhaDistribuicao(idx)}
+                            >
+                              Remover
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {(() => {
+                      const parseNum = (v) => Number(String(v || '').replace(',', '.')) || 0
+                      const soma = etiquetasDistribuicao.reduce((acc, d) => acc + parseNum(d.qtdPorEtiqueta) * parseNum(d.qtdEtiquetas), 0)
+                      const qtdTotal = Number(formData.quantidade || 0)
+                      const ok = soma === qtdTotal && qtdTotal > 0
+                      return (
+                        <div className="text-xs">
+                          <span className={`font-semibold ${ok ? 'text-green-700' : 'text-red-700'}`}>
+                            Distribuição: {soma} pcs / {qtdTotal} pcs {ok ? '(OK)' : '(ajustar)'}
+                          </span>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="btn-outline" onClick={handleNaoImprimir}>Agora não</button>
