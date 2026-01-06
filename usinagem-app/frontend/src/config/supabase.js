@@ -22,11 +22,27 @@ export const validateSupabaseConfig = () => {
   return true;
 };
 
+// Importar e configurar o cliente Supabase
+import { createClient } from '@supabase/supabase-js'
+
+// Criar o cliente Supabase
+export const supabase = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
+
 // Log de debug (apenas em desenvolvimento)
 if (import.meta.env.DEV) {
   console.log('🔧 Configuração Supabase:', {
     url: SUPABASE_CONFIG.url ? '✅ Configurada' : '❌ Ausente',
     anonKey: SUPABASE_CONFIG.anonKey ? '✅ Configurada' : '❌ Ausente',
     env: import.meta.env.MODE
+  });
+  
+  console.log('[Supabase ENV] url: true key: true');
+  
+  // Verificar variáveis de ambiente
+  console.log('[ENV keys]', Object.keys(import.meta.env).filter(key => key.startsWith('VITE_SUPABASE')));
+  
+  console.log('[VITE vars]', {
+    VITE_SUPABASE_URL_present: !!import.meta.env.VITE_SUPABASE_URL,
+    VITE_SUPABASE_ANON_KEY_length: import.meta.env.VITE_SUPABASE_ANON_KEY?.length || 0
   });
 }

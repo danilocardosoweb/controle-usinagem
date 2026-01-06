@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FaSave, FaFileImport, FaUserPlus, FaEdit, FaTrash, FaTimes, FaTools, FaIndustry, FaWrench, FaOilCan, FaFileUpload, FaDatabase, FaSync, FaFilePdf, FaExternalLinkAlt } from 'react-icons/fa'
+import { FaSave, FaFileImport, FaUserPlus, FaEdit, FaTrash, FaTimes, FaTools, FaIndustry, FaWrench, FaOilCan, FaFileUpload, FaDatabase, FaSync, FaFilePdf, FaExternalLinkAlt, FaBarcode } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import axios from 'axios'
 import useSupabase from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import auditoriaService from '../services/AuditoriaService'
 import { useAuth } from '../contexts/AuthContext'
+import CodigosProdutosClientesTab from '../components/CodigosProdutosClientesTab'
 
 const Configuracoes = () => {
   const { user } = useAuth()
@@ -1020,6 +1021,16 @@ const Configuracoes = () => {
             Expedição
           </button>
           <button
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'codigos-clientes'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            onClick={() => setAbaAtiva('codigos-clientes')}
+          >
+            <FaBarcode className="inline mr-1" />
+            Códigos Clientes
+          </button>
+          <button
             className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'status'
               ? 'border-blue-500 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1339,6 +1350,11 @@ const Configuracoes = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Aba: Códigos de Produtos dos Clientes */}
+      {abaAtiva === 'codigos-clientes' && (
+        <CodigosProdutosClientesTab />
       )}
 
       {/* Aba: Status */}

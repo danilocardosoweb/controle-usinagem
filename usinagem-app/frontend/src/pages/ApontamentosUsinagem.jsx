@@ -6,6 +6,8 @@ import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrenc
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
 import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
+import AutocompleteCodigoCliente from '../components/AutocompleteCodigoCliente'
+import BuscaCodigoClienteService from '../services/BuscaCodigoClienteService'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
 const buildHttpPdfUrl = (basePath, fileName) => {
@@ -128,7 +130,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }
 
-  const STORAGE_KEY = 'apont_usinagem_draft'
+  const STORAGE_KEY = modo === 'embalagem' ? 'apont_embalagem_draft' : 'apont_usinagem_draft'
   const [formData, setFormData] = useState({
     operador: user ? user.nome : '',
     maquina: '',
@@ -151,7 +153,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     observacoes: '',
     romaneioNumero: '',
     loteExterno: '', // compat: primeiro lote
-    lotesExternos: [] // novo: lista de lotes
+    lotesExternos: [], // novo: lista de lotes
+    codigoProdutoCliente: '' // novo: código do produto do cliente
   })
 
   // Estados do contador de tempo
@@ -470,6 +473,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const cliente = formData.cliente || ''
     const item = formData.codigoPerfil || ''
     const itemCli = formData.perfilLongo || '' // se existir no futuro 'item_do_cliente', trocar aqui
+    const codigoCliente = formData.codigoProdutoCliente || ''
     const medida = formData.comprimentoAcabado || ''
     const pedidoTecno = formData.ordemTrabalho || ''
     const pedidoCli = formData.pedidoCliente || ''
@@ -598,6 +602,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           <div class="form-row">
             <div class="label">Item:</div>
             <div class="valor">${item}</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="label">Código Cliente:</div>
+            <div class="valor">${codigoCliente}</div>
           </div>
           
           <div class="form-row">
@@ -1099,7 +1108,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       inicio: '',
       fim: '',
       quantidade: '',
-      qtdPedido: '',
+      qtdPedido: 0,
       perfilLongo: '',
       separado: '',
       cliente: '',
@@ -1111,12 +1120,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       observacoes: '',
       romaneioNumero: '',
       loteExterno: '',
-      lotesExternos: []
+      lotesExternos: [],
+      codigoProdutoCliente: ''
     })
   }
 
-  // Extrai o código da ferramenta a partir do produto
-  // Regras:
   // - Se iniciar com 3 letras: 3 letras + '-' + 3 dígitos seguintes
   // - Se iniciar com 2 letras: 2 letras + '-' + 4 dígitos seguintes
   // Observação: tratar a letra 'O' como dígito '0' nos blocos numéricos
@@ -1356,7 +1364,30 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }, [user])
 
-  // Carrega rascunho salvo ao montar
+  // Buscar código do cliente automaticamente quando código do perfil mudar
+  useEffect(() => {
+    if (formData.codigoPerfil && formData.codigoPerfil.trim()) {
+      buscarCodigoClienteAutomatico(formData.codigoPerfil)
+    }
+  }, [formData.codigoPerfil])
+
+  // Buscar código do cliente automaticamente
+  const buscarCodigoClienteAutomatico = async (codigoTecno) => {
+    try {
+      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecno)
+      if (codigoPreferencial) {
+        setFormData(prev => ({
+          ...prev,
+          codigoProdutoCliente: codigoPreferencial.codigo_cliente
+        }))
+        console.log(`Código do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecno}`)
+      }
+    } catch (error) {
+      console.error('Erro ao buscar código do cliente automático:', error)
+    }
+  }
+
+  // Carrega rascunho salvo ao montar ou quando modo muda
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
@@ -1373,7 +1404,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       }
     } catch {}
     setDraftLoaded(true)
-  }, [])
+  }, [modo, user])
 
   // Salva rascunho automaticamente sempre que o form mudar (após carregar)
   useEffect(() => {
@@ -1383,7 +1414,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         localStorage.setItem(STORAGE_KEY, JSON.stringify(formData))
       }
     } catch {}
-  }, [formData, draftLoaded])
+  }, [formData, draftLoaded, STORAGE_KEY])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -1518,6 +1549,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       lote: lote,
       romaneio_numero: formData.romaneioNumero || '',
       lote_externo: formData.loteExterno || '',
+      // NOVO: Código do produto do cliente
+      codigo_produto_cliente: formData.codigoProdutoCliente || '',
       // NOVO: Detalhes completos dos amarrados para rastreabilidade
       amarrados_detalhados: amarradosDetalhados.length > 0 ? amarradosDetalhados : null,
       ...expFields
@@ -2746,6 +2779,18 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 value={formData.pedidoCliente}
                 readOnly
                 className="input-field input-field-sm bg-gray-100"
+              />
+            </div>
+            
+            <div>
+              <label className="block label-sm font-medium text-gray-700 mb-1">
+                Código Cliente
+              </label>
+              <AutocompleteCodigoCliente
+                codigoTecno={formData.codigoPerfil || ''}
+                value={formData.codigoProdutoCliente}
+                onChange={(value) => setFormData(prev => ({ ...prev, codigoProdutoCliente: value }))}
+                placeholder="Digite ou busque o código do cliente..."
               />
             </div>
             
