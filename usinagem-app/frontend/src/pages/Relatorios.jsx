@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FaPrint } from 'react-icons/fa'
+import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, FaUsers, FaIndustry, FaTachometerAlt, FaCalendarAlt } from 'react-icons/fa'
 import { useSupabase } from '../hooks/useSupabase'
 import * as XLSX from 'xlsx'
 
@@ -45,10 +45,30 @@ const getTodayDateInput = () => {
   return `${ano}-${mes}-${dia}`
 }
 
+const get7BusinessDaysAgoDateInput = () => {
+  const pad = (n) => String(n).padStart(2, '0')
+  const data = new Date()
+  let diasUteis = 0
+  
+  while (diasUteis < 7) {
+    data.setDate(data.getDate() - 1)
+    const diaSemana = data.getDay()
+    // 0 = domingo, 6 = sábado
+    if (diaSemana !== 0 && diaSemana !== 6) {
+      diasUteis++
+    }
+  }
+  
+  const ano = data.getFullYear()
+  const mes = pad(data.getMonth() + 1)
+  const dia = pad(data.getDate())
+  return `${ano}-${mes}-${dia}`
+}
+
 const Relatorios = () => {
   const [filtros, setFiltros] = useState(() => ({
     tipoRelatorio: 'producao',
-    dataInicio: getTodayDateInput(),
+    dataInicio: get7BusinessDaysAgoDateInput(),
     dataFim: '',
     maquina: '',
     operador: '',
@@ -159,13 +179,31 @@ const Relatorios = () => {
   
   const tiposRelatorio = [
     { id: 'producao', nome: 'Produção por Período' },
+    { id: 'producao_usinagem', nome: 'Apontamentos - Usinagem: Produção por Período' },
+    { id: 'producao_embalagem', nome: 'Apontamentos - Embalagem: Produção por Período' },
     { id: 'paradas', nome: 'Paradas de Máquina' },
     { id: 'desempenho', nome: 'Desempenho por Operador/Máquina' },
+    { id: 'desempenho_usinagem', nome: 'Apontamentos - Usinagem: Desempenho por Operador/Máquina' },
+    { id: 'desempenho_embalagem', nome: 'Apontamentos - Embalagem: Desempenho por Operador/Máquina' },
     { id: 'oee', nome: 'OEE Detalhado' },
     { id: 'expedicao', nome: 'Estimativa de Expedição' },
     { id: 'produtividade', nome: 'Produtividade (Itens)' },
+    { id: 'produtividade_usinagem', nome: 'Apontamentos - Usinagem: Produtividade (Itens)' },
+    { id: 'produtividade_embalagem', nome: 'Apontamentos - Embalagem: Produtividade (Itens)' },
     { id: 'rastreabilidade', nome: 'Rastreabilidade (Amarrados/Lotes)' }
   ]
+
+  const areaPorTipoRelatorio = (tipo) => {
+    if (!tipo) return null
+    if (String(tipo).endsWith('_usinagem')) return 'usinagem'
+    if (String(tipo).endsWith('_embalagem')) return 'embalagem'
+    return null
+  }
+
+  const tipoBaseRelatorio = (tipo) => {
+    if (!tipo) return ''
+    return String(tipo).replace(/_(usinagem|embalagem)$/,'')
+  }
   
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -379,22 +417,29 @@ const Relatorios = () => {
 
   // Construção das linhas para cada tipo de relatório
   const buildRows = (tipo) => {
-    switch (tipo) {
+    const base = tipoBaseRelatorio(tipo)
+    switch (base) {
       case 'producao':
-        return apontamentosOrdenados.map(a => ({
-          Data: brDate(a.inicio),
-          Hora: brTime(a.inicio),
-          Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
-          Operador: a.operador || '-',
-          PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
-          Produto: a.produto || a.codigoPerfil || '-',
-          Ferramenta: extrairFerramenta(a.produto || a.codigoPerfil) || '-',
-          Quantidade: a.quantidade || 0,
-          Refugo: a.qtd_refugo || 0,
-          RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
-          QtdPedido: a.qtd_pedido ?? a.qtdPedido ?? '-',
-          Separado: a.separado ?? a.qtd_separado ?? '-'
-        }))
+        return apontamentosOrdenados.map(a => {
+          const duracao = duracaoMin(a.inicio, a.fim)
+          return {
+            Data: brDate(a.inicio),
+            Hora_Inicio: brTime(a.inicio),
+            Hora_Fim: brTime(a.fim),
+            Duracao_min: duracao ?? '-',
+            Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
+            Operador: a.operador || '-',
+            PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
+            Produto: a.produto || a.codigoPerfil || '-',
+            Ferramenta: extrairFerramenta(a.produto || a.codigoPerfil) || '-',
+            Quantidade: a.quantidade || 0,
+            Pcs_por_Hora: duracao > 0 ? ((a.quantidade || 0) / (duracao / 60)).toFixed(1) : '-',
+            Refugo: a.qtd_refugo || 0,
+            RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
+            QtdPedido: a.qtd_pedido ?? a.qtdPedido ?? '-',
+            Separado: a.separado ?? a.qtd_separado ?? '-'
+          }
+        })
       case 'paradas':
         return paradasFiltradas.map(p => ({
           Data: brDate(p.inicio_norm),
@@ -554,13 +599,13 @@ const Relatorios = () => {
     let rows = buildRows(filtros.tipoRelatorio)
     
     // Aplicar modo compacto para rastreabilidade
-    if (filtros.tipoRelatorio === 'rastreabilidade' && filtros.modo === 'compacto') {
+    if (tipoBaseRelatorio(filtros.tipoRelatorio) === 'rastreabilidade' && filtros.modo === 'compacto') {
       rows = agruparRastreabilidadeCompacto(rows)
     }
     
     const tipoInfo = tiposRelatorio.find(t => t.id === filtros.tipoRelatorio)
     const label = (tipoInfo?.nome || 'Relatorio').replace(/\s+/g, '_')
-    const suffix = filtros.tipoRelatorio === 'rastreabilidade' ? `_${filtros.modo}` : ''
+    const suffix = tipoBaseRelatorio(filtros.tipoRelatorio) === 'rastreabilidade' ? `_${filtros.modo}` : ''
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '')
     const fileName = `${label}${suffix}_${timestamp}`
     
@@ -586,11 +631,17 @@ const Relatorios = () => {
       // Mapeamento de nomes curtos para as abas
       const nomesCurtos = {
         'producao': 'Producao',
+        'producao_usinagem': 'Prod Usin',
+        'producao_embalagem': 'Prod Emb',
         'paradas': 'Paradas',
         'desempenho': 'Desempenho',
+        'desempenho_usinagem': 'Desemp Usin',
+        'desempenho_embalagem': 'Desemp Emb',
         'oee': 'OEE',
         'expedicao': 'Expedicao',
         'produtividade': 'Produtividade',
+        'produtividade_usinagem': 'Produt Usin',
+        'produtividade_embalagem': 'Produt Emb',
         'rastreabilidade': 'Rastreab'
       }
       
@@ -697,6 +748,7 @@ const Relatorios = () => {
   }, [maquinasCat])
 
   const apontamentosFiltrados = useMemo(() => {
+    const area = areaPorTipoRelatorio(filtros.tipoRelatorio)
     const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
     const df = filtros.dataFim ? toISODate(filtros.dataFim) : null
     return (apontamentos || []).filter(a => {
@@ -705,6 +757,14 @@ const Relatorios = () => {
       if (df && (!dd || dd > df)) return false
       if (filtros.maquina && String(a.maquina) !== String(filtros.maquina)) return false
       if (filtros.operador && String(a.operador) !== String(filtros.operador)) return false
+
+      if (area === 'embalagem') {
+        if (String(a.exp_unidade || '').toLowerCase() !== 'embalagem') return false
+      }
+      if (area === 'usinagem') {
+        if (String(a.exp_unidade || '').toLowerCase() === 'embalagem') return false
+      }
+
       // Filtros adicionais: ferramenta e comprimento
       const cod = a?.produto || a?.codigoPerfil
       if (filtros.ferramenta) {
@@ -766,6 +826,7 @@ const Relatorios = () => {
 
   // Componente para visualização prévia do relatório
   const PreviewRelatorio = ({ tipo }) => {
+    const baseTipo = tipoBaseRelatorio(tipo)
     // Agregações reais
     const desempenhoAgregado = useMemo(() => {
       const map = {}
@@ -815,72 +876,83 @@ const Relatorios = () => {
     }
 
     // Renderiza a tabela de acordo com o tipo de relatório
-    switch (tipo) {
+    switch (baseTipo) {
       case 'producao':
         return (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hora</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Máquina</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operador</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido/Seq</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produto</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ferramenta</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantidade</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Apont. 2º Sistema</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rack/Pallet</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd. Pedido</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Separado</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {apontamentosOrdenados.map((a, index) => (
-                <tr key={index}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{brDate(a.inicio)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{brTime(a.inicio)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{maqMap[String(a.maquina)] || a.maquina || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.operador || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{
-                    a.ordemTrabalho
-                      || a.ordem_trabalho
-                      || a.pedido_seq
-                      || a.pedidoSeq
-                      || ((a.pedido ?? a.numeroPedido) ? `${a.pedido ?? a.numeroPedido}${a.seq ? '/' + a.seq : (a.sequencia ? '/' + a.sequencia : '')}` : '-')
-                  }</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(a.produto || a.codigoPerfil || '-')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{extrairFerramenta(a.produto || a.codigoPerfil) || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.quantidade || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <label className="inline-flex items-center gap-2 select-none">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={!!flags[rowId(a)]}
-                        onChange={() => toggleFlag(a)}
-                      />
-                      <span className="text-xs text-gray-600">Marcado</span>
-                    </label>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(a.rack_ou_pallet || a.rackOuPallet || '-')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(a.qtd_pedido ?? a.qtdPedido ?? '-') }</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(a.separado ?? a.qtd_separado ?? '-')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <button type="button" className="p-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100" title="Imprimir formulário" onClick={() => imprimirFormIdent(a)}>
-                      <FaPrint />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {apontamentosOrdenados.length === 0 && (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan="12" className="px-6 py-6 text-center text-gray-500">Nenhum apontamento encontrado</td>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Início</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fim</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duração</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Máquina</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operador</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido/Seq</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produto</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pcs/h</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Refugo</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rack</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {apontamentosOrdenados.map((a, index) => {
+                  const duracao = duracaoMin(a.inicio, a.fim)
+                  const pcsHora = duracao > 0 ? ((a.quantidade || 0) / (duracao / 60)).toFixed(1) : '-'
+                  return (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{brDate(a.inicio)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{brTime(a.inicio)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{brTime(a.fim) || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-medium">
+                        <span className={`px-2 py-1 rounded text-xs ${duracao ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'}`}>
+                          {duracao ? `${duracao} min` : '-'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{maqMap[String(a.maquina)] || a.maquina || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{a.operador || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">
+                        {a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-'}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600 max-w-[150px] truncate" title={a.produto || a.codigoPerfil}>
+                        {a.produto || a.codigoPerfil || '-'}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold text-gray-800">{a.quantidade || 0}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm">
+                        <span className={`font-medium ${pcsHora !== '-' && parseFloat(pcsHora) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                          {pcsHora}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm">
+                        <span className={`${(a.qtd_refugo || 0) > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}`}>
+                          {a.qtd_refugo || 0}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{a.rack_ou_pallet || a.rackOuPallet || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm">
+                        <button type="button" className="p-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700" title="Imprimir formulário" onClick={() => imprimirFormIdent(a)}>
+                          <FaPrint className="w-3 h-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {apontamentosOrdenados.length === 0 && (
+                  <tr>
+                    <td colSpan="13" className="px-6 py-8 text-center text-gray-500">
+                      <div className="flex flex-col items-center gap-2">
+                        <FaCalendarAlt className="w-8 h-8 text-gray-300" />
+                        <span>Nenhum apontamento encontrado no período selecionado</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )
       
       case 'paradas':
@@ -1290,9 +1362,164 @@ const Relatorios = () => {
     }
   }
   
+  // Indicadores e insights calculados
+  const indicadores = useMemo(() => {
+    const totalApontamentos = apontamentosFiltrados.length
+    const totalProducao = apontamentosFiltrados.reduce((acc, a) => acc + (Number(a.quantidade) || 0), 0)
+    const totalRefugo = apontamentosFiltrados.reduce((acc, a) => acc + (Number(a.qtd_refugo) || 0), 0)
+    const taxaRefugo = totalProducao > 0 ? ((totalRefugo / totalProducao) * 100).toFixed(2) : 0
+    
+    // Tempo total trabalhado (em minutos)
+    let tempoTotalMin = 0
+    let apontamentosComTempo = 0
+    for (const a of apontamentosFiltrados) {
+      const d = duracaoMin(a.inicio, a.fim)
+      if (d && d > 0) {
+        tempoTotalMin += d
+        apontamentosComTempo++
+      }
+    }
+    const tempoTotalHoras = (tempoTotalMin / 60).toFixed(1)
+    
+    // Produtividade média (peças por hora)
+    const produtividadeMedia = tempoTotalMin > 0 ? (totalProducao / (tempoTotalMin / 60)).toFixed(1) : 0
+    
+    // Operadores únicos
+    const operadoresUnicos = new Set(apontamentosFiltrados.map(a => a.operador).filter(Boolean)).size
+    
+    // Máquinas únicas
+    const maquinasUnicas = new Set(apontamentosFiltrados.map(a => a.maquina).filter(Boolean)).size
+    
+    // Apontamentos sem hora fim (pendentes)
+    const semHoraFim = apontamentosFiltrados.filter(a => a.inicio && !a.fim).length
+    
+    // Insights automáticos
+    const insights = []
+    if (taxaRefugo > 5) {
+      insights.push({ tipo: 'alerta', msg: `Taxa de refugo elevada: ${taxaRefugo}%`, icone: 'warning' })
+    }
+    if (semHoraFim > 0) {
+      insights.push({ tipo: 'info', msg: `${semHoraFim} apontamento(s) sem hora de término`, icone: 'clock' })
+    }
+    if (produtividadeMedia > 0 && parseFloat(produtividadeMedia) < 10) {
+      insights.push({ tipo: 'atencao', msg: `Produtividade abaixo de 10 pcs/h`, icone: 'chart' })
+    }
+    if (totalApontamentos > 0 && apontamentosComTempo === 0) {
+      insights.push({ tipo: 'info', msg: 'Nenhum apontamento com duração calculada', icone: 'clock' })
+    }
+    if (totalProducao > 1000) {
+      insights.push({ tipo: 'sucesso', msg: `Excelente! ${totalProducao.toLocaleString('pt-BR')} peças produzidas`, icone: 'check' })
+    }
+    
+    return {
+      totalApontamentos,
+      totalProducao,
+      totalRefugo,
+      taxaRefugo,
+      tempoTotalHoras,
+      produtividadeMedia,
+      operadoresUnicos,
+      maquinasUnicas,
+      semHoraFim,
+      insights
+    }
+  }, [apontamentosFiltrados])
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Relatórios</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-800">Relatórios</h1>
+        <span className="text-sm text-gray-500">
+          {filtros.dataInicio && `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')}`}
+          {filtros.dataFim && ` até ${new Date(filtros.dataFim).toLocaleDateString('pt-BR')}`}
+        </span>
+      </div>
+
+      {/* Cards de Indicadores Inteligentes */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+            <FaChartLine className="w-3 h-3" />
+            <span>Apontamentos</span>
+          </div>
+          <div className="text-2xl font-bold text-gray-800">{indicadores.totalApontamentos}</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+            <FaIndustry className="w-3 h-3" />
+            <span>Produção Total</span>
+          </div>
+          <div className="text-2xl font-bold text-gray-800">{indicadores.totalProducao.toLocaleString('pt-BR')}</div>
+          <div className="text-xs text-gray-400">peças</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+            <FaClock className="w-3 h-3" />
+            <span>Tempo Total</span>
+          </div>
+          <div className="text-2xl font-bold text-gray-800">{indicadores.tempoTotalHoras}</div>
+          <div className="text-xs text-gray-400">horas</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-teal-500">
+          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+            <FaTachometerAlt className="w-3 h-3" />
+            <span>Produtividade</span>
+          </div>
+          <div className="text-2xl font-bold text-gray-800">{indicadores.produtividadeMedia}</div>
+          <div className="text-xs text-gray-400">pcs/hora</div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+            <FaUsers className="w-3 h-3" />
+            <span>Operadores</span>
+          </div>
+          <div className="text-2xl font-bold text-gray-800">{indicadores.operadoresUnicos}</div>
+        </div>
+        
+        <div className={`bg-white rounded-lg shadow p-4 border-l-4 ${parseFloat(indicadores.taxaRefugo) > 5 ? 'border-red-500' : 'border-gray-300'}`}>
+          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+            <FaExclamationTriangle className="w-3 h-3" />
+            <span>Taxa Refugo</span>
+          </div>
+          <div className={`text-2xl font-bold ${parseFloat(indicadores.taxaRefugo) > 5 ? 'text-red-600' : 'text-gray-800'}`}>
+            {indicadores.taxaRefugo}%
+          </div>
+          <div className="text-xs text-gray-400">{indicadores.totalRefugo} pcs</div>
+        </div>
+      </div>
+
+      {/* Insights e Alertas Automáticos */}
+      {indicadores.insights.length > 0 && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+            <FaChartLine className="w-4 h-4 text-blue-600" />
+            Insights Automáticos
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {indicadores.insights.map((insight, idx) => (
+              <div 
+                key={idx}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+                  insight.tipo === 'alerta' ? 'bg-red-100 text-red-700' :
+                  insight.tipo === 'atencao' ? 'bg-yellow-100 text-yellow-700' :
+                  insight.tipo === 'sucesso' ? 'bg-green-100 text-green-700' :
+                  'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {insight.icone === 'warning' && <FaExclamationTriangle className="w-3 h-3" />}
+                {insight.icone === 'clock' && <FaClock className="w-3 h-3" />}
+                {insight.icone === 'chart' && <FaChartLine className="w-3 h-3" />}
+                {insight.icone === 'check' && <FaCheckCircle className="w-3 h-3" />}
+                {insight.msg}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div className="bg-white rounded-lg shadow p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
@@ -1422,7 +1649,7 @@ const Relatorios = () => {
             </div>
             
             {/* Modo de Exibição (apenas para rastreabilidade) */}
-            {filtros.tipoRelatorio === 'rastreabilidade' && (
+            {tipoBaseRelatorio(filtros.tipoRelatorio) === 'rastreabilidade' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Modo de Exibição

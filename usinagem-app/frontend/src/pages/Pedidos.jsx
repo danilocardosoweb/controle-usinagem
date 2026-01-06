@@ -1042,6 +1042,18 @@ const Pedidos = () => {
   // Calcula o número total de páginas
   const totalPaginas = Math.ceil(pedidosFiltrados.length / paginacao.itensPorPagina)
   
+  // Total de Qtd. Pedido dos itens filtrados (para exibição de resumo)
+  const totalQtdPedidoFiltrados = useMemo(() => {
+    try {
+      return pedidosFiltrados.reduce((acc, p) => {
+        const v = Number(p.qtd_pedido ?? 0)
+        return acc + (Number.isFinite(v) ? v : 0)
+      }, 0)
+    } catch {
+      return 0
+    }
+  }, [pedidosFiltrados])
+  
   // Exibe mensagem de carregamento quando estiver buscando dados do IndexedDB
   if (carregandoDB) {
     return (
@@ -1164,8 +1176,18 @@ const Pedidos = () => {
         </div>
       </div>
 
+      {/* Resumo dos itens filtrados */}
+      <div className="flex justify-end text-sm text-gray-600">
+        <span className="px-2 py-1 bg-white rounded border border-gray-200 shadow-sm">
+          Total Qtd. Pedido (itens filtrados):{' '}
+          <span className="font-semibold">
+            {totalQtdPedidoFiltrados.toLocaleString('pt-BR')}
+          </span>
+        </span>
+      </div>
+
       {/* Tabela de pedidos */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-hidden mt-2">
         <div className="overflow-x-auto pb-6">
           <table className="min-w-full divide-y divide-gray-200 table-compact">
             <thead className="bg-gray-50">

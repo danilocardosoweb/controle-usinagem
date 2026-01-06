@@ -46,12 +46,13 @@ const Layout = () => {
         isMobile={isMobile}
       />
       
-      <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Conteúdo principal */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header 
           onMenuClick={toggleSidebar}
           isMobile={isMobile}
         />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4">
+        <main className="flex-1 overflow-auto bg-white p-4">
           <Outlet />
         </main>
       </div>

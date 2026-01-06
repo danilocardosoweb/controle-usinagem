@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 const Configuracoes = () => {
   const { user } = useAuth()
-  
+
   // Banco de dados de pedidos (para aba Dados)
   const { items: pedidosDB, addItems, clearItems, loadItems } = useSupabase('pedidos')
   // Lotes (Supabase)
@@ -34,9 +34,7 @@ const Configuracoes = () => {
     nivel_acesso: 'operador'
   })
 
-  // =====================
-  // Expedição • Parâmetros por Ferramenta
-  // =====================
+  // Configurações de Ferramentas
   const {
     items: ferramentasCfg,
     addItem: addCfg,
@@ -92,13 +90,13 @@ const Configuracoes = () => {
       if (!v && v !== 0) return ''
       if (typeof v === 'number') {
         const d = XLSX.SSF.parse_date_code(v)
-        if (d && d.y) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`
+        if (d && d.y) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
         return ''
       }
       const s = String(v)
       if (s.includes('/')) {
         const p = s.split('/')
-        if (p.length === 3) return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`
+        if (p.length === 3) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`
       }
       const d = new Date(s)
       if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
@@ -109,7 +107,7 @@ const Configuracoes = () => {
   const importarLotes = async () => {
     if (!arquivoLotes) { setErroLotes('Selecione um arquivo para importar'); return }
     const extensao = arquivoLotes.name.split('.').pop().toLowerCase()
-    if (!['xlsx','xls'].includes(extensao)) { setErroLotes('Formato não suportado (.xlsx/.xls)'); return }
+    if (!['xlsx', 'xls'].includes(extensao)) { setErroLotes('Formato não suportado (.xlsx/.xls)'); return }
     setCarregandoLotes(true)
     setErroLotes('')
     setMensagemLotes('')
@@ -191,19 +189,19 @@ const Configuracoes = () => {
             })
           }
           if (novos.length === 0) throw new Error('Nenhuma linha válida encontrada (verifique Pedido e Seq e Rack!Embalagem)')
-          try { await clearLotes() } catch {}
-          
+          try { await clearLotes() } catch { }
+
           // Inserir em lotes menores para evitar timeout
           const BATCH_SIZE = 100; // Inserir 100 registros por vez
           let totalInseridos = 0;
-          
+
           for (let i = 0; i < novos.length; i += BATCH_SIZE) {
             const lote = novos.slice(i, i + BATCH_SIZE);
             await addLotes(lote);
             totalInseridos += lote.length;
             console.log(`Inseridos ${totalInseridos}/${novos.length} lotes...`);
           }
-          
+
           setQtLotesImportados(totalInseridos)
           setMensagemLotes(`Arquivo ${arquivoLotes.name} importado com sucesso! ${novos.length} lotes foram processados.`)
           setArquivoLotes(null)
@@ -247,7 +245,7 @@ const Configuracoes = () => {
   }
   const [editandoUsuario, setEditandoUsuario] = useState(null)
   const [modoEdicao, setModoEdicao] = useState(false)
-  
+
   // Estados para configurações do processo
   const [configProcesso, setConfigProcesso] = useState({
     tempo_padrao_setup: 30,
@@ -256,14 +254,14 @@ const Configuracoes = () => {
     horas_turno: 8,
     dias_uteis_mes: 22
   })
-  
+
   // Motivos de parada (Supabase)
   const { items: motivosParada, addItem: addMotivo, updateItem: updMotivo, removeItem: delMotivo } = useSupabase('motivos_parada')
   const [novoMotivoParada, setNovoMotivoParada] = useState('')
   const [novoTipoMotivoParada, setNovoTipoMotivoParada] = useState('planejada')
   const [editandoMotivo, setEditandoMotivo] = useState(null)
   const [modoEdicaoMotivo, setModoEdicaoMotivo] = useState(false)
-  
+
   // Tipos de parada (Supabase)
   const { items: tiposParada, addItem: addTipo, updateItem: updTipo, removeItem: delTipo } = useSupabase('tipos_parada')
   const [novoTipoParada, setNovoTipoParada] = useState('')
@@ -272,8 +270,8 @@ const Configuracoes = () => {
   const normalizeTipo = (txt) => {
     if (!txt) return ''
     try {
-      const s = String(txt).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'')
-      return s.replace(/\s+/g,'_')
+      const s = String(txt).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      return s.replace(/\s+/g, '_')
     } catch { return String(txt).toLowerCase() }
   }
 
@@ -285,20 +283,16 @@ const Configuracoes = () => {
       if (desc) setNovoTipoMotivoParada(normalizeTipo(desc))
     }
   }, [tiposParada])
-  
+
   // Máquinas persistidas no IndexedDB
   const { items: maquinas, addItem: addMaquina, updateItem: updateMaquina, removeItem: removeMaquina } = useSupabase('maquinas')
   const [novaMaquina, setNovaMaquina] = useState({
-    codigo: '',
     nome: '',
-    modelo: '',
-    fabricante: '',
-    ano: new Date().getFullYear(),
     status: 'ativa'
   })
   const [editandoMaquina, setEditandoMaquina] = useState(null)
   const [modoEdicaoMaquina, setModoEdicaoMaquina] = useState(false)
-  
+
   // Estados para insumos
   const [insumos, setInsumos] = useState([
     { id: 1, codigo: 'INS001', nome: 'Óleo Lubrificante', tipo: 'oleo', quantidade: 50, unidade: 'litros' },
@@ -306,7 +300,7 @@ const Configuracoes = () => {
     { id: 3, codigo: 'INS003', nome: 'Broca 10mm', tipo: 'ferramenta', quantidade: 30, unidade: 'peças' },
     { id: 4, codigo: 'INS004', nome: 'Inserto CNMG', tipo: 'ferramenta_cnc', quantidade: 100, unidade: 'peças' }
   ])
-  
+
   // Estados para impressoras
   const [impressoras, setImpressoras] = useState(() => {
     const saved = localStorage.getItem('configuracao_impressoras')
@@ -336,7 +330,7 @@ const Configuracoes = () => {
   })
   const [editandoInsumo, setEditandoInsumo] = useState(null)
   const [modoEdicaoInsumo, setModoEdicaoInsumo] = useState(false)
-  
+
   // Abas de configuração
   const [abaAtiva, setAbaAtiva] = useState('usuarios')
   const [searchParams] = useSearchParams()
@@ -429,16 +423,16 @@ const Configuracoes = () => {
       setSincronizando(false)
     }
   }
-  
+
   // Usuários são carregados automaticamente via useSupabase('usuarios')
-  
+
   // Funções para gerenciamento de usuários
   const adicionarUsuarioHandler = async () => {
     if (!novoUsuario.nome || !novoUsuario.email || !novoUsuario.senha) {
       alert('Preencha todos os campos obrigatórios')
       return
     }
-    
+
     try {
       const novoUsuarioData = {
         nome: novoUsuario.nome.trim(),
@@ -449,9 +443,9 @@ const Configuracoes = () => {
         ativo: true,
         data_criacao: new Date().toISOString()
       }
-      
+
       await addUsuario(novoUsuarioData)
-      
+
       // Registrar na auditoria
       await auditoriaService.registrarCriacao(
         user,
@@ -459,7 +453,7 @@ const Configuracoes = () => {
         `Criou usuário: ${novoUsuarioData.nome} (${novoUsuarioData.email})`,
         { ...novoUsuarioData, senha: '***', senha_hash: '***' } // Não registrar senha
       )
-      
+
       // Limpar formulário
       setNovoUsuario({
         nome: '',
@@ -467,14 +461,14 @@ const Configuracoes = () => {
         senha: '',
         nivel_acesso: 'operador'
       })
-      
+
       alert('Usuário adicionado com sucesso!')
     } catch (error) {
       console.error('Erro ao adicionar usuário:', error)
       alert('Erro ao adicionar usuário: ' + (error.message || 'Erro desconhecido'))
     }
   }
-  
+
   const iniciarEdicaoUsuario = (usuario) => {
     setEditandoUsuario({
       ...usuario,
@@ -482,23 +476,23 @@ const Configuracoes = () => {
     })
     setModoEdicao(true)
   }
-  
+
   const salvarEdicaoUsuario = async () => {
     if (!editandoUsuario.nome || !editandoUsuario.email) {
       alert('Nome e email são obrigatórios')
       return
     }
-    
+
     try {
       // Buscar dados anteriores para auditoria
       const usuarioAnterior = usuarios.find(u => u.id === editandoUsuario.id)
-      
+
       const payload = {
         ...editandoUsuario,
         nome: editandoUsuario.nome.trim(),
         email: editandoUsuario.email.trim().toLowerCase()
       }
-      
+
       // Se senha foi alterada, incluir no payload (ambos os campos)
       if (editandoUsuario.senha && editandoUsuario.senha.trim()) {
         payload.senha = editandoUsuario.senha
@@ -508,9 +502,9 @@ const Configuracoes = () => {
         delete payload.senha
         delete payload.senha_hash
       }
-      
+
       await updateUsuario(payload)
-      
+
       // Registrar na auditoria
       await auditoriaService.registrarEdicao(
         user,
@@ -519,7 +513,7 @@ const Configuracoes = () => {
         { ...usuarioAnterior, senha: '***', senha_hash: '***' },
         { ...payload, senha: '***', senha_hash: '***' }
       )
-      
+
       cancelarEdicaoUsuario()
       alert('Usuário atualizado com sucesso!')
     } catch (error) {
@@ -527,25 +521,25 @@ const Configuracoes = () => {
       alert('Erro ao atualizar usuário: ' + (error.message || 'Erro desconhecido'))
     }
   }
-  
+
   const cancelarEdicaoUsuario = () => {
     setEditandoUsuario(null)
     setModoEdicao(false)
   }
-  
+
   const excluirUsuarioHandler = async (id) => {
     if (!window.confirm('Tem certeza que deseja excluir este usuário?')) {
       return
     }
-    
+
     try {
       // Buscar dados do usuário antes de excluir
       const usuarioExcluido = usuarios.find(u => u.id === id)
-      
+
       console.log('Excluindo usuário ID:', id)
       await removeUsuario(id)
       console.log('Usuário excluído com sucesso')
-      
+
       // Registrar na auditoria
       if (usuarioExcluido) {
         await auditoriaService.registrarExclusao(
@@ -555,19 +549,19 @@ const Configuracoes = () => {
           { ...usuarioExcluido, senha: '***', senha_hash: '***' }
         )
       }
-      
+
       // Forçar reload da lista
       console.log('Forçando reload da lista de usuários...')
       await recarregarUsuarios()
       console.log('Lista recarregada')
-      
+
       alert('Usuário excluído com sucesso!')
     } catch (error) {
       console.error('Erro ao excluir usuário:', error)
       alert('Erro ao excluir usuário: ' + (error.message || 'Erro desconhecido'))
     }
   }
-  
+
   // Funções para configurações do processo
   const handleConfigProcessoChange = (e) => {
     const { name, value } = e.target
@@ -576,7 +570,7 @@ const Configuracoes = () => {
       [name]: Number(value)
     })
   }
-  
+
   // Funções para motivos de parada
   const adicionarMotivoParada = async () => {
     if (!novoMotivoParada.trim()) { alert('Digite uma descrição para o motivo de parada'); return }
@@ -613,86 +607,77 @@ const Configuracoes = () => {
     setEditandoMotivo(null)
     setModoEdicaoMotivo(false)
   }
-  
+
   const excluirMotivoParada = async (id) => { if (id && window.confirm('Excluir este motivo?')) await delMotivo(id) }
-  
+
   // Funções para tipos de parada
   const adicionarTipoParada = async () => {
     if (!novoTipoParada.trim()) { alert('Digite uma descrição para o tipo de parada'); return }
     await addTipo({ descricao: novoTipoParada.trim() })
     setNovoTipoParada('')
   }
-  
+
   const excluirTipoParada = async (id) => { if (id && window.confirm('Excluir este tipo?')) await delTipo(id) }
-  
+
   // Funções para gerenciamento de máquinas
   const adicionarMaquina = async () => {
-    if (!novaMaquina.codigo || !novaMaquina.nome) {
-      alert('Código e nome da máquina são obrigatórios')
+    if (!novaMaquina.nome) {
+      alert('Nome da máquina é obrigatório')
       return
     }
     const statusBruto = (novaMaquina.status || 'ativa').toLowerCase()
     const statusNorm = statusBruto === 'ativo' ? 'ativa' : (statusBruto === 'inativo' ? 'inativa' : statusBruto)
     await addMaquina({
-      codigo: String(novaMaquina.codigo).trim(),
       nome: String(novaMaquina.nome).trim(),
-      modelo: String(novaMaquina.modelo || '').trim(),
-      fabricante: String(novaMaquina.fabricante || '').trim(),
-      ano: parseInt(novaMaquina.ano) || new Date().getFullYear(),
       status: statusNorm
     })
-    
+
     // Limpar formulário
     setNovaMaquina({
-      codigo: '',
       nome: '',
-      modelo: '',
-      fabricante: '',
-      ano: new Date().getFullYear(),
       status: 'ativa'
     })
   }
-  
+
   const iniciarEdicaoMaquina = (maquina) => {
-    setEditandoMaquina({...maquina})
+    setEditandoMaquina({ ...maquina })
     setModoEdicaoMaquina(true)
   }
-  
+
   const salvarEdicaoMaquina = async () => {
-    if (!editandoMaquina.codigo || !editandoMaquina.nome) {
-      alert('Código e nome da máquina são obrigatórios')
+    if (!editandoMaquina.nome) {
+      alert('Nome da máquina é obrigatório')
       return
     }
     const statusBrutoEd = String(editandoMaquina.status || '').toLowerCase()
     const statusNormEd = statusBrutoEd === 'ativo' ? 'ativa' : (statusBrutoEd === 'inativo' ? 'inativa' : statusBrutoEd || 'ativa')
     await updateMaquina({
       ...editandoMaquina,
-      status: statusNormEd,
-      ano: parseInt(editandoMaquina.ano) || new Date().getFullYear()
+      status: statusNormEd
     })
     cancelarEdicaoMaquina()
   }
-  
+
   const cancelarEdicaoMaquina = () => {
     setEditandoMaquina(null)
     setModoEdicaoMaquina(false)
   }
-  
+
   const excluirMaquina = async (id) => {
     if (window.confirm('Tem certeza que deseja excluir esta máquina?')) {
       await removeMaquina(id)
     }
   }
-  
+
   // Funções para gerenciamento de insumos
   const adicionarInsumo = () => {
     if (!novoInsumo.codigo || !novoInsumo.nome) {
       alert('Código e nome do insumo são obrigatórios')
       return
     }
-    
+
     const novoId = insumos.length > 0 ? Math.max(...insumos.map(i => i.id)) + 1 : 1
-    
+
     setInsumos([
       ...insumos,
       {
@@ -704,7 +689,7 @@ const Configuracoes = () => {
         unidade: novoInsumo.unidade
       }
     ])
-    
+
     // Limpar formulário
     setNovoInsumo({
       codigo: '',
@@ -714,42 +699,42 @@ const Configuracoes = () => {
       unidade: 'peças'
     })
   }
-  
+
   const iniciarEdicaoInsumo = (insumo) => {
-    setEditandoInsumo({...insumo})
+    setEditandoInsumo({ ...insumo })
     setModoEdicaoInsumo(true)
   }
-  
+
   const salvarEdicaoInsumo = () => {
     if (!editandoInsumo.codigo || !editandoInsumo.nome) {
       alert('Código e nome do insumo são obrigatórios')
       return
     }
-    
-    setInsumos(insumos.map(i => 
+
+    setInsumos(insumos.map(i =>
       i.id === editandoInsumo.id ? editandoInsumo : i
     ))
-    
+
     cancelarEdicaoInsumo()
   }
-  
+
   const cancelarEdicaoInsumo = () => {
     setEditandoInsumo(null)
     setModoEdicaoInsumo(false)
   }
-  
+
   const excluirInsumo = (id) => {
     if (window.confirm('Tem certeza que deseja excluir este insumo?')) {
       setInsumos(insumos.filter(i => i.id !== id))
     }
   }
-  
+
   // Funções para gerenciamento de impressoras
   const salvarConfiguracaoImpressoras = () => {
     localStorage.setItem('configuracao_impressoras', JSON.stringify(impressoras))
     alert('Configurações de impressoras salvas com sucesso!')
   }
-  
+
   const atualizarImpressora = (tipo, campo, valor) => {
     setImpressoras(prev => ({
       ...prev,
@@ -759,18 +744,18 @@ const Configuracoes = () => {
       }
     }))
   }
-  
+
   const testarImpressora = (tipo) => {
     const impressora = impressoras[tipo]
     if (!impressora.ativa) {
       alert(`Impressora ${impressora.nome} está desativada`)
       return
     }
-    
+
     // Simular teste de impressão
     alert(`Teste de impressão enviado para: ${impressora.nome}\nCaminho: ${impressora.caminho}\nIP: ${impressora.ip}:${impressora.porta}`)
   }
-  
+
   const salvarConfiguracoes = () => {
     // Aqui seria feita a chamada para a API para salvar as configurações
     alert('Configurações salvas com sucesso!')
@@ -926,11 +911,11 @@ const Configuracoes = () => {
             })
           }
           if (novosPedidos.length === 0) throw new Error('Nenhum pedido válido encontrado na planilha')
-          
+
           // Inserir em lotes menores para evitar timeout
           const BATCH_SIZE = 50; // Inserir 50 pedidos por vez
           let totalInseridos = 0;
-          
+
           for (let i = 0; i < novosPedidos.length; i += BATCH_SIZE) {
             const lote = novosPedidos.slice(i, i + BATCH_SIZE);
             await addItems(lote);
@@ -954,119 +939,110 @@ const Configuracoes = () => {
       setCarregando(false)
     }
   }
-  
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">Configurações</h1>
-      
+
       {/* Abas de navegação responsivas */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex flex-wrap sm:flex-nowrap sm:space-x-4 lg:space-x-8 overflow-x-auto pb-1 gap-2 sm:gap-0">
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'usuarios'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'usuarios'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('usuarios')}
           >
             Usuários
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'processo'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'processo'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('processo')}
           >
             Processo
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'maquinas'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'maquinas'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('maquinas')}
           >
             Máquinas
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'insumos'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'insumos'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('insumos')}
           >
             Insumos
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'impressoras'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'impressoras'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('impressoras')}
           >
             Impressoras
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'dados'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'dados'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('dados')}
           >
             Dados
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'arquivos'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'arquivos'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('arquivos')}
           >
             Arquivos
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'expedicao'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'expedicao'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('expedicao')}
           >
             Expedição
           </button>
           <button
-            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${
-              abaAtiva === 'status'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'status'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             onClick={() => setAbaAtiva('status')}
           >
             Status
           </button>
         </nav>
       </div>
-      
+
       {/* Conteúdo da aba de usuários */}
       {abaAtiva === 'usuarios' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Gerenciamento de Usuários</h2>
-            
+
             {/* Formulário para adicionar/editar usuário */}
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <h3 className="text-md font-medium text-gray-700 mb-3">
                 {modoEdicao ? 'Editar Usuário' : 'Adicionar Novo Usuário'}
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1075,14 +1051,14 @@ const Configuracoes = () => {
                   <input
                     type="text"
                     className="input-field"
-                    value={modoEdicao ? editandoUsuario.nome : novoUsuario.nome}
-                    onChange={(e) => modoEdicao 
-                      ? setEditandoUsuario({...editandoUsuario, nome: e.target.value})
-                      : setNovoUsuario({...novoUsuario, nome: e.target.value})
+                    value={modoEdicao ? editandoUsuario?.nome || '' : novoUsuario.nome || ''}
+                    onChange={(e) => modoEdicao
+                      ? setEditandoUsuario({ ...editandoUsuario, nome: e.target.value })
+                      : setNovoUsuario({ ...novoUsuario, nome: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Email
@@ -1090,14 +1066,14 @@ const Configuracoes = () => {
                   <input
                     type="email"
                     className="input-field"
-                    value={modoEdicao ? editandoUsuario.email : novoUsuario.email}
-                    onChange={(e) => modoEdicao 
-                      ? setEditandoUsuario({...editandoUsuario, email: e.target.value})
-                      : setNovoUsuario({...novoUsuario, email: e.target.value})
+                    value={modoEdicao ? editandoUsuario?.email || '' : novoUsuario.email || ''}
+                    onChange={(e) => modoEdicao
+                      ? setEditandoUsuario({ ...editandoUsuario, email: e.target.value })
+                      : setNovoUsuario({ ...novoUsuario, email: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Senha {modoEdicao && '(deixe em branco para manter a atual)'}
@@ -1105,24 +1081,24 @@ const Configuracoes = () => {
                   <input
                     type="password"
                     className="input-field"
-                    value={modoEdicao ? editandoUsuario.senha : novoUsuario.senha}
-                    onChange={(e) => modoEdicao 
-                      ? setEditandoUsuario({...editandoUsuario, senha: e.target.value})
-                      : setNovoUsuario({...novoUsuario, senha: e.target.value})
+                    value={modoEdicao ? editandoUsuario?.senha || '' : novoUsuario.senha || ''}
+                    onChange={(e) => modoEdicao
+                      ? setEditandoUsuario({ ...editandoUsuario, senha: e.target.value })
+                      : setNovoUsuario({ ...novoUsuario, senha: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nível de Acesso
                   </label>
                   <select
                     className="input-field"
-                    value={modoEdicao ? editandoUsuario.nivel_acesso : novoUsuario.nivel_acesso}
-                    onChange={(e) => modoEdicao 
-                      ? setEditandoUsuario({...editandoUsuario, nivel_acesso: e.target.value})
-                      : setNovoUsuario({...novoUsuario, nivel_acesso: e.target.value})
+                    value={modoEdicao ? editandoUsuario?.nivel_acesso || 'operador' : novoUsuario.nivel_acesso || 'operador'}
+                    onChange={(e) => modoEdicao
+                      ? setEditandoUsuario({ ...editandoUsuario, nivel_acesso: e.target.value })
+                      : setNovoUsuario({ ...novoUsuario, nivel_acesso: e.target.value })
                     }
                   >
                     <option value="operador">Operador</option>
@@ -1131,7 +1107,7 @@ const Configuracoes = () => {
                   </select>
                 </div>
               </div>
-              
+
               <div className="mt-4 flex justify-end space-x-3">
                 {modoEdicao ? (
                   <>
@@ -1162,7 +1138,7 @@ const Configuracoes = () => {
                 )}
               </div>
             </div>
-            
+
             {/* Aviso sobre configuração da tabela */}
             {usuarios.length === 0 && !carregandoUsuarios && (
               <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1174,7 +1150,7 @@ const Configuracoes = () => {
                 </p>
               </div>
             )}
-            
+
             {/* Lista de usuários */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -1257,34 +1233,34 @@ const Configuracoes = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Ferramenta *</label>
                   <input type="text" className="input-field" value={modoEdicaoCfg ? editandoCfg.ferramenta : novoCfg.ferramenta}
-                    onChange={(e)=> modoEdicaoCfg ? setEditandoCfg({...editandoCfg, ferramenta: e.target.value}) : setNovoCfg({...novoCfg, ferramenta: e.target.value})} />
+                    onChange={(e) => modoEdicaoCfg ? setEditandoCfg({ ...editandoCfg, ferramenta: e.target.value }) : setNovoCfg({ ...novoCfg, ferramenta: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Peso Linear (kg)</label>
                   <input type="number" step="0.001" className="input-field" value={modoEdicaoCfg ? editandoCfg.peso_linear : novoCfg.peso_linear}
-                    onChange={(e)=> modoEdicaoCfg ? setEditandoCfg({...editandoCfg, peso_linear: e.target.value}) : setNovoCfg({...novoCfg, peso_linear: e.target.value})} />
+                    onChange={(e) => modoEdicaoCfg ? setEditandoCfg({ ...editandoCfg, peso_linear: e.target.value }) : setNovoCfg({ ...novoCfg, peso_linear: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Comprimento (mm)</label>
                   <input type="number" className="input-field" value={modoEdicaoCfg ? editandoCfg.comprimento_mm : novoCfg.comprimento_mm}
-                    onChange={(e)=> modoEdicaoCfg ? setEditandoCfg({...editandoCfg, comprimento_mm: e.target.value}) : setNovoCfg({...novoCfg, comprimento_mm: e.target.value})} />
+                    onChange={(e) => modoEdicaoCfg ? setEditandoCfg({ ...editandoCfg, comprimento_mm: e.target.value }) : setNovoCfg({ ...novoCfg, comprimento_mm: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Pcs por Pallet</label>
                   <input type="number" className="input-field" value={modoEdicaoCfg ? editandoCfg.pcs_por_pallet : novoCfg.pcs_por_pallet}
                     disabled={modoEdicaoCfg ? (editandoCfg.embalagem === 'caixa') : (novoCfg.embalagem === 'caixa')}
-                    onChange={(e)=> modoEdicaoCfg ? setEditandoCfg({...editandoCfg, pcs_por_pallet: e.target.value}) : setNovoCfg({...novoCfg, pcs_por_pallet: e.target.value})} />
+                    onChange={(e) => modoEdicaoCfg ? setEditandoCfg({ ...editandoCfg, pcs_por_pallet: e.target.value }) : setNovoCfg({ ...novoCfg, pcs_por_pallet: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Ripas por Pallet</label>
                   <input type="number" className="input-field" value={modoEdicaoCfg ? editandoCfg.ripas_por_pallet : novoCfg.ripas_por_pallet}
                     disabled={modoEdicaoCfg ? (editandoCfg.embalagem === 'caixa') : (novoCfg.embalagem === 'caixa')}
-                    onChange={(e)=> modoEdicaoCfg ? setEditandoCfg({...editandoCfg, ripas_por_pallet: e.target.value}) : setNovoCfg({...novoCfg, ripas_por_pallet: e.target.value})} />
+                    onChange={(e) => modoEdicaoCfg ? setEditandoCfg({ ...editandoCfg, ripas_por_pallet: e.target.value }) : setNovoCfg({ ...novoCfg, ripas_por_pallet: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Embalagem</label>
                   <select className="input-field" value={modoEdicaoCfg ? editandoCfg.embalagem : novoCfg.embalagem}
-                    onChange={(e)=> {
+                    onChange={(e) => {
                       const val = e.target.value
                       if (modoEdicaoCfg) {
                         const next = { ...editandoCfg, embalagem: val }
@@ -1303,21 +1279,21 @@ const Configuracoes = () => {
                   </select>
                 </div>
                 {(modoEdicaoCfg ? editandoCfg?.embalagem === 'caixa' : novoCfg.embalagem === 'caixa') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Pcs por Caixa</label>
-                  <input type="number" className="input-field" value={modoEdicaoCfg ? editandoCfg.pcs_por_caixa : novoCfg.pcs_por_caixa}
-                    onChange={(e)=> modoEdicaoCfg ? setEditandoCfg({...editandoCfg, pcs_por_caixa: e.target.value}) : setNovoCfg({...novoCfg, pcs_por_caixa: e.target.value})} />
-                </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Pcs por Caixa</label>
+                    <input type="number" className="input-field" value={modoEdicaoCfg ? editandoCfg.pcs_por_caixa : novoCfg.pcs_por_caixa}
+                      onChange={(e) => modoEdicaoCfg ? setEditandoCfg({ ...editandoCfg, pcs_por_caixa: e.target.value }) : setNovoCfg({ ...novoCfg, pcs_por_caixa: e.target.value })} />
+                  </div>
                 )}
               </div>
               <div className="mt-4 flex justify-end space-x-3">
                 {modoEdicaoCfg ? (
                   <>
-                    <button type="button" className="btn-outline" onClick={cancelarEdicaoCfg}><FaTimes className="mr-1"/> Cancelar</button>
-                    <button type="button" className="btn-primary" onClick={salvarEdicaoCfg}><FaSave className="mr-1"/> Salvar Alterações</button>
+                    <button type="button" className="btn-outline" onClick={cancelarEdicaoCfg}><FaTimes className="mr-1" /> Cancelar</button>
+                    <button type="button" className="btn-primary" onClick={salvarEdicaoCfg}><FaSave className="mr-1" /> Salvar Alterações</button>
                   </>
                 ) : (
-                  <button type="button" className="btn-primary" onClick={adicionarCfg}><FaSave className="mr-1"/> Adicionar</button>
+                  <button type="button" className="btn-primary" onClick={adicionarCfg}><FaSave className="mr-1" /> Adicionar</button>
                 )}
               </div>
             </div>
@@ -1348,8 +1324,8 @@ const Configuracoes = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{cfg.embalagem}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{cfg.pcs_por_caixa}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button className="text-primary-600 hover:text-primary-900 mr-3" onClick={()=>iniciarEdicaoCfg(cfg)}><FaEdit/></button>
-                        <button className="text-red-600 hover:text-red-900" onClick={()=>excluirCfg(cfg.id)}><FaTrash/></button>
+                        <button className="text-primary-600 hover:text-primary-900 mr-3" onClick={() => iniciarEdicaoCfg(cfg)}><FaEdit /></button>
+                        <button className="text-red-600 hover:text-red-900" onClick={() => excluirCfg(cfg.id)}><FaTrash /></button>
                       </td>
                     </tr>
                   ))}
@@ -1383,15 +1359,15 @@ const Configuracoes = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 border rounded-lg">
                 <p className="text-sm text-gray-500">Servidor (API)</p>
-                <p className={`text-lg font-semibold ${statusServidor==='ok'?'text-green-600':'text-red-600'}`}>{statusServidor ? (statusServidor==='ok'?'Ativo':'Indisponível') : '-'}</p>
+                <p className={`text-lg font-semibold ${statusServidor === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{statusServidor ? (statusServidor === 'ok' ? 'Ativo' : 'Indisponível') : '-'}</p>
               </div>
               <div className="p-4 border rounded-lg">
                 <p className="text-sm text-gray-500">Banco (SQLite - Backend)</p>
-                <p className={`text-lg font-semibold ${statusBackendDB==='ok'?'text-green-600':'text-red-600'}`}>{statusBackendDB ? (statusBackendDB==='ok'?'Ativo':'Indisponível') : '-'}</p>
+                <p className={`text-lg font-semibold ${statusBackendDB === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{statusBackendDB ? (statusBackendDB === 'ok' ? 'Ativo' : 'Indisponível') : '-'}</p>
               </div>
               <div className="p-4 border rounded-lg">
                 <p className="text-sm text-gray-500">IndexedDB (Local)</p>
-                <p className={`text-lg font-semibold ${statusIndexedDB==='ok'?'text-green-600':'text-red-600'}`}>{statusIndexedDB ? (statusIndexedDB==='ok'?'Ativo':'Indisponível') : '-'}</p>
+                <p className={`text-lg font-semibold ${statusIndexedDB === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{statusIndexedDB ? (statusIndexedDB === 'ok' ? 'Ativo' : 'Indisponível') : '-'}</p>
               </div>
             </div>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1429,10 +1405,10 @@ const Configuracoes = () => {
             </div>
             <div className="mt-4 flex gap-2 justify-end">
               <button type="button" className="btn-outline" onClick={testarAbrirPdfExemplo}>
-                <FaExternalLinkAlt className="mr-1"/> Testar abertura (exemplo)
+                <FaExternalLinkAlt className="mr-1" /> Testar abertura (exemplo)
               </button>
               <button type="button" className="btn-primary" onClick={salvarPdfBasePath}>
-                <FaSave className="mr-1"/> Salvar Caminho
+                <FaSave className="mr-1" /> Salvar Caminho
               </button>
             </div>
           </div>
@@ -1454,16 +1430,16 @@ const Configuracoes = () => {
             </div>
             <div className="mt-4 flex gap-2 justify-end">
               <button type="button" className="btn-outline" onClick={testarAbrirProcessoExemplo}>
-                <FaExternalLinkAlt className="mr-1"/> Testar abertura (exemplo)
+                <FaExternalLinkAlt className="mr-1" /> Testar abertura (exemplo)
               </button>
               <button type="button" className="btn-primary" onClick={salvarProcessBasePath}>
-                <FaSave className="mr-1"/> Salvar Caminho
+                <FaSave className="mr-1" /> Salvar Caminho
               </button>
             </div>
           </div>
         </div>
       )}
-      
+
       {/* Conteúdo da aba de impressoras */}
       {abaAtiva === 'impressoras' && (
         <div className="space-y-6">
@@ -1472,7 +1448,7 @@ const Configuracoes = () => {
             <p className="text-sm text-gray-600 mb-6">
               Configure os caminhos e endereços das impressoras para etiquetas térmicas e documentos comuns.
             </p>
-            
+
             {/* Impressora Térmica */}
             <div className="border border-gray-200 rounded-lg p-4 mb-6">
               <div className="flex items-center justify-between mb-4">
@@ -1498,7 +1474,7 @@ const Configuracoes = () => {
                   </button>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1512,7 +1488,7 @@ const Configuracoes = () => {
                     placeholder="Ex: Zebra ZT230"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Caminho de Rede
@@ -1525,7 +1501,7 @@ const Configuracoes = () => {
                     placeholder="Ex: \\192.168.1.100\Zebra_ZT230"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Endereço IP
@@ -1538,7 +1514,7 @@ const Configuracoes = () => {
                     placeholder="Ex: 192.168.1.100"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Porta
@@ -1553,7 +1529,7 @@ const Configuracoes = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* Impressora Comum */}
             <div className="border border-gray-200 rounded-lg p-4 mb-6">
               <div className="flex items-center justify-between mb-4">
@@ -1579,7 +1555,7 @@ const Configuracoes = () => {
                   </button>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1593,7 +1569,7 @@ const Configuracoes = () => {
                     placeholder="Ex: HP LaserJet Pro"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Caminho de Rede
@@ -1606,7 +1582,7 @@ const Configuracoes = () => {
                     placeholder="Ex: \\192.168.1.101\HP_LaserJet"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Endereço IP
@@ -1619,7 +1595,7 @@ const Configuracoes = () => {
                     placeholder="Ex: 192.168.1.101"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Porta
@@ -1634,7 +1610,7 @@ const Configuracoes = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* Botões de ação */}
             <div className="flex justify-end space-x-3">
               <button
@@ -1646,7 +1622,7 @@ const Configuracoes = () => {
                 Salvar Configurações
               </button>
             </div>
-            
+
             {/* Informações adicionais */}
             <div className="mt-6 p-4 bg-blue-50 rounded-lg">
               <h4 className="text-sm font-medium text-blue-800 mb-2">💡 Dicas de Configuração</h4>
@@ -1661,7 +1637,7 @@ const Configuracoes = () => {
           </div>
         </div>
       )}
-      
+
       {/* Conteúdo da aba de dados */}
       {abaAtiva === 'dados' && (
         <div className="space-y-4">
@@ -1735,19 +1711,19 @@ const Configuracoes = () => {
           </div>
         </div>
       )}
-      
+
       {/* Conteúdo da aba de máquinas */}
       {abaAtiva === 'maquinas' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Gerenciamento de Máquinas</h2>
-            
+
             {/* Formulário para adicionar/editar máquina */}
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <h3 className="text-md font-medium text-gray-700 mb-3">
                 {modoEdicaoMaquina ? 'Editar Máquina' : 'Adicionar Nova Máquina'}
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1757,13 +1733,13 @@ const Configuracoes = () => {
                     type="text"
                     className="input-field"
                     value={modoEdicaoMaquina ? editandoMaquina.codigo : novaMaquina.codigo}
-                    onChange={(e) => modoEdicaoMaquina 
-                      ? setEditandoMaquina({...editandoMaquina, codigo: e.target.value})
-                      : setNovaMaquina({...novaMaquina, codigo: e.target.value})
+                    onChange={(e) => modoEdicaoMaquina
+                      ? setEditandoMaquina({ ...editandoMaquina, codigo: e.target.value })
+                      : setNovaMaquina({ ...novaMaquina, codigo: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nome *
@@ -1772,13 +1748,13 @@ const Configuracoes = () => {
                     type="text"
                     className="input-field"
                     value={modoEdicaoMaquina ? editandoMaquina.nome : novaMaquina.nome}
-                    onChange={(e) => modoEdicaoMaquina 
-                      ? setEditandoMaquina({...editandoMaquina, nome: e.target.value})
-                      : setNovaMaquina({...novaMaquina, nome: e.target.value})
+                    onChange={(e) => modoEdicaoMaquina
+                      ? setEditandoMaquina({ ...editandoMaquina, nome: e.target.value })
+                      : setNovaMaquina({ ...novaMaquina, nome: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Modelo
@@ -1787,13 +1763,13 @@ const Configuracoes = () => {
                     type="text"
                     className="input-field"
                     value={modoEdicaoMaquina ? editandoMaquina.modelo : novaMaquina.modelo}
-                    onChange={(e) => modoEdicaoMaquina 
-                      ? setEditandoMaquina({...editandoMaquina, modelo: e.target.value})
-                      : setNovaMaquina({...novaMaquina, modelo: e.target.value})
+                    onChange={(e) => modoEdicaoMaquina
+                      ? setEditandoMaquina({ ...editandoMaquina, modelo: e.target.value })
+                      : setNovaMaquina({ ...novaMaquina, modelo: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Fabricante
@@ -1802,13 +1778,13 @@ const Configuracoes = () => {
                     type="text"
                     className="input-field"
                     value={modoEdicaoMaquina ? editandoMaquina.fabricante : novaMaquina.fabricante}
-                    onChange={(e) => modoEdicaoMaquina 
-                      ? setEditandoMaquina({...editandoMaquina, fabricante: e.target.value})
-                      : setNovaMaquina({...novaMaquina, fabricante: e.target.value})
+                    onChange={(e) => modoEdicaoMaquina
+                      ? setEditandoMaquina({ ...editandoMaquina, fabricante: e.target.value })
+                      : setNovaMaquina({ ...novaMaquina, fabricante: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Ano
@@ -1817,13 +1793,13 @@ const Configuracoes = () => {
                     type="number"
                     className="input-field"
                     value={modoEdicaoMaquina ? editandoMaquina.ano : novaMaquina.ano}
-                    onChange={(e) => modoEdicaoMaquina 
-                      ? setEditandoMaquina({...editandoMaquina, ano: parseInt(e.target.value) || new Date().getFullYear()})
-                      : setNovaMaquina({...novaMaquina, ano: parseInt(e.target.value) || new Date().getFullYear()})
+                    onChange={(e) => modoEdicaoMaquina
+                      ? setEditandoMaquina({ ...editandoMaquina, ano: parseInt(e.target.value) || new Date().getFullYear() })
+                      : setNovaMaquina({ ...novaMaquina, ano: parseInt(e.target.value) || new Date().getFullYear() })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Status
@@ -1831,9 +1807,9 @@ const Configuracoes = () => {
                   <select
                     className="input-field"
                     value={modoEdicaoMaquina ? editandoMaquina.status : novaMaquina.status}
-                    onChange={(e) => modoEdicaoMaquina 
-                      ? setEditandoMaquina({...editandoMaquina, status: e.target.value})
-                      : setNovaMaquina({...novaMaquina, status: e.target.value})
+                    onChange={(e) => modoEdicaoMaquina
+                      ? setEditandoMaquina({ ...editandoMaquina, status: e.target.value })
+                      : setNovaMaquina({ ...novaMaquina, status: e.target.value })
                     }
                   >
                     <option value="ativo">Ativo</option>
@@ -1842,7 +1818,7 @@ const Configuracoes = () => {
                   </select>
                 </div>
               </div>
-              
+
               <div className="mt-4 flex justify-end space-x-3">
                 {modoEdicaoMaquina ? (
                   <>
@@ -1872,7 +1848,7 @@ const Configuracoes = () => {
                 )}
               </div>
             </div>
-            
+
             {/* Lista de máquinas */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -1921,11 +1897,11 @@ const Configuracoes = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                          ${maquina.status === 'ativo' ? 'bg-green-100 text-green-800' : 
-                            maquina.status === 'manutencao' ? 'bg-yellow-100 text-yellow-800' : 
-                            'bg-red-100 text-red-800'}`}>
-                          {maquina.status === 'ativo' ? 'Ativo' : 
-                           maquina.status === 'manutencao' ? 'Em Manutenção' : 'Inativo'}
+                          ${maquina.status === 'ativo' ? 'bg-green-100 text-green-800' :
+                            maquina.status === 'manutencao' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-red-100 text-red-800'}`}>
+                          {maquina.status === 'ativo' ? 'Ativo' :
+                            maquina.status === 'manutencao' ? 'Em Manutenção' : 'Inativo'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -1950,19 +1926,19 @@ const Configuracoes = () => {
           </div>
         </div>
       )}
-      
+
       {/* Conteúdo da aba de insumos */}
       {abaAtiva === 'insumos' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Gerenciamento de Insumos</h2>
-            
+
             {/* Formulário para adicionar/editar insumo */}
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <h3 className="text-md font-medium text-gray-700 mb-3">
                 {modoEdicaoInsumo ? 'Editar Insumo' : 'Adicionar Novo Insumo'}
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1972,13 +1948,13 @@ const Configuracoes = () => {
                     type="text"
                     className="input-field"
                     value={modoEdicaoInsumo ? editandoInsumo.codigo : novoInsumo.codigo}
-                    onChange={(e) => modoEdicaoInsumo 
-                      ? setEditandoInsumo({...editandoInsumo, codigo: e.target.value})
-                      : setNovoInsumo({...novoInsumo, codigo: e.target.value})
+                    onChange={(e) => modoEdicaoInsumo
+                      ? setEditandoInsumo({ ...editandoInsumo, codigo: e.target.value })
+                      : setNovoInsumo({ ...novoInsumo, codigo: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nome *
@@ -1987,13 +1963,13 @@ const Configuracoes = () => {
                     type="text"
                     className="input-field"
                     value={modoEdicaoInsumo ? editandoInsumo.nome : novoInsumo.nome}
-                    onChange={(e) => modoEdicaoInsumo 
-                      ? setEditandoInsumo({...editandoInsumo, nome: e.target.value})
-                      : setNovoInsumo({...novoInsumo, nome: e.target.value})
+                    onChange={(e) => modoEdicaoInsumo
+                      ? setEditandoInsumo({ ...editandoInsumo, nome: e.target.value })
+                      : setNovoInsumo({ ...novoInsumo, nome: e.target.value })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Tipo
@@ -2001,9 +1977,9 @@ const Configuracoes = () => {
                   <select
                     className="input-field"
                     value={modoEdicaoInsumo ? editandoInsumo.tipo : novoInsumo.tipo}
-                    onChange={(e) => modoEdicaoInsumo 
-                      ? setEditandoInsumo({...editandoInsumo, tipo: e.target.value})
-                      : setNovoInsumo({...novoInsumo, tipo: e.target.value})
+                    onChange={(e) => modoEdicaoInsumo
+                      ? setEditandoInsumo({ ...editandoInsumo, tipo: e.target.value })
+                      : setNovoInsumo({ ...novoInsumo, tipo: e.target.value })
                     }
                   >
                     <option value="ferramenta">Ferramenta</option>
@@ -2013,7 +1989,7 @@ const Configuracoes = () => {
                     <option value="outro">Outro</option>
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Quantidade
@@ -2022,13 +1998,13 @@ const Configuracoes = () => {
                     type="number"
                     className="input-field"
                     value={modoEdicaoInsumo ? editandoInsumo.quantidade : novoInsumo.quantidade}
-                    onChange={(e) => modoEdicaoInsumo 
-                      ? setEditandoInsumo({...editandoInsumo, quantidade: parseInt(e.target.value) || 0})
-                      : setNovoInsumo({...novoInsumo, quantidade: parseInt(e.target.value) || 0})
+                    onChange={(e) => modoEdicaoInsumo
+                      ? setEditandoInsumo({ ...editandoInsumo, quantidade: parseInt(e.target.value) || 0 })
+                      : setNovoInsumo({ ...novoInsumo, quantidade: parseInt(e.target.value) || 0 })
                     }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Unidade
@@ -2036,9 +2012,9 @@ const Configuracoes = () => {
                   <select
                     className="input-field"
                     value={modoEdicaoInsumo ? editandoInsumo.unidade : novoInsumo.unidade}
-                    onChange={(e) => modoEdicaoInsumo 
-                      ? setEditandoInsumo({...editandoInsumo, unidade: e.target.value})
-                      : setNovoInsumo({...novoInsumo, unidade: e.target.value})
+                    onChange={(e) => modoEdicaoInsumo
+                      ? setEditandoInsumo({ ...editandoInsumo, unidade: e.target.value })
+                      : setNovoInsumo({ ...novoInsumo, unidade: e.target.value })
                     }
                   >
                     <option value="peças">Peças</option>
@@ -2049,7 +2025,7 @@ const Configuracoes = () => {
                   </select>
                 </div>
               </div>
-              
+
               <div className="mt-4 flex justify-end space-x-3">
                 {modoEdicaoInsumo ? (
                   <>
@@ -2079,7 +2055,7 @@ const Configuracoes = () => {
                 )}
               </div>
             </div>
-            
+
             {/* Lista de insumos */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -2115,10 +2091,10 @@ const Configuracoes = () => {
                         {insumo.nome}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {insumo.tipo === 'ferramenta' ? 'Ferramenta' : 
-                         insumo.tipo === 'ferramenta_cnc' ? 'Ferramenta CNC' : 
-                         insumo.tipo === 'oleo' ? 'Lubrificante/Óleo' : 
-                         insumo.tipo === 'consumivel' ? 'Consumível' : 'Outro'}
+                        {insumo.tipo === 'ferramenta' ? 'Ferramenta' :
+                          insumo.tipo === 'ferramenta_cnc' ? 'Ferramenta CNC' :
+                            insumo.tipo === 'oleo' ? 'Lubrificante/Óleo' :
+                              insumo.tipo === 'consumivel' ? 'Consumível' : 'Outro'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {insumo.quantidade}
@@ -2148,13 +2124,13 @@ const Configuracoes = () => {
           </div>
         </div>
       )}
-      
+
       {/* Conteúdo da aba de configurações do processo */}
       {abaAtiva === 'processo' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Configurações do Processo</h2>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -2168,7 +2144,7 @@ const Configuracoes = () => {
                   onChange={handleConfigProcessoChange}
                 />
               </div>
-              
+
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Manut. (min)
@@ -2181,7 +2157,7 @@ const Configuracoes = () => {
                   onChange={handleConfigProcessoChange}
                 />
               </div>
-              
+
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Meta OEE (%)
@@ -2196,7 +2172,7 @@ const Configuracoes = () => {
                   max="100"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Horas/Turno
@@ -2209,7 +2185,7 @@ const Configuracoes = () => {
                   onChange={handleConfigProcessoChange}
                 />
               </div>
-              
+
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Dias Úteis/Mês
@@ -2223,7 +2199,7 @@ const Configuracoes = () => {
                 />
               </div>
             </div>
-            
+
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
@@ -2234,11 +2210,11 @@ const Configuracoes = () => {
               </button>
             </div>
           </div>
-          
+
           {/* Motivos de Parada */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Motivos de Parada</h2>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-6 gap-2 mb-4">
               <input
                 type="text"
@@ -2267,7 +2243,7 @@ const Configuracoes = () => {
                 Adicionar
               </button>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -2289,7 +2265,7 @@ const Configuracoes = () => {
                       const match = (tiposParada || []).find(t => normalizeTipo(t?.descricao || t?.nome) === String(motivo.tipo_parada || ''))
                       if (match) return match.descricao
                       // fallback legível
-                      const s = String(motivo.tipo_parada || '').replace(/_/g,' ')
+                      const s = String(motivo.tipo_parada || '').replace(/_/g, ' ')
                       return s ? s.charAt(0).toUpperCase() + s.slice(1) : '-'
                     })()
                     const isEditing = modoEdicaoMotivo && editandoMotivo?.id === motivo.id
@@ -2301,7 +2277,7 @@ const Configuracoes = () => {
                               type="text"
                               className="input-field"
                               value={editandoMotivo.descricao}
-                              onChange={(e)=> setEditandoMotivo(prev => ({...prev, descricao: e.target.value}))}
+                              onChange={(e) => setEditandoMotivo(prev => ({ ...prev, descricao: e.target.value }))}
                             />
                           ) : (
                             motivo.descricao
@@ -2312,7 +2288,7 @@ const Configuracoes = () => {
                             <select
                               className="input-field"
                               value={editandoMotivo.tipo_parada || ''}
-                              onChange={(e)=> setEditandoMotivo(prev => ({...prev, tipo_parada: e.target.value}))}
+                              onChange={(e) => setEditandoMotivo(prev => ({ ...prev, tipo_parada: e.target.value }))}
                             >
                               {(tiposParada || []).map(t => {
                                 const desc = t?.descricao || t?.nome || '-'
@@ -2358,11 +2334,11 @@ const Configuracoes = () => {
               </table>
             </div>
           </div>
-          
+
           {/* Tipos de Parada */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">Tipos de Parada</h2>
-            
+
             <div className="flex space-x-2 mb-4">
               <input
                 type="text"
@@ -2380,7 +2356,7 @@ const Configuracoes = () => {
                 Adicionar
               </button>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">

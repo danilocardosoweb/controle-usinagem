@@ -1,9 +1,308 @@
 # Log de Alterações
+[05/01/2026 14:07] - [Frontend] - [Etiqueta térmica: adicionado QR Code com dados compactos de rastreabilidade do lote] - [Cascade]
+[19/12/2025 09:25] - [Frontend] - [Manual do Usuário: nova página geral com guia de uso e item no menu lateral] - [Cascade]
+[19/12/2025 08:57] - [Frontend/Database] - [Apontamentos da Embalagem: suporte a etapas (Rebarbar/Limpeza e Embalagem) via campo etapa_embalagem, seleção de tipo de processo e cálculo de saldo considerando apenas Embalagem] - [Cascade]
+[12/12/2025 10:25] - [Frontend] - [Relatórios Inteligentes: cards de indicadores (produção, tempo, produtividade, refugo), insights automáticos, colunas de tempo (Início/Fim/Duração/Pcs por hora) nos relatórios de produção, UI modernizada] - [Cascade]
+[12/12/2025 09:24] - [Frontend] - [Estoque: Status de Ferramentas editável (vida útil, última troca, responsável) via modal] - [Cascade]
+[12/12/2025 09:09] - [Frontend] - [Estoque: edição de estoque mínimo (Itens Acabados via configuracoes e Insumos via qtd_minima)] - [Cascade]
+[12/12/2025 09:07] - [Frontend] - [Estoque: campo Máquina/Setor e Máquina agora usam lista de máquinas cadastradas (tabela maquinas)] - [Cascade]
+[12/12/2025 08:43] - [Frontend] - [Estoque: filtros operacionais (buscar/somente com saldo/somente abaixo do mínimo) e seções secundárias recolhidas por padrão] - [Cascade]
+[12/12/2025 08:37] - [Frontend] - [Relatórios: novos tipos específicos para Apontamentos de Usinagem e Apontamentos de Embalagem (produção/desempenho/produtividade) filtrando por exp_unidade] - [Cascade]
+[12/12/2025 08:25] - [Estoque] - [Insumos: upload de foto no Supabase Storage (bucket estoque-itens) e vínculo da foto ao item (foto_url) + preview na UI] - [Cascade]
+[11/12/2025 22:12] - [Frontend] - [Nova rota/aba "Apontamentos de Embalagem"] - [Cascade]
+- Adicionada rota `/apontamentos-embalagem` em `App.jsx`.
+- Adicionado item no menu lateral em `Sidebar.jsx` logo abaixo de "Apontamentos de Usinagem".
+- Página `ApontamentosEmbalagem.jsx` criada reutilizando o mesmo formulário e funcionalidades de `ApontamentosUsinagem`.
+
+
+[11/12/2025 22:05] - [Frontend] - [Remoção da aba "EXP - Usinagem" (rota e menu desativados)] - [Cascade]
+- Rota removida de `App.jsx` e item de menu ocultado no `Sidebar.jsx`.
+- Nenhuma referência ativa restante para a página `ExpUsinagem`.
+- Próximo passo aprovado: exclusão física dos arquivos relacionados (página, componentes, hooks e utils específicos) para reduzir o bundle.
+
+[20/11/2025 09:45] - [Frontend] - [EXP - Usinagem: Fase 1 concluída (hooks + validação completa)] - [Cascade]
+- **Hooks refatorados ativados:**
+  - `useTecnoPerfilState` centraliza `orderStages`, deleções e movimentações (ExpUsinagem.jsx agora consome apenas `moveOrderToStage`, `deleteFromFlow`, `isDeleting`, `tecnoPerfilBuckets`).
+  - `useAlunicaState` concentra `alunicaStages`, `finalizados`, buckets/totais e `handleAlunicaAction`, removendo ~300 linhas do componente principal.
+  - `useApontamentoModal` totalmente integrado, eliminando estados duplicados e modais antigos.
+- **Correções estruturais:**
+  - Reordenado os hooks para evitar o erro "can't access lexical declaration 'alunicaStages' before initialization".
+  - Botão de exclusão na Alúnica passa a usar `isDeleting(orderId)` para respeitar o estado global de deleção.
+- **Validação Funcional (Fase 1.4):**
+  - Testes manuais cobrindo TecnoPerfil, Alúnica, Estoque, Inventários e Exportações.
+  - Sem erros de runtime após ajustes; apenas warnings conhecidos do React Router.
+  - Registro completo em `docs/VALIDACAO_FASE1_EXP_USINAGEM.md` com metodologia, cenários e resultados.
+- **Impacto:** ExpUsinagem.jsx reduzido em ~730 linhas (-22%), estados locais caíram de >50 para ~25, preparando terreno para Fase 2 (toasts/UX).
+
+[20/11/2025 08:00] - [Full Stack] - [EXP - Estoque: Sistema de baixas com rastreabilidade por lote] - [Cascade]
+- **Nova Tabela no Banco de Dados:**
+  - Criada tabela `exp_estoque_baixas` via MCP para rastreabilidade completa
+  - Campos: `fluxo_id`, `lote_codigo`, `tipo_baixa`, `quantidade_pc/kg`, `baixado_por`, `estornado`
+  - 5 índices para performance: fluxo, lote, tipo, data, estornado
+  - Suporta estorno de baixas com justificativa
+- **Modal de Baixa Refatorado:**
+  - Agora exibe lotes disponíveis em tabela interativa
+  - Seleção múltipla de lotes com checkbox
+  - Quantidade individual por lote (Pc e Kg)
+  - Validação por lote: não permite exceder disponível
+  - Exibe "Lote Usinagem" e "Lote Embalagem" para rastreabilidade
+  - Arquivo: `BaixaEstoqueModal.jsx` (linhas 1-313)
+- **Painel de Estoque Atualizado:**
+  - Carrega lotes de embalagem (`exp_stage='para-embarque'`) ao abrir modal
+  - Calcula disponível por lote: `quantidade_apontada - baixas_anteriores`
+  - Busca baixas da nova tabela `exp_estoque_baixas` (ignora estornadas)
+  - Salva baixas com rastreabilidade: `lote_codigo`, `tipo_baixa`, quantidades
+  - Arquivo: `EstoqueUsinagemPanel.jsx` (linhas 38-246)
+- **Validações Implementadas:**
+  - Pelo menos um lote deve ser selecionado
+  - Quantidade (Pc ou Kg) obrigatória para cada lote
+  - Quantidade não pode exceder disponível do lote
+  - Mensagens descritivas indicam lote específico com problema
+- **Rastreabilidade Completa:**
+  - Usinagem → Inspeção → Embalagem → Baixa (consumo/venda)
+  - Cada baixa registra `lote_codigo` específico
+  - Possível rastrear origem de cada peça consumida/vendida
+  - Auditoria completa: quem, quando, quanto, qual lote
+- **Documentação Atualizada:**
+  - `database_schema.md`: Nova tabela `exp_estoque_baixas` documentada
+  - `docs/ANALISE_ESTOQUE_USINAGEM.md`: Análise completa do fluxo
+- **Próximas Melhorias Identificadas:**
+  - Substituir `alert()` por toast/notificação moderna
+  - Implementar estorno de baixas via interface
+  - Registrar usuário autenticado (atualmente "Sistema")
+  - Adicionar histórico de baixas no modal
+
+[20/11/2025 07:50] - [Frontend] - [EXP - Alúnica: Validações robustas de concorrência e finalização] - [Cascade]
+- **Validacão de Concorrência Implementada:**
+  - Validação em tempo real contra `exp_pedidos_fluxo.pc_disponivel` antes de salvar apontamento
+  - Previne que múltiplos operadores apontem mais do que o disponível simultaneamente
+  - Mensagem clara indicando conflito de concorrência: "Outro operador pode ter apontado simultaneamente"
+  - Validação específica para embalagem: verifica se há peças disponíveis antes de permitir apontamento
+  - Implementado em `useApontamentoModal.js` (linhas 257-292)
+- **Validacão de Finalização Reforcçada:**
+  - Nova função `validarFinalizacaoPorLote` verifica lote por lote antes de permitir finalização
+  - Validações implementadas:
+    1. Produção completa (apontadoTotal >= pedidoTotalPc)
+    2. Nenhum lote de inspeção pendente (exp_stage='para-inspecao')
+    3. Todos os lotes movidos para embalagem (totalPcsEmbalagem >= apontadoTotal)
+  - Mensagens descritivas indicam exatamente qual o problema:
+    - Lista lotes específicos aguardando aprovação
+    - Informa quantas peças faltam para embalar
+    - Mostra progresso (ex: "50/100 peças")
+  - Implementado em `ExpUsinagem.jsx` (linhas 2061-2131)
+- **Melhoria na Segurança dos Dados:**
+  - Elimina risco de finalização prematura com lotes pendentes
+  - Previne inconsistências por operações concorrentes
+  - Garante rastreabilidade completa até a finalização
+- **Arquivos modificados:**
+  - `frontend/src/hooks/useApontamentoModal.js`: Validação de concorrência (linhas 250-292)
+  - `frontend/src/pages/ExpUsinagem.jsx`: Validação de finalização por lote (linhas 2061-2131)
+
+[20/11/2025 07:40] - [Frontend] - [EXP - Alúnica: Sistema completo de rastreabilidade de lotes] - [Cascade]
+- **Implementado sistema de lotes derivados com rastreabilidade completa:**
+  - **Lote Base (Usinagem):** Formato `DDMMAAAA-HHMM-PEDIDO` (ex: `20112025-1430-78914/10`)
+  - **Lotes Derivados:** Sufixos `-INS-XX` (inspeção) e `-EMB-XX` (embalagem)
+  - Campo `lote_externo` armazena lote base para rastreabilidade
+  - Campo `lote` armazena lote derivado com sufixo sequencial
+- **Modal "Apontar Embalagem – Alúnica" completamente refatorado:**
+  - Título muda automaticamente para "Apontar Embalagem – Alúnica" quando estágio é `para-embarque`
+  - Bloco "Disponível para Embalar" exibe:
+    - Total disponível calculado de apontamentos `para-embarque`
+    - Tabela com "Lote de Usinagem" (origem) e "Lote de Embalagem" (derivado)
+    - **Saldo projetado após apontamento atual** (verde/vermelho)
+    - **Alerta visual** quando quantidade excede disponível
+  - Recebe `apontamentosPorFluxo` para cálculos em tempo real
+- **Cards de Inspeção/Embalagem atualizados:**
+  - Colunas separadas: "Lote Usinagem" e "Lote Inspeção/Embalagem"
+  - Rastreabilidade completa visível na interface
+- **Geração automática de lotes:**
+  - `useApontamentoModal.js`: Gera loteBase e lotes derivados automaticamente
+  - `useAlunicaModals.js`: Helpers para normalizar e gerar códigos únicos
+  - Sequência incremental garante códigos únicos (`-INS-01`, `-INS-02`, etc.)
+- **Validação de finalização aprimorada:**
+  - Modal de bloqueio quando há pendências de inspeção/embalagem
+  - Verifica produção completa antes de permitir finalização
+- **Arquivos modificados:**
+  - `frontend/src/utils/apontamentosLogic.js`: Função `summarizeApontamentos` expõe `loteExterno`
+  - `frontend/src/hooks/useApontamentoModal.js`: Geração de lotes derivados (linhas 254-322)
+  - `frontend/src/hooks/useAlunicaModals.js`: Helpers de lotes (linhas 1-45)
+  - `frontend/src/components/exp-usinagem/modals/ApontamentoModal.jsx`: UI completa (linhas 85-126)
+  - `frontend/src/components/exp-usinagem/AlunicaStageCard.jsx`: Colunas de rastreabilidade (linhas 120-133)
+  - `frontend/src/pages/ExpUsinagem.jsx`: Integração e modal de bloqueio
+- **Pendências identificadas para próxima iteração:**
+  - ⚠️ Validar apontamento contra saldo real em `exp_pedidos_fluxo.pc_disponivel`
+  - ⚠️ Reforçar validação de finalização usando lotes derivados individuais
+  - ⚠️ Adicionar testes de concorrência (múltiplos operadores)
+
+[18/11/2025 14:50] - [Refatoração/Pausa Estratégica] - [Validação necessária] - [Cascade]
+- **Arquivo criado:** `docs/GUIA_VALIDACAO_REFATORACAO.md` (documento completo de validação)
+- **Arquivos modificados:** `docs/STATUS_REFATORACAO.md` (atualizado com recomendações)
+- **Descrição:** Pausa estratégica para validação antes de continuar
+  - Guia detalhado de validação com checklist completo
+  - Testes passo a passo para cada modal extraído
+  - Instruções para ativar/testar hooks incrementalmente
+  - Template de relatório de testes
+  - Comandos de rollback rápido
+  - Sinais de alerta e troubleshooting
+- **Motivo da Pausa:** 
+  - ✅ 70% da refatoração concluída (Fases 0-5)
+  - ✅ 1.928 linhas de código novo criado (7 arquivos)
+  - ⚠️ Hooks críticos ainda não validados em ambiente real
+  - ⚠️ Feature flags desativadas aguardando testes
+  - ⚠️ Risco de acumular bugs não detectados
+- **Próximo Passo:** Validar todos os componentes e hooks antes de Fase 6
+- **Estimativa:** 2-4 horas de testes sistemáticos recomendados
+
+[18/11/2025 14:42] - [Refatoração/Fase5] - [Progresso: 100% concluído] - [Cascade]
+- **Arquivo criado:** `frontend/src/hooks/useAlunicaModals.js` (649 linhas)
+- **Arquivos modificados:** 
+  - `frontend/src/pages/ExpUsinagem.jsx`: Integração do hook com feature flag
+  - `frontend/src/config/refactorFlags.js`: Flag `USE_ALUNICA_MODALS_HOOK` adicionada
+- **Descrição:** Hook customizado para gerenciar modais de Aprovação e Reabertura da Alúnica
+  - **Estados de Aprovação:** open, pedido, itens, saving, error
+  - **Estados de Reabertura:** open, pedido, itens, saving, error
+  - **Estado Geral:** alunicaActionLoading (Set para rastrear ações em andamento)
+  - **Funções de Aprovação:** openModal, closeModal, setMover, fill, confirm, oneClick
+  - **Funções de Reabertura:** openModal, closeModal, setMover, fill, confirm, oneClick
+  - Encapsula toda a lógica complexa de movimentação de lotes entre estágios
+  - Divide/agrupa apontamentos automaticamente conforme quantidade movida
+  - Registra movimentações no histórico com motivo (total/parcial)
+  - Atualiza estágios no banco quando movimentação é total
+- **Integração:** Hook inicializado condicionalmente, modais e botões usam dados do hook quando flag ativada
+- **Validação:** Build bem-sucedido, flag desativada por padrão (rollback seguro)
+- **Documentação:** Hook detalhadamente documentado com JSDoc
+- **Impacto:** Encapsula ~400 linhas de lógica complexa do ExpUsinagem.jsx
+
+[18/11/2025 14:11] - [Refatoração/Fase4] - [Progresso: 100% concluído] - [Cascade]
+- **Arquivos criados:** 
+  - `frontend/src/components/exp-usinagem/modals/AprovarModal.jsx` (176 linhas)
+  - `frontend/src/components/exp-usinagem/modals/ReabrirModal.jsx` (176 linhas)
+- **Arquivos modificados:** 
+  - `frontend/src/pages/ExpUsinagem.jsx`: Integração condicional dos modais
+  - `frontend/src/config/refactorFlags.js`: Flags `USE_NEW_APROVAR_MODAL` e `USE_NEW_REABRIR_MODAL` ativadas
+- **Descrição:** Extração dos modais de aprovação e reabertura de lotes por inspeção
+  - **AprovarModal:** Move lotes da inspeção para embalagem (total ou parcial)
+  - **ReabrirModal:** Move lotes da embalagem de volta para inspeção (total ou parcial)
+  - Ambos com validação de quantidades e feedback visual
+  - Props: open, pedido, itens, saving, error, handlers
+- **Integração:** Renderização condicional via feature flags mantém código antigo como fallback
+- **Validação:** Build bem-sucedido, sem erros de compilação
+- **Documentação:** Componentes documentados com JSDoc completo
+- **Impacto:** Redução de ~200 linhas no ExpUsinagem.jsx
+
+[18/11/2025 13:50] - [Refatoração Fases 0-2] - [Progresso: 30% concluído] - [Cascade]
+- FASE 0: Branch refactor/exp-usinagem-safe criada + snapshot + estrutura de pastas
+- FASE 1: ApontamentoModal.jsx extraído (227 linhas) com feature flag USE_NEW_APONTAMENTO_MODAL
+- FASE 2: Funções utilitárias em utils/apontamentosLogic.js (234 linhas de lógica pura)
+- Documento STATUS_REFATORACAO.md criado para acompanhamento detalhado
+- Build testado - compilação 100% funcional
+- Código original mantido como fallback para segurança
+
+[18/11/2025 09:05] - [Frontend] - [EXP - Usinagem: Ajustes fluxo Alúnica e lotes] - [Cascade]
+- Ajustado `status_atual`/`status_novo` para `finalizado` ao concluir transferência, eliminando erro de constraint
+- `AlunicaStageCard` agora usa `__rowKey` exclusivo para evitar avisos de chaves duplicadas
+- Lotes dos apontamentos passam a incluir sufixo `-insp` ou `-emb` diretamente na gravação
+
+[18/11/2025 09:38] - [Frontend] - [EXP - Usinagem: Migração de lotes e ajustes de renderização Alúnica] - [Cascade]
+- Ao aprovar inspeção (para-inspecao → para-embarque), migra `apontamentos.exp_stage` mantendo o mesmo lote
+- Evitada duplicidade base+resumo no mesmo card (exibe resumo quando houver lotes no estágio atual)
+- Pré-carregamento de históricos ampliado para `para-usinar`, `para-inspecao` e `para-embarque`
+
+[18/11/2025 09:49] - [Frontend] - [EXP - Usinagem: Reabrir Inspeção e ajustes menores] - [Cascade]
+- Ação "Reabrir Inspeção" no estágio de Embalagem (migra lotes de `para-embarque` → `para-inspecao`)
+- Título das ações prioriza o `label` configurado (
+  metadados passam a ser fallback)
+- Correção de texto no modal de apontamento (remoção de caractere extra)
+- Persistência de "finalizados" em chave atual e legada para evitar divergências
+
+[18/11/2025 10:33] - [Frontend] - [EXP - Usinagem: Modais por lote e correções sintáticas] - [Cascade]
+- Modal de Aprovação por lote (Inspeção → Embalagem) com movimentação total/parcial
+- Modal de Reabertura por lote (Embalagem → Inspeção) com movimentação total/parcial
+- Ajustes de sintaxe no ExpUsinagem.jsx (fechamento de useMemo e inicializador de estado) para compilar
+
+[18/11/2025 11:40] - [Fullstack] - [EXP - Usinagem: Persistência de estágio Alúnica e totais no cabeçalho] - [Cascade]
+- Banco: adicionada coluna `alunica_stage` em `exp_pedidos_fluxo` com CHECK e índice parcial; DOWN incluído
+- Frontend: leitura/escrita de `alunica_stage` (totais: persistir somente em transições totais e na entrada da Alúnica)
+- Cabeçalho Alúnica: exibidos totais (pcs) por estágio no `WorkflowHeader`
+
+[18/11/2025 11:56] - [Frontend] - [EXP - Alúnica: Ações rápidas por card] - [Cascade]
+- Adicionados botões de 1 clique nos cards: "Aprovar tudo" (Inspeção → Embalagem) e "Reabrir tudo" (Embalagem → Inspeção)
+- Persistência do `alunica_stage` atualizada nessas transições totais e histórico registrado em `exp_pedidos_movimentacoes`
+
+[17/11/2025 22:30] - [Frontend] - [EXP - Usinagem: Correção de erros críticos na Alúnica] - [Cascade]
+- Corrigido erro `renderAlunicaActions is not defined` implementando a função completa
+- Corrigido erro `insert is not a function` trocando `supabaseService.insert()` por `supabaseService.add()`
+- Adicionada função `handleAlunicaAction` para gerenciar transições de estágios da Alúnica
+- Implementados botões de ação: Apontar, Finalizar/Reabrir, e transições entre estágios
+- Adicionados imports de ícones `FaCheck` e `FaPlay`
+- Sistema de loading por pedido para desabilitar botões durante ações
+
+[17/11/2025 16:05] - [Frontend] - [EXP - Usinagem: Refatoração inicial de ExpUsinagem.jsx em componentes e hooks] - [Cascade]
+- Extraído painel de Inventários para `components/exp-usinagem/InventariosPanel.jsx`
+- Extraído painel de Estoque para `components/exp-usinagem/EstoqueUsinagemPanel.jsx`
+- Extraído Modal de Seleção para `components/exp-usinagem/SelectionModal.jsx`
+- Criado hook `useFluxoExpUsinagem` para carregar fluxo/importados
+- Criado hook `useInventarios` para gerenciar inventários e itens
+- Criado util `utils/auth.js` com `isAdmin`
+
+[17/11/2025 16:10] - [Frontend] - [EXP - Usinagem: Correções de escopo e imports] - [Cascade]
+- Corrigido erro "can't access lexical declaration 'pedidosTecnoPerfil' before initialization" movendo sua definição para antes do uso
+- Removida declaração duplicada de `pedidosTecnoPerfil`
+- Adicionado import de `FaUpload` e limpeza de imports não utilizados em `ExpUsinagem.jsx`
+
+[17/11/2025 16:12] - [Frontend] - [EXP - Usinagem: Botão admin de exclusão padronizado] - [Cascade]
+- Criado `components/exp-usinagem/DeletePedidoButton.jsx`
+- Substituídos botões inline por componente reutilizável (visível apenas para admin)
+
+[08/11/2025 22:26] - [Frontend] - [EXP - Usinagem: Limpeza da aba Resumo e ajuste dos textos da Alúnica] - [Cascade]
+- Aba Resumo redefinida com placeholder para permitir recriação completa do layout
+- Descrições textuais removidas dos estágios da Alúnica conforme solicitação
+
+[10/11/2025 09:45] - [Frontend] - [EXP - Usinagem: Exportação funcional e tabelas compactas] - [Cascade]
+- Botão "Exportar Excel" da aba Resumo conectado ao utilitário `exportResumoExcel`
+- Tabelas de TecnoPerfil e Alúnica compactadas, com coluna de "Último movimento" e truncamento elegante
+- `normalizeFluxoRecord` passa a fornecer `ultimaMovimentacao`, refletido também no arquivo exportado
 
 [16/10/2025 09:14] - [Frontend] - [Pedidos: Botão "Limpar Filtros" na mesma linha e filtros compactos] - [Cascade]
 - Grid de filtros alterado para 7 colunas em `Pedidos.jsx`
 - Altura dos inputs/selects reduzida (h-8) para caber tudo em uma linha
 - Botão "Limpar Filtros" alinhado na mesma linha dos filtros
+
+[07/11/2025 13:20] - [Frontend] - [EXP - Usinagem: Card Pedido com dados da carteira] - [Cascade]
+- Card "Pedido" da aba TecnoPerfil agora exibe tabela com Pedido, Cliente, Nº Pedido, Data Entrega, Ferramenta, Pedido Kg e Pedido Pc
+- Integração com hook `useSupabase('pedidos')` para carregar dados reais com formatação PT-BR
+
+[07/11/2025 13:24] - [Frontend] - [EXP - Usinagem: Workflow de movimentação TecnoPerfil] - [Cascade]
+- Adicionada etapa "Embalagem" e linha do tempo visual do processo
+- Pedidos podem ser movimentados entre Pedido → Produzido → Inspeção → {Embalagem, Expedição Alúnica, Expedição Cliente} com ações contextuais
+- Estado das movimentações persistido em `localStorage` e alerta de último movimento exibido na interface
+
+[07/11/2025 13:31] - [Frontend] - [EXP - Usinagem: Cards empilhados por estágio] - [Cascade]
+- Layout reorganizado para exibir os cards TecnoPerfil de forma empilhada na ordem do processo com conectores visuais
+- Atualização da documentação refletindo o novo layout sequencial
+
+[07/11/2025 13:46] - [Frontend] - [EXP - Usinagem: Integração Alúnica e Finalização de Pedidos] - [Cascade]
+- Expedição Alúnica passa pedidos para o fluxo da aba Alúnica, com controle persistido
+- Expedição Cliente permite finalizar pedidos e manter histórico em `localStorage`
+- Cartões da aba Alúnica exibem ações para evolução interna do material
+
+[07/11/2025 14:31] - [Frontend] - [EXP - Usinagem: Importação e cadastro manual de pedidos] - [Cascade]
+- Card "Pedido" ganhou botão discreto de upload (.xlsx/.csv) com parse flexível de colunas
+- Formulário manual validando campos essenciais e integrando com Supabase via `useSupabase`
+- Feedback visual de processamento/erros e reset fácil do formulário
+
+[07/11/2025 11:33] - [Frontend] - [EXP - Usinagem: Cartões de status TecnoPerfil/Alúnica] - [Cascade]
+- Estrutura de cartões com descrição dos status logísticos tanto para TecnoPerfil quanto Alúnica
+- Placeholders preparados para integrar indicadores de volume e alertas por estágio
+
+[07/11/2025 11:25] - [Frontend] - [EXP - Usinagem: Abas TecnoPerfil/Alúnica inline] - [Cascade]
+- Abas "TecnoPerfil" e "Alúnica" exibidas diretamente na página `ExpUsinagem.jsx`
+- Estrutura pronta para receber conteúdos específicos de cada operação
+
+[07/11/2025 11:19] - [Frontend] - [EXP - Usinagem: Página base adicionada] - [Cascade]
+- Nova rota `exp-usinagem` registrada em `App.jsx`
+- Item do menu lateral "EXP - Usinagem" disponível para todos os perfis
+- Página inicial criada com título e mensagem placeholder em `ExpUsinagem.jsx`
 
 [29/10/2025 10:35] - [Frontend/Database] - [PCP: Aba de Finalização Manual de Pedidos] - [Cascade]
 - Criada subaba "Finalização Manual" no PCP com alternância por abas

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSupabase } from '../hooks/useSupabase'
+import { useApontamentosRecentes } from '../hooks/useApontamentosRecentes'
+import ApontamentoAlerta from '../components/ApontamentoAlerta'
 
 const Dashboard = () => {
   // Dados reais do Supabase
@@ -7,6 +9,9 @@ const Dashboard = () => {
   const { items: apontamentos } = useSupabase('apontamentos')
   const { items: paradas } = useSupabase('paradas')
   const { items: maquinas } = useSupabase('maquinas')
+  
+  // Hook para apontamentos recentes
+  const { apontamentosRecentes, loading: loadingApontamentos } = useApontamentosRecentes()
 
   const [periodo, setPeriodo] = useState('hoje') // 'hoje' | 'ontem' | 'ult7'
   const hojeISO = new Date()
@@ -164,19 +169,32 @@ const Dashboard = () => {
   }, [pedidos, apontamentos, maquinas])
   
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-      <div className="flex items-center gap-2">
-        <label className="text-sm text-gray-600">Período:</label>
-        <select value={periodo} onChange={(e)=>setPeriodo(e.target.value)} className="border rounded px-2 py-1 text-sm">
-          <option value="hoje">Hoje</option>
-          <option value="ontem">Ontem</option>
-          <option value="ult7">Últimos 7 dias</option>
-        </select>
-        <span className="text-xs text-gray-500">{range.ymdInicio} → {range.ymdFim}</span>
-      </div>
+    <div>
+      {/* Alerta de Apontamentos Recentes */}
+      <ApontamentoAlerta 
+        apontamentosRecentes={apontamentosRecentes} 
+        loading={loadingApontamentos} 
+      />
       
-      {/* Cards principais */}
+      <div className="p-6">
+        {/* Seletor de período */}
+        <div className="mb-6 flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+          <div className="flex items-center space-x-2">
+            <select
+              value={periodo}
+              onChange={(e) => setPeriodo(e.target.value)}
+              className="border border-gray-300 rounded px-3 py-1 text-sm"
+            >
+              <option value="hoje">Hoje</option>
+              <option value="ontem">Ontem</option>
+              <option value="ult7">Últimos 7 dias</option>
+            </select>
+            <span className="text-xs text-gray-500">{range.ymdInicio} → {range.ymdFim}</span>
+          </div>
+        </div>
+        
+        {/* Cards principais */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-gray-700">OEE Total</h2>
@@ -291,6 +309,7 @@ const Dashboard = () => {
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   )

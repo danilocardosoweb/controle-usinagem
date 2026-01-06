@@ -11,7 +11,14 @@ export function AuthProvider({ children }) {
     // Verificar se há um usuário armazenado no localStorage
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const parsed = JSON.parse(storedUser);
+      const normalized = {
+        ...parsed,
+        nivel_acesso: parsed?.nivel_acesso ?? parsed?.role,
+        role: parsed?.role ?? parsed?.nivel_acesso
+      };
+      setUser(normalized);
+      localStorage.setItem('user', JSON.stringify(normalized));
     }
     setLoading(false);
   }, []);
@@ -61,6 +68,7 @@ export function AuthProvider({ children }) {
         nome: usuario.nome,
         username: usuario.email,
         email: usuario.email,
+        nivel_acesso: usuario.nivel_acesso,
         role: usuario.nivel_acesso
       };
       

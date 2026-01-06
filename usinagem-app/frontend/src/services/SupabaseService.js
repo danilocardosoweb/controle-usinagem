@@ -28,6 +28,49 @@ class SupabaseService {
   }
 
   /**
+   * Busca itens aplicando múltiplos filtros (compatível com chamadas do tipo getWhere).
+   * @param {string} tableName
+   * @param {{column:string, operator:string, value:any}[]} filters
+   * @returns {Promise<Array>}
+   */
+  async getWhere(tableName, filters = []) {
+    await this.init();
+
+    try {
+      let query = this.supabase.from(tableName).select('*')
+
+      for (const f of (filters || [])) {
+        if (!f || !f.column) continue
+        const op = String(f.operator || 'eq').toLowerCase()
+        const col = f.column
+        const val = f.value
+
+        if (op === 'eq') query = query.eq(col, val)
+        else if (op === 'neq') query = query.neq(col, val)
+        else if (op === 'gt') query = query.gt(col, val)
+        else if (op === 'gte') query = query.gte(col, val)
+        else if (op === 'lt') query = query.lt(col, val)
+        else if (op === 'lte') query = query.lte(col, val)
+        else if (op === 'like') query = query.like(col, val)
+        else if (op === 'ilike') query = query.ilike(col, val)
+        else query = query.eq(col, val)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error(`Erro ao buscar (getWhere) em ${tableName}:`, error)
+        return Promise.reject(error)
+      }
+
+      return data || []
+    } catch (error) {
+      console.error(`Erro ao buscar (getWhere) em ${tableName}:`, error)
+      return Promise.reject(error)
+    }
+  }
+
+  /**
    * Busca itens por um conjunto de valores (operador IN)
    * @param {string} tableName - Nome da tabela
    * @param {string} fieldName - Nome do campo
@@ -410,6 +453,36 @@ class SupabaseService {
     } catch (error) {
       console.error('Erro ao obter configuração:', error);
       return Promise.reject(error);
+    }
+  }
+
+  async uploadImagemEstoque({ bucket, file, path }) {
+    await this.init();
+
+    try {
+      if (!bucket) return Promise.reject(new Error('Bucket não informado.'))
+      if (!file) return Promise.reject(new Error('Arquivo não informado.'))
+      if (!path) return Promise.reject(new Error('Caminho do arquivo não informado.'))
+
+      const { error } = await this.supabase
+        .storage
+        .from(bucket)
+        .upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream' })
+
+      if (error) {
+        console.error('Erro ao enviar arquivo para o Storage:', error)
+        return Promise.reject(error)
+      }
+
+      const { data } = this.supabase
+        .storage
+        .from(bucket)
+        .getPublicUrl(path)
+
+      return data?.publicUrl || null
+    } catch (error) {
+      console.error('Erro ao enviar arquivo para o Storage:', error)
+      return Promise.reject(error)
     }
   }
 }

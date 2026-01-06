@@ -99,6 +99,8 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
+*/.venv/
 env/
 venv/
 ENV/
@@ -120,3 +122,6 @@ scripts/dev/local_*
 
 # Documentação de referência (histórico)
 docs/referencia/old_*
+
+# Arquivo de changelog alternativo (log oficial é change_log.md)
+CHANGELOG.md
