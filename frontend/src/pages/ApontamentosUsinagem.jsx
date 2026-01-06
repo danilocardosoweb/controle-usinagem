@@ -128,7 +128,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }
 
-  const STORAGE_KEY = 'apont_usinagem_draft'
+  const STORAGE_KEY = modo === 'embalagem' ? 'apont_embalagem_draft' : 'apont_usinagem_draft'
   const [formData, setFormData] = useState({
     operador: user ? user.nome : '',
     maquina: '',
@@ -1356,7 +1356,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }, [user])
 
-  // Carrega rascunho salvo ao montar
+  // Carrega rascunho salvo ao montar ou quando modo muda
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
@@ -1373,7 +1373,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       }
     } catch {}
     setDraftLoaded(true)
-  }, [])
+  }, [modo, user])
 
   // Salva rascunho automaticamente sempre que o form mudar (após carregar)
   useEffect(() => {
@@ -1383,7 +1383,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         localStorage.setItem(STORAGE_KEY, JSON.stringify(formData))
       }
     } catch {}
-  }, [formData, draftLoaded])
+  }, [formData, draftLoaded, STORAGE_KEY])
 
   const handleChange = (e) => {
     const { name, value } = e.target
