@@ -1,4 +1,5 @@
 # Log de Alterações
+[07/01/2026 09:44] - [Frontend/Database] - [Contador de impressão de etiquetas: registro em etiquetas_geradas (por apontamento) e coluna "Imp." em Relatórios] - [Cascade]
 [05/01/2026 14:07] - [Frontend] - [Etiqueta térmica: adicionado QR Code com dados compactos de rastreabilidade do lote] - [Cascade]
 [19/12/2025 09:25] - [Frontend] - [Manual do Usuário: nova página geral com guia de uso e item no menu lateral] - [Cascade]
 [19/12/2025 08:57] - [Frontend/Database] - [Apontamentos da Embalagem: suporte a etapas (Rebarbar/Limpeza e Embalagem) via campo etapa_embalagem, seleção de tipo de processo e cálculo de saldo considerando apenas Embalagem] - [Cascade]

@@ -89,6 +89,26 @@ Registra os apontamentos operacionais efetivamente usados pelo app (campos ricos
 - `exp_stage`: Estágio do fluxo EXP no momento do apontamento (ex.: `para-usinar`, `para-embarque`).
 - `etapa_embalagem`: Etapa do apontamento quando `exp_unidade='embalagem'` (ex.: `REBARBAR_LIMPEZA` ou `EMBALAGEM`).
 
+## Tabela: `etiquetas_geradas`
+Armazena as etiquetas térmicas geradas/impressas e permite obter um contador de impressões por apontamento.
+- `id`: UUID.
+- `lote_usinagem`: Código do lote de usinagem.
+- `numero_etiqueta`: Número sequencial da etiqueta.
+- `total_etiquetas`: Total de etiquetas na ação.
+- `qtd_por_etiqueta`: Quantidade (pcs) nesta etiqueta.
+- `qt_kg_por_etiqueta`: Peso (kg) desta etiqueta (opcional).
+- `apontamento_id`: Referência para `apontamentos.id`.
+- `codigo_amarrado`: Código/ID da etiqueta (amarrado).
+- `rack_ou_pallet`: Rack/pallet.
+- `data_hora_impresao`: Data/hora da impressão.
+- `impressora`: Nome/descrição da impressora.
+- `usuario_impressao`: Usuário que disparou a impressão.
+- `status`: Estado (`gerada`, `impressa`, `reimpressa`).
+- `qr_code`: Conteúdo do QR Code.
+- `dados_etiqueta`: JSONB com dados completos.
+- `created_at`: Data/hora de criação.
+- `updated_at`: Data/hora de atualização.
+
 ### Campo `amarrados_detalhados` (JSONB)
 Armazena informações completas dos amarrados selecionados para rastreabilidade total:
 ```json

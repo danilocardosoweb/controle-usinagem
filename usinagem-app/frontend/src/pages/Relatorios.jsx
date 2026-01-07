@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, FaUsers, FaIndustry, FaTachometerAlt, FaCalendarAlt } from 'react-icons/fa'
 import { useSupabase } from '../hooks/useSupabase'
+import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
+import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -82,6 +84,7 @@ const Relatorios = () => {
   const [filtrosAberto, setFiltrosAberto] = useState(true)
   const [printModalAberto, setPrintModalAberto] = useState(false)
   const [apontamentoSelecionado, setApontamentoSelecionado] = useState(null)
+  const [impressoesEtiquetasPorApontamento, setImpressoesEtiquetasPorApontamento] = useState({})
   
   // Dados reais do IndexedDB
   const { items: apontamentos } = useSupabase('apontamentos')
@@ -220,7 +223,6 @@ const Relatorios = () => {
   const imprimirFormIdent = (a) => {
     const cliente = a.cliente || ''
     const item = (a.produto || a.codigoPerfil || '')
-    const itemCli = a.perfil_longo || '' // se existir no futuro 'item_do_cliente', trocar aqui
     const codigoCliente = a.codigo_produto_cliente || ''
     const medida = a.comprimento_acabado_mm ? `${a.comprimento_acabado_mm} mm` : extrairComprimentoAcabado(item)
     const pedidoTecno = (a.ordemTrabalho || a.pedido_seq || '')
@@ -232,163 +234,20 @@ const Relatorios = () => {
                      (Array.isArray(a.lotes_externos) ? a.lotes_externos.join(', ') : '') || ''
     const durezaVal = (a.dureza_material && String(a.dureza_material).trim()) ? a.dureza_material : 'N/A'
 
-    const html = `<!DOCTYPE html>
-    <html><head><meta charset="utf-8" />
-    <style>
-      @page { 
-        size: A4 landscape; 
-        margin: 12.7mm; /* Margens estreitas padrão */
-      }
-      @media print {
-        @page {
-          size: landscape;
-          margin: 12.7mm;
-        }
-        body {
-          margin: 0;
-        }
-      }
-      body { 
-        font-family: 'Segoe UI', Arial, sans-serif; 
-        color: #000; 
-        margin: 0;
-        padding: 10mm;
-        background: #fff;
-        -webkit-print-color-adjust: exact; 
-        print-color-adjust: exact; 
-      }
-      .container {
-        max-width: 100%;
-        margin: 0 auto;
-        background: #fff;
-        border: 2px solid #000;
-        padding: 8mm;
-      }
-      .header { 
-        text-align: center; 
-        margin-bottom: 8mm;
-        border-bottom: 3px solid #000;
-        padding-bottom: 4mm;
-      }
-      .titulo { 
-        font-size: 24pt; 
-        font-weight: 800; 
-        text-transform: uppercase;
-        letter-spacing: 1pt;
-        margin: 0;
-      }
-      .sub { 
-        margin-top: 4mm; 
-        font-size: 11pt; 
-        font-weight: 600; 
-        color: #333;
-        display: flex;
-        gap: 8mm;
-        justify-content: center;
-        flex-wrap: nowrap;
-      }
-      .sub-item {
-        white-space: nowrap;
-      }
-      .form-grid { 
-        display: grid;
-        grid-template-columns: 25% 75%;
-        gap: 5mm 0;
-        margin-bottom: 5mm;
-      }
-      .form-row {
-        display: contents;
-      }
-      .form-row.dupla {
-        display: grid;
-        grid-column: 1 / -1;
-        grid-template-columns: 12.5% 37.5% 12.5% 37.5%;
-        gap: 0 4mm;
-        align-items: end;
-      }
-      .label { 
-        font-weight: 700; 
-        font-size: 14pt; 
-        text-transform: uppercase;
-        letter-spacing: 0.5pt;
-        color: #000;
-        padding-right: 4mm;
-        align-self: end;
-        padding-bottom: 2mm;
-      }
-      .valor { 
-        border-bottom: 2px solid #000; 
-        font-size: 16pt; 
-        font-weight: 600;
-        padding: 2mm 4mm; 
-        min-height: 8mm; 
-        text-align: center;
-        background: #f9f9f9;
-        position: relative;
-      }
-      .valor:empty::after {
-        content: '';
-        display: inline-block;
-        width: 100%;
-        height: 8mm;
-      }
-    </style>
-    </head><body>
-      <div class="container">
-        <div class="header">
-          <div class="titulo">Formulário de Identificação do Material Cortado</div>
-          <div class="sub">
-            <span class="sub-item">Lote: ${lote}</span>
-            ${loteMPVal ? `<span class="sub-item">| Lote MP: ${loteMPVal}</span>` : ''}
-          </div>
-        </div>
-        
-        <div class="form-grid">
-          <div class="form-row">
-            <div class="label">Cliente:</div>
-            <div class="valor">${cliente}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Item:</div>
-            <div class="valor">${item}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Código Cliente:</div>
-            <div class="valor">${codigoCliente}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Medida:</div>
-            <div class="valor">${medida}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Pedido Tecno:</div>
-            <div class="valor">${pedidoTecno}</div>
-          </div>
-          
-          <div class="form-row dupla">
-            <div class="label">Qtde:</div>
-            <div class="valor">${qtde}</div>
-            <div class="label">Palet:</div>
-            <div class="valor">${pallet}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Pedido Cli:</div>
-            <div class="valor">${pedidoCli}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Dureza:</div>
-            <div class="valor">${durezaVal}</div>
-          </div>
-        </div>
-      </div>
-    </body></html>`
-
+    const html = buildFormularioIdentificacaoHtml({
+      lote,
+      loteMP: loteMPVal,
+      cliente,
+      item,
+      codigoCliente,
+      medida,
+      pedidoTecno,
+      pedidoCli,
+      qtde,
+      pallet,
+      dureza: durezaVal
+    })
+    
     const blob = new Blob([html], { type: 'application/msword' })
     const url = URL.createObjectURL(blob)
     const aTag = document.createElement('a')
@@ -921,6 +780,35 @@ const Relatorios = () => {
     return copia
   }, [apontamentosFiltrados])
 
+  useEffect(() => {
+    let cancelado = false
+
+    const carregarContadorImpressoes = async () => {
+      try {
+        const ids = Array.from(new Set((apontamentosOrdenados || []).map(a => a?.id).filter(Boolean)))
+        if (ids.length === 0) {
+          if (!cancelado) setImpressoesEtiquetasPorApontamento({})
+          return
+        }
+
+        const etiquetas = await supabaseService.getByIn('etiquetas_geradas', 'apontamento_id', ids)
+        const map = {}
+        for (const e of (etiquetas || [])) {
+          const k = e?.apontamento_id
+          if (!k) continue
+          map[k] = (map[k] || 0) + 1
+        }
+
+        if (!cancelado) setImpressoesEtiquetasPorApontamento(map)
+      } catch {
+        if (!cancelado) setImpressoesEtiquetasPorApontamento({})
+      }
+    }
+
+    carregarContadorImpressoes()
+    return () => { cancelado = true }
+  }, [apontamentosOrdenados])
+
   // Filtro aplicado às paradas
   // Normaliza paradas vindas da view/tabela
   const paradas = useMemo(() => {
@@ -1026,6 +914,7 @@ const Relatorios = () => {
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pcs/h</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Refugo</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rack</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Imp.</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
               </thead>
@@ -1033,6 +922,7 @@ const Relatorios = () => {
                 {apontamentosOrdenados.map((a, index) => {
                   const duracao = duracaoMin(a.inicio, a.fim)
                   const pcsHora = duracao > 0 ? ((a.quantidade || 0) / (duracao / 60)).toFixed(1) : '-'
+                  const imp = impressoesEtiquetasPorApontamento[a?.id] || 0
                   return (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{brDate(a.inicio)}</td>
@@ -1063,6 +953,7 @@ const Relatorios = () => {
                         </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{a.rack_ou_pallet || a.rackOuPallet || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold text-gray-800">{imp}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm">
                         <button type="button" className="p-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700" title="Imprimir formulário ou etiquetas" onClick={() => { setApontamentoSelecionado(a); setPrintModalAberto(true) }}>
                           <FaPrint className="w-3 h-3" />
@@ -1073,7 +964,7 @@ const Relatorios = () => {
                 })}
                 {apontamentosOrdenados.length === 0 && (
                   <tr>
-                    <td colSpan="13" className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan="14" className="px-6 py-8 text-center text-gray-500">
                       <div className="flex flex-col items-center gap-2">
                         <FaCalendarAlt className="w-8 h-8 text-gray-300" />
                         <span>Nenhum apontamento encontrado no período selecionado</span>

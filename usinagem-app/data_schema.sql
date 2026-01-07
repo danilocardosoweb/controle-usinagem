@@ -382,6 +382,31 @@ COMMENT ON COLUMN public.apontamentos.exp_fluxo_id IS 'Referência opcional para
 COMMENT ON COLUMN public.apontamentos.exp_unidade IS 'Unidade/módulo de expedição associada ao apontamento (ex.: alunica, tecnoperfil).';
 COMMENT ON COLUMN public.apontamentos.exp_stage IS 'Estágio do fluxo EXP (pedido, produzido, para-usinar, para-embarque etc.) no momento do apontamento.';
 
+CREATE TABLE IF NOT EXISTS public.etiquetas_geradas (
+  id uuid primary key default gen_random_uuid(),
+  lote_usinagem text,
+  numero_etiqueta int,
+  total_etiquetas int,
+  qtd_por_etiqueta int,
+  qt_kg_por_etiqueta numeric(10,2),
+  apontamento_id uuid,
+  codigo_amarrado text,
+  rack_ou_pallet text,
+  data_hora_impresao timestamptz,
+  impressora text,
+  usuario_impressao text,
+  status text,
+  qr_code text,
+  dados_etiqueta jsonb,
+  created_at timestamptz default timezone('utc', now()),
+  updated_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_etiquetas_lote ON public.etiquetas_geradas(lote_usinagem);
+CREATE INDEX IF NOT EXISTS idx_etiquetas_apontamento ON public.etiquetas_geradas(apontamento_id);
+CREATE INDEX IF NOT EXISTS idx_etiquetas_data ON public.etiquetas_geradas(data_hora_impresao);
+CREATE INDEX IF NOT EXISTS idx_etiquetas_status ON public.etiquetas_geradas(status);
+
 -- ============================
 -- Movimentações: Insumos e Ferramentas
 -- ============================
@@ -610,6 +635,12 @@ BEGIN
     ALTER TABLE public.apontamentos DROP COLUMN IF EXISTS etapa_embalagem;
   END IF;
 END $$;
+
+DROP INDEX IF EXISTS idx_etiquetas_lote;
+DROP INDEX IF EXISTS idx_etiquetas_apontamento;
+DROP INDEX IF EXISTS idx_etiquetas_data;
+DROP INDEX IF EXISTS idx_etiquetas_status;
+DROP TABLE IF EXISTS public.etiquetas_geradas;
 
 -- Rollback Movimentações/Views criadas neste patch
 DROP VIEW IF EXISTS public.vw_insumos_reposicao;

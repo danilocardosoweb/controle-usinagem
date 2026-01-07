@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { FaPrint, FaTimes, FaCheckCircle, FaExclamationTriangle, FaFileWord, FaBarcode } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, isImpressoraAtiva } from '../utils/impressoras'
-import * as QRCode from 'qrcode'
+import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
 import EtiquetasService from '../services/EtiquetasService'
+import PrintService from '../services/PrintService'
 import AutocompleteCodigoCliente from './AutocompleteCodigoCliente'
 import BuscaCodigoClienteService from '../services/BuscaCodigoClienteService'
 
@@ -205,7 +206,6 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
     try {
       const cliente = apontamento.cliente || ''
       const item = apontamento.produto || apontamento.codigoPerfil || ''
-      const itemCli = apontamento.perfil_longo || ''
       const medida = apontamento.comprimento_acabado_mm 
         ? `${apontamento.comprimento_acabado_mm} mm` 
         : extrairComprimentoAcabado(item)
@@ -214,39 +214,25 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const qtde = apontamento.quantidade || ''
       const pallet = apontamento.rack_ou_pallet || apontamento.rackOuPallet || ''
       const lote = apontamento.lote || ''
+      const loteMPVal = apontamento.lote_externo || apontamento.loteExterno || 
+        (Array.isArray(apontamento.lotes_externos) ? apontamento.lotes_externos.join(', ') : '') || ''
+      const durezaVal = (apontamento.dureza_material && String(apontamento.dureza_material).trim())
+        ? apontamento.dureza_material
+        : 'N/A'
 
-      const html = `<!DOCTYPE html>
-      <html><head><meta charset="utf-8" />
-      <style>
-        @page { size: A4 landscape; margin: 12mm; }
-        body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .header { text-align: center; margin-bottom: 10mm; }
-        .titulo { font-size: 26pt; font-weight: 800; }
-        .sub { margin-top: 4mm; font-size: 12pt; font-weight: 700; }
-        table { width: 100%; border-collapse: separate; border-spacing: 0 12mm; }
-        th, td { vertical-align: bottom; }
-        .label { font-weight: 800; font-size: 18pt; white-space: nowrap; padding-right: 6mm; }
-        .valor { border-bottom: 3px solid #000; font-size: 18pt; padding: 0 3mm; height: 14mm; }
-        .dupla td { width: 50%; }
-      </style>
-      </head><body>
-        <div class="header">
-          <div class="titulo">Formulário de Identificação do Material Cortado</div>
-          <div class="sub">Lote: ${lote}</div>
-        </div>
-        <table>
-          <tr><td class="label">CLIENTE:</td><td class="valor">${cliente}</td></tr>
-          <tr><td class="label">ITEM:</td><td class="valor">${item}</td></tr>
-          <tr><td class="label">ITEM CLI:</td><td class="valor">${itemCli}</td></tr>
-          <tr><td class="label">MEDIDA:</td><td class="valor">${medida}</td></tr>
-          <tr><td class="label">PEDIDO TECNO:</td><td class="valor">${pedidoTecno}</td></tr>
-          <tr class="dupla">
-            <td><span class="label">QTDE:</span> <span class="valor" style="display:inline-block; min-width:60mm;">${qtde}</span></td>
-            <td><span class="label">PALET:</span> <span class="valor" style="display:inline-block; min-width:60mm;">${pallet}</span></td>
-          </tr>
-          <tr><td class="label">PEDIDO CLI:</td><td class="valor">${pedidoCli}</td></tr>
-        </table>
-      </body></html>`
+      const html = buildFormularioIdentificacaoHtml({
+        lote,
+        loteMP: loteMPVal,
+        cliente,
+        item,
+        codigoCliente: codigoProdutoCliente,
+        medida,
+        pedidoTecno,
+        pedidoCli,
+        qtde,
+        pallet,
+        dureza: durezaVal
+      })
 
       const blob = new Blob([html], { type: 'application/msword' })
       const url = URL.createObjectURL(blob)
@@ -265,13 +251,18 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
     }
   }
 
-  const imprimirEtiquetaTermica = async (numeroEtiqueta, totalEtiquetas, qtdPorEtiqueta = null, qtKgPorEtiqueta = null, codigoEtiqueta = null) => {
+  const imprimirEtiquetaTermica = async (numeroEtiqueta, totalEtiquetas, qtdPorEtiqueta = null) => {
     try {
+      // Verificar configuração da impressora térmica
+      const impressoraTermica = getConfiguracaoImpressoras().termica
+
       if (!isImpressoraAtiva('termica')) {
-        showMessage(
-          'Impressora térmica não está configurada ou ativa.\nVá em Configurações > Impressoras para configurar.',
-          'error'
-        )
+        showMessage('Impressora térmica não está configurada ou ativa. Vá em Configurações > Impressoras para configurar.', 'error')
+        return false
+      }
+
+      if (!impressoraTermica?.ip) {
+        showMessage('Impressora térmica sem IP configurado. Vá em Configurações > Impressoras e preencha o IP.', 'error')
         return false
       }
 
@@ -279,292 +270,33 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const pallet = apontamento.rack_ou_pallet || apontamento.rackOuPallet || ''
       const lote = apontamento.lote || ''
       const durezaDisplay = (apontamento.dureza_material && String(apontamento.dureza_material).trim()) ? apontamento.dureza_material : 'N/A'
-      const loteMP = apontamento.lote_externo || apontamento.loteExterno || 
-                   (Array.isArray(apontamento.lotes_externos) ? apontamento.lotes_externos.join(', ') : '') || ''
-      const perfil = apontamento.produto || apontamento.codigoPerfil || ''
-      const comprimento = apontamento.comprimento_acabado || apontamento.comprimento_acabado_mm || ''
+      const loteMP = apontamento.lote_externo || apontamento.loteExterno ||
+        (Array.isArray(apontamento.lotes_externos) ? apontamento.lotes_externos.join(', ') : '') || ''
+      const ferramenta = extrairFerramenta(apontamento.produto || apontamento.codigoPerfil || '')
       const nomeCliente = apontamento.cliente || apontamento.nome_cliente || ''
 
-      const ferramenta = extrairFerramenta(perfil)
-      const loteUsinagemPrint = String(lote || '').replace(/-/g, '-<wbr>')
-      const loteMpPrint = String(loteMP || '').replace(/(.{12})/g, '$1<wbr>')
-      const bigCode = String(lote || '').replace(/-/g, '')
-      const bigCodeTight = bigCode.length > 18
+      const tspl = PrintService.gerarEtiquetaTspl({
+        lote,
+        loteMP: loteMP || '',
+        rack: pallet,
+        qtde: qtde || '',
+        ferramenta,
+        dureza: durezaDisplay,
+        numeroEtiqueta,
+        totalEtiquetas,
+        codigoProdutoCliente: codigoProdutoCliente || '',
+        nomeCliente: nomeCliente || ''
+      })
 
-      // Gerar divisão de amarrados para esta etiqueta específica
-      let divisaoAmarradosHtml = ''
-      if (qtKgPorEtiqueta && qtde) {
-        divisaoAmarradosHtml = `<div class="divisao-amarrados">${qtde} x ${qtKgPorEtiqueta}</div>`
-      } else if (apontamento.amarrados_detalhados && Array.isArray(apontamento.amarrados_detalhados) && apontamento.amarrados_detalhados.length > 0) {
-        const amarrados = apontamento.amarrados_detalhados
-        const divisoes = []
-        
-        for (const amarrado of amarrados) {
-          const qtdPc = amarrado.qtd_pc || 0
-          if (qtdPc > 0) {
-            divisoes.push(`${qtdPc} x ${amarrado.qt_kg || 0}`)
-          }
-        }
-        
-        if (divisoes.length > 0) {
-          divisaoAmarradosHtml = `<div class="divisao-amarrados">${divisoes.join(' + ')}</div>`
-        }
-      }
+      await PrintService.enviarTspl({
+        tipo: impressoraTermica.tipo || 'rede_ip',
+        ip: impressoraTermica.ip || '',
+        porta: Number(impressoraTermica.porta || 9100),
+        portaCom: impressoraTermica.portaCom || '',
+        caminhoCompartilhada: impressoraTermica.caminhoCompartilhada || '',
+        tspl
+      })
 
-      // Adicionar código do produto do cliente se existir
-      let codigoClienteHtml = ''
-      if (codigoProdutoCliente && codigoProdutoCliente.trim()) {
-        codigoClienteHtml = `<div class="row"><span class="lbl">Cliente:</span><span class="val">${codigoProdutoCliente}</span></div>`
-      }
-
-      const qrText = `ID=${codigoEtiqueta || gerarCodigoEtiqueta(numeroEtiqueta)}|L=${String(lote || '')}|MP=${String(loteMP || '')}|P=${String(ferramenta || '')}|R=${String(pallet || '')}|Q=${String(qtde || '')}|D=${String(durezaDisplay || '')}|E=${String(numeroEtiqueta || '')}/${String(totalEtiquetas || '')}|CC=${String(codigoProdutoCliente || '')}`
-      
-      let qrDataUrl = ''
-      try {
-        qrDataUrl = await QRCode.toDataURL(qrText, { errorCorrectionLevel: 'M', margin: 0, scale: 4 })
-      } catch (e) {
-        qrDataUrl = ''
-      }
-
-      const qrImgHtml = qrDataUrl
-        ? `<img class="qr" src="${qrDataUrl}" alt="QR" />`
-        : ''
-
-      const html = `<!DOCTYPE html>
-      <html><head><meta charset="utf-8" />
-      <style>
-        @page { size: 100mm 45mm; margin: 0; }
-        @media print {
-          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          html, body { margin: 0; }
-        }
-        * { box-sizing: border-box; }
-        html, body {
-          width: 378px;
-          height: 170px;
-          margin: 0;
-          padding: 0;
-          overflow: hidden;
-          page-break-after: avoid;
-          page-break-before: avoid;
-          page-break-inside: avoid;
-          break-after: avoid;
-          break-before: avoid;
-          break-inside: avoid;
-        }
-        body {
-          width: 378px;
-          height: 170px;
-          font-family: Arial, sans-serif;
-          font-size: 12px;
-          line-height: 1.1;
-          background: #fff;
-          color: #000;
-          page-break-after: avoid;
-          page-break-before: avoid;
-          page-break-inside: avoid;
-          break-after: avoid;
-          break-before: avoid;
-          break-inside: avoid;
-        }
-        .header {
-          background: #000;
-          color: #fff;
-          text-align: center;
-          font-weight: bold;
-          font-size: 12px;
-          height: 22px;
-          line-height: 22px;
-          overflow: hidden;
-        }
-        .container {
-          height: 134px;
-          display: flex;
-          flex-direction: row;
-          padding: 4px 7px 0 7px;
-          overflow: hidden;
-        }
-        .left-col {
-          width: 65%;
-          display: flex;
-          flex-direction: column;
-        }
-        .right-col {
-          width: 35%;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          justify-content: space-between;
-          padding-top: 8px;
-          padding-bottom: 4px;
-          padding-right: 2px;
-        }
-        .row {
-          display: flex;
-          align-items: baseline;
-          margin-bottom: 2px;
-        }
-        .row-dupla {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 2px;
-          gap: 4px;
-        }
-        .col {
-          display: flex;
-          align-items: baseline;
-          flex: 1;
-        }
-        .lbl {
-          font-weight: bold;
-          color: #000;
-          margin-right: 3px;
-          flex-shrink: 0;
-          font-size: 10px;
-        }
-        .val {
-          font-weight: bold;
-          color: #000;
-          font-size: 11px;
-        }
-        .lote-group {
-          margin-top: 8px;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .lote-row { display: block; }
-        .lote-lbl {
-          font-weight: bold;
-          color: #000;
-          font-size: 10px;
-          margin-bottom: 1px;
-        }
-        .lote-val {
-          font-family: 'Courier New', monospace;
-          font-size: 9px;
-          font-weight: bold;
-          word-break: break-all;
-          line-height: 1.05;
-          white-space: normal;
-        }
-        .divisao-amarrados {
-          font-family: 'Courier New', monospace;
-          font-size: 9px;
-          font-weight: bold;
-          margin-top: 4px;
-          line-height: 1.1;
-        }
-        .big-code {
-          font-family: 'Courier New', monospace;
-          font-size: 10px;
-          font-weight: bold;
-          text-align: right;
-          white-space: nowrap;
-          line-height: 1;
-          letter-spacing: -0.5px;
-          max-width: 100%;
-          overflow: visible;
-          padding-right: 3px;
-        }
-        .big-code.tight {
-          font-size: 11px;
-          letter-spacing: -0.6px;
-          transform: scaleX(0.92);
-          transform-origin: right top;
-        }
-        .qr-wrap {
-          width: 100%;
-          display: flex;
-          justify-content: flex-end;
-          padding-right: 4px;
-          padding-bottom: 2px;
-        }
-        .qr {
-          width: 80px;
-          height: 80px;
-          object-fit: contain;
-        }
-        .footer {
-          width: 100%;
-          height: 16px;
-          text-align: center;
-          font-size: 8px;
-          font-weight: bold;
-          border-top: 1px solid #000;
-          line-height: 16px;
-          overflow: hidden;
-          page-break-inside: avoid;
-          break-inside: avoid;
-          white-space: nowrap;
-          font-family: 'Courier New', monospace;
-        }
-      </style>
-      </head><body>
-        <div class="header">TECNOPERFIL ALUMÍNIO</div>
-        <div class="container">
-          <div class="left-col">
-            <div class="row-dupla">
-              <div class="col">
-                <span class="lbl">Qtde:</span><span class="val">${qtde} PC</span>
-              </div>
-              <div class="col">
-                <span class="lbl">Rack:</span><span class="val">${pallet}</span>
-              </div>
-            </div>
-            <div class="row"><span class="lbl">Perfil:</span><span class="val">${ferramenta}</span></div>
-            <div class="row-dupla">
-              <div class="col">
-                <span class="lbl">Comp:</span><span class="val">${comprimento}</span>
-              </div>
-              <div class="col">
-                <span class="lbl">Dureza:</span><span class="val">${durezaDisplay}</span>
-              </div>
-            </div>
-            
-            <div class="lote-row">
-              <div class="lote-lbl">Lote Extrusão (MP):</div>
-              <div class="lote-val">${loteMpPrint}</div>
-            </div>
-            
-            <div class="lote-group">
-              <div class="lote-row">
-                <div class="lote-lbl">Lote Usinagem:</div>
-                <div class="lote-val">${loteUsinagemPrint}</div>
-              </div>
-              <div class="row-dupla">
-                <div class="col">
-                  <span class="lbl">Cod Cliente:</span><span class="val">${codigoProdutoCliente}</span>
-                </div>
-                <div class="col">
-                  <span class="lbl">Nome:</span><span class="val">${nomeCliente}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="right-col">
-            <div class="qr-wrap">${qrImgHtml}</div>
-          </div>
-        </div>
-        <div class="footer">ID: ${codigoEtiqueta || gerarCodigoEtiqueta(numeroEtiqueta)} | Etiqueta ${numeroEtiqueta}/${totalEtiquetas}</div>
-      </body></html>`
-
-      const blob = new Blob([html], { type: 'text/html' })
-      const url = URL.createObjectURL(blob)
-      const printWindow = window.open(url, '_blank', 'width=400,height=200')
-      
-      if (printWindow) {
-        printWindow.onload = () => {
-          setTimeout(() => {
-            printWindow.print()
-          }, 250)
-        }
-      } else {
-        showMessage('Não foi possível abrir a janela de impressão. Verifique as configurações do navegador.', 'error')
-        return false
-      }
-
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
       return true
     } catch (error) {
       console.error('Erro ao imprimir etiqueta térmica:', error)
@@ -617,8 +349,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
         
         for (const dist of distribuicaoEtiquetas) {
           for (let i = 0; i < dist.qtdEtiquetas; i++) {
-            const codigoEtiqueta = codigosEtiquetas[seq - 1]
-            const etiquetaOk = await imprimirEtiquetaTermica(seq, distribuicaoEtiquetas.length, dist.qtdPorEtiqueta, dist.qtKgPorEtiqueta, codigoEtiqueta)
+            const etiquetaOk = await imprimirEtiquetaTermica(seq, distribuicaoEtiquetas.length, dist.qtdPorEtiqueta)
             if (!etiquetaOk) {
               sucesso = false
               break
