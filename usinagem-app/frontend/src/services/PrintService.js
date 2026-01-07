@@ -1,5 +1,11 @@
+import WebSerialPrintService from './WebSerialPrintService'
+import LocalPrintService from './LocalPrintService'
+
 class PrintService {
-  static async enviarTspl({ tipo = 'rede_ip', ip = '', porta = 9100, portaCom = '', caminhoCompartilhada = '', tspl, timeoutMs = 3000 }) {
+  // Instância singleton do Web Serial Service
+  static webSerialService = null
+
+  static async enviarTspl({ tipo = 'rede_ip', ip = '', porta = 9100, portaCom = '', caminhoCompartilhada = '', tspl, timeoutMs = 3000, webSerialPort = null, nomeImpressora = '' }) {
     const backend = (import.meta?.env?.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '')
 
     const payload = {
@@ -8,7 +14,68 @@ class PrintService {
       timeout_ms: Number(timeoutMs || 3000)
     }
 
-    // Adicionar campos específicos conforme o tipo
+    // Se for Local Print Service, usar backend como proxy
+    if (tipo === 'local_print_service') {
+      if (!nomeImpressora) {
+        throw new Error('Nome da impressora não informado')
+      }
+
+      payload.tipo = 'local_print_service'
+      payload.nome_impressora = nomeImpressora
+
+      const resp = await fetch(`${backend}/api/print/tspl`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (!resp.ok) {
+        let detail = ''
+        try {
+          const data = await resp.json()
+          detail = data?.detail ? String(data.detail) : ''
+        } catch {
+          detail = await resp.text()
+        }
+        throw new Error(detail || `Erro HTTP ${resp.status}`)
+      }
+
+      return resp.json()
+    }
+
+    // Se for Web Serial API, usar impressão direta do navegador
+    if (tipo === 'web_serial') {
+      if (!WebSerialPrintService.isSupported()) {
+        throw new Error('Web Serial API não suportada. Use Chrome 89+ ou Edge 89+')
+      }
+
+      // Criar ou reutilizar instância do Web Serial Service
+      if (!PrintService.webSerialService) {
+        PrintService.webSerialService = new WebSerialPrintService()
+      }
+
+      // Se já tiver uma porta conectada, usar ela
+      if (webSerialPort) {
+        PrintService.webSerialService.port = webSerialPort
+        PrintService.webSerialService.writer = webSerialPort.writable.getWriter()
+      }
+
+      // Se não estiver conectado, tentar reconectar ou solicitar permissão
+      if (!PrintService.webSerialService.isConnected()) {
+        try {
+          await PrintService.webSerialService.reconnect()
+        } catch {
+          // Se falhar reconexão, solicitar nova permissão
+          await PrintService.webSerialService.requestPort()
+        }
+      }
+
+      // Enviar TSPL via Web Serial
+      await PrintService.webSerialService.enviarTspl(tspl)
+      return { ok: true, method: 'web_serial' }
+    }
+
+    // Para outros tipos, usar backend
     if (tipo === 'rede_ip') {
       payload.ip = ip || ''
       payload.porta = Number(porta || 9100)

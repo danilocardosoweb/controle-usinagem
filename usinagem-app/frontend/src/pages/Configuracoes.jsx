@@ -310,11 +310,13 @@ const Configuracoes = () => {
     return saved ? JSON.parse(saved) : {
       termica: {
         nome: 'Impressora Térmica',
-        tipo: 'rede_ip',
+        tipo: 'local_print_service',
         ip: '192.168.0.138',
         porta: '515',
         portaCom: 'COM1',
-        caminhoCompartilhada: '',
+        caminhoCompartilhada: 'TSC TE200',
+        nomeImpressora: 'TSC TE200',
+        webSerialPort: null,
         ativa: true
       },
       comum: {
@@ -819,6 +821,10 @@ const Configuracoes = () => {
           alert('Impressora térmica sem caminho compartilhado configurado.')
           return
         }
+        if (tipoImpressora === 'web_serial' && !impressora.webSerialPort) {
+          alert('Impressora térmica não conectada via Web Serial.\n\nClique no botão "Conectar USB" primeiro.')
+          return
+        }
 
         const tspl = PrintService.gerarEtiquetaTspl({
           lote: 'TESTE-IMPRESSAO',
@@ -839,10 +845,16 @@ const Configuracoes = () => {
           porta: Number(impressora.porta || 9100),
           portaCom: impressora.portaCom || '',
           caminhoCompartilhada: impressora.caminhoCompartilhada || '',
+          nomeImpressora: impressora.nomeImpressora || '',
+          webSerialPort: impressora.webSerialPort || null,
           tspl
         })
 
-        const destino = tipoImpressora === 'usb_com' 
+        const destino = tipoImpressora === 'local_print_service'
+          ? `Print Service Local (${impressora.nomeImpressora})`
+          : tipoImpressora === 'web_serial'
+          ? 'USB Direto (Web Serial API)'
+          : tipoImpressora === 'usb_com' 
           ? impressora.portaCom 
           : tipoImpressora === 'compartilhada_windows'
           ? impressora.caminhoCompartilhada

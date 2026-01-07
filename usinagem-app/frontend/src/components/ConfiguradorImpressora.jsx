@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import PrintService from '../services/PrintService'
+import WebSerialPrintService, { isWebSerialSupported, getWebSerialSupportMessage } from '../services/WebSerialPrintService'
 
 export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTestar }) {
   const [portasComDisponiveis, setPortasComDisponiveis] = useState([])
   const [impressorasWindowsDisponiveis, setImpressorasWindowsDisponiveis] = useState([])
   const [carregandoPortas, setCarregandoPortas] = useState(false)
   const [carregandoImpressoras, setCarregandoImpressoras] = useState(false)
+  const [webSerialSupported, setWebSerialSupported] = useState(false)
+  const [webSerialPort, setWebSerialPort] = useState(null)
 
   // Carregar portas COM quando tipo for usb_com
   useEffect(() => {
@@ -20,6 +23,25 @@ export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTesta
       carregarImpressorasWindows()
     }
   }, [config.tipo])
+
+  // Verificar suporte ao Web Serial API
+  useEffect(() => {
+    setWebSerialSupported(isWebSerialSupported())
+  }, [])
+
+  // Conectar via Web Serial API
+  const conectarWebSerial = async () => {
+    try {
+      const service = new WebSerialPrintService()
+      const port = await service.requestPort()
+      setWebSerialPort(port)
+      onUpdate('webSerialPort', port)
+      alert('✅ Porta serial conectada com sucesso!\n\nA impressora está pronta para uso.')
+    } catch (e) {
+      console.error('❌ Erro ao conectar Web Serial:', e)
+      alert(`Erro ao conectar:\n${e.message}`)
+    }
+  }
 
   const carregarPortasCom = async () => {
     setCarregandoPortas(true)
@@ -137,10 +159,17 @@ export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTesta
             value={config.tipo || 'rede_ip'}
             onChange={(e) => handleTipoChange(e.target.value)}
           >
+            <option value="local_print_service">🖨️ Local Print Service (Windows)</option>
+            <option value="web_serial">🌐 Web Serial API (USB Direto)</option>
             <option value="rede_ip">Rede IP (RAW/LPR)</option>
-            <option value="usb_com">USB/COM (Serial)</option>
+            <option value="usb_com">USB/COM (Serial via Backend)</option>
             <option value="compartilhada_windows">Compartilhada Windows</option>
           </select>
+          {config.tipo === 'web_serial' && (
+            <p className="text-xs text-blue-600 mt-1">
+              {getWebSerialSupportMessage()}
+            </p>
+          )}
         </div>
 
         {/* Campos específicos para Rede IP */}
@@ -222,6 +251,55 @@ export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTesta
           </>
         )}
 
+        {/* Campos específicos para Local Print Service */}
+        {config.tipo === 'local_print_service' && (
+          <>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome da Impressora Windows
+              </label>
+              <div className="flex gap-2">
+                <select
+                  className="input-field flex-1"
+                  value={config.nomeImpressora || ''}
+                  onChange={(e) => handleChange('nomeImpressora', e.target.value)}
+                >
+                  <option value="">Selecione uma impressora...</option>
+                  {impressorasWindowsDisponiveis.map((imp) => (
+                    <option key={imp.nome} value={imp.nome}>
+                      {imp.nome}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={carregarImpressorasWindows}
+                  disabled={carregandoImpressoras}
+                  className="px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 disabled:bg-gray-400"
+                >
+                  {carregandoImpressoras ? '...' : '🔄'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Serviço rodando em http://localhost:9001
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ou digite manualmente
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                value={config.nomeImpressora || ''}
+                onChange={(e) => handleChange('nomeImpressora', e.target.value)}
+                placeholder="Ex: TSC TE200"
+              />
+            </div>
+          </>
+        )}
+
         {/* Campos específicos para Compartilhada Windows */}
         {config.tipo === 'compartilhada_windows' && (
           <>
@@ -271,8 +349,57 @@ export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTesta
           </>
         )}
 
+        {/* Campos específicos para Web Serial API */}
+        {config.tipo === 'web_serial' && (
+          <>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Conexão USB Direta (Web Serial API)
+              </label>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <p className="text-sm text-blue-800 mb-2">
+                      {webSerialPort ? (
+                        <span className="flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                          <strong>Conectado!</strong> Impressora pronta para uso.
+                        </span>
+                      ) : (
+                        <span>
+                          <strong>Não conectado.</strong> Clique no botão para conectar à impressora USB.
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-blue-600">
+                      💡 O navegador pedirá permissão para acessar a porta USB. Selecione sua impressora térmica.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={conectarWebSerial}
+                    disabled={!webSerialSupported}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {webSerialPort ? '🔄 Reconectar' : '🔌 Conectar USB'}
+                  </button>
+                </div>
+                {!webSerialSupported && (
+                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <p className="text-xs text-yellow-800">
+                      ⚠️ Web Serial API não suportada neste navegador.
+                      <br />
+                      Use <strong>Chrome 89+</strong> ou <strong>Edge 89+</strong> para usar esta funcionalidade.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Caminho de Rede (compatibilidade com versão antiga) */}
-        {config.tipo !== 'usb_com' && (
+        {config.tipo !== 'usb_com' && config.tipo !== 'web_serial' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Caminho de Rede (legado)

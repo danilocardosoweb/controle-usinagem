@@ -289,11 +289,12 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       })
 
       await PrintService.enviarTspl({
-        tipo: impressoraTermica.tipo || 'rede_ip',
+        tipo: impressoraTermica.tipo || 'local_print_service',
         ip: impressoraTermica.ip || '',
         porta: Number(impressoraTermica.porta || 9100),
         portaCom: impressoraTermica.portaCom || '',
         caminhoCompartilhada: impressoraTermica.caminhoCompartilhada || '',
+        nomeImpressora: impressoraTermica.nomeImpressora || impressoraTermica.nome || 'TSC TE200',
         tspl
       })
 
