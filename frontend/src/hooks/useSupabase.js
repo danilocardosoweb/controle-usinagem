@@ -26,8 +26,6 @@ export function useSupabase(tableName) {
 
   // Carregar todos os itens
   const loadItems = useCallback(async () => {
-    if (!isConnected) return;
-    
     try {
       setLoading(true);
       const data = await supabaseService.getAll(tableName);
@@ -39,7 +37,7 @@ export function useSupabase(tableName) {
     } finally {
       setLoading(false);
     }
-  }, [tableName, isConnected]);
+  }, [tableName]);
 
   // Adicionar item
   const addItem = useCallback(async (item) => {

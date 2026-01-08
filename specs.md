@@ -76,7 +76,22 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 - Histórico de produtividade por produto, máquina e operador
 - Indicadores de confiabilidade das estimativas baseados no número de registros históricos
 
-### 6. EXP - Usinagem
+### 6. Estoque (Itens Acabados)
+
+- Aba "Estoque" com gerenciamento de inventário de itens acabados
+- **Ajuste de Inventário (Valor Final)**: Funcionalidade restrita a usuários admin
+  - Campo de texto com autocomplete para seleção/criação de produtos
+  - Permite adicionar produtos não apontados anteriormente
+  - Entrada de contagem física (valor final) para ajuste
+  - Cálculo automático do delta (diferença entre saldo atual e contagem física)
+  - Registro de motivo do ajuste (Inventário, Correção de erro, Ajuste pós usinagem/embalagem, Outro)
+  - Campo de observação para justificativa complementar
+  - Histórico de ajustes com visualização de antes/depois/delta
+- **Cálculo de Saldo**: Incorpora deltas de ajustes de inventário ao saldo calculado por produto
+- **Tabela de Produtos**: Exibe saldo atualizado incluindo ajustes de inventário
+- **Validação de Permissões**: Apenas admins podem acessar modal de ajuste (validação no frontend via `useAuth()` context)
+
+### 7. EXP - Usinagem
 
 - Área dedicada à evolução dos recursos de expedição integrados à usinagem
 - Página inicial criada como base para futuras funcionalidades específicas
