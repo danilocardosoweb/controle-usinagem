@@ -81,6 +81,8 @@ export default function Estoque() {
   const [inventarioOpen, setInventarioOpen] = useState(false)
   const [inventarioSaving, setInventarioSaving] = useState(false)
   const [inventarioForm, setInventarioForm] = useState({ produto: '', saldoAtual: 0, saldoFinal: '', motivo: 'inventario', observacao: '', lote: '', numero_pedido: '' })
+  const [inventarioProdutoSearch, setInventarioProdutoSearch] = useState('')
+  const [inventarioProdutoShowSuggestions, setInventarioProdutoShowSuggestions] = useState(false)
 
   const [minInsumoSavingId, setMinInsumoSavingId] = useState('')
   const [minInsumoEditId, setMinInsumoEditId] = useState('')
@@ -275,6 +277,16 @@ export default function Estoque() {
     })
     return Object.values(map)
   }, [saldoPorChave, cfgByFerramenta, minAcabadosMap, inventariosAcabados, observacoesPorProduto])
+
+  // Sugestões de produtos para autocomplete no ajuste de inventário
+  const inventarioProdutoSuggestions = useMemo(() => {
+    const search = String(inventarioProdutoSearch || '').trim().toLowerCase()
+    if (!search) return (Array.isArray(estoquePorProduto) ? estoquePorProduto : []).map(r => r.produto)
+    return (Array.isArray(estoquePorProduto) ? estoquePorProduto : [])
+      .map(r => r.produto)
+      .filter(p => String(p || '').toLowerCase().includes(search))
+      .slice(0, 10)
+  }, [inventarioProdutoSearch, estoquePorProduto])
 
   const handleOpenFerrStatusEdit = (f) => {
     if (!f) return
@@ -874,17 +886,44 @@ export default function Estoque() {
                 setInventarioSaving(false)
               }
             }}>
-              <div>
+              <div className="relative">
                 <label className="block text-sm text-gray-600 mb-1">Produto</label>
                 <input
                   type="text"
                   className="w-full border rounded px-2 py-2"
-                  placeholder="Digite o produto..."
-                  value={inventarioForm?.produto || ''}
-                  onChange={(e) => setInventarioForm((prev) => ({ ...prev, produto: e.target.value }))}
+                  placeholder="Digite ou selecione um produto..."
+                  value={inventarioForm?.produto || inventarioProdutoSearch}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setInventarioProdutoSearch(val)
+                    setInventarioForm((prev) => ({ ...prev, produto: val }))
+                    setInventarioProdutoShowSuggestions(true)
+                  }}
+                  onFocus={() => setInventarioProdutoShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setInventarioProdutoShowSuggestions(false), 200)}
                   disabled={inventarioSaving}
                   required
                 />
+                {inventarioProdutoShowSuggestions && inventarioProdutoSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 border rounded bg-white shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {inventarioProdutoSuggestions.map((prod) => (
+                      <button
+                        key={`inv-sugg-${prod}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+                        onClick={() => {
+                          const row = estoquePorProduto.find((r) => String(r?.produto || '').trim() === String(prod || '').trim())
+                          const saldoAtual = Number(row?.saldo || 0)
+                          setInventarioForm((prev) => ({ ...prev, produto: prod, saldoAtual }))
+                          setInventarioProdutoSearch(prod)
+                          setInventarioProdutoShowSuggestions(false)
+                        }}
+                      >
+                        {prod}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
