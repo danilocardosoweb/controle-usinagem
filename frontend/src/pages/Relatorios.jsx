@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, FaUsers, FaIndustry, FaTachometerAlt, FaCalendarAlt } from 'react-icons/fa'
 import { useSupabase } from '../hooks/useSupabase'
+import supabaseService from '../services/SupabaseService'
+import PrintModal from '../components/PrintModal'
+import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -79,6 +82,9 @@ const Relatorios = () => {
     modo: 'detalhado' // para rastreabilidade: detalhado|compacto
   }))
   const [filtrosAberto, setFiltrosAberto] = useState(true)
+  const [printModalAberto, setPrintModalAberto] = useState(false)
+  const [apontamentoSelecionado, setApontamentoSelecionado] = useState(null)
+  const [impressoesEtiquetasPorApontamento, setImpressoesEtiquetasPorApontamento] = useState({})
   
   // Dados reais do IndexedDB
   const { items: apontamentos } = useSupabase('apontamentos')
@@ -142,12 +148,22 @@ const Relatorios = () => {
     return resultado
   }
 
-  // Dados simulados para os filtros
-  const maquinas = [
-    { id: 1, nome: 'Usinagem 01' },
-    { id: 2, nome: 'Usinagem 02' },
-    { id: 3, nome: 'Usinagem 03' }
-  ]
+  const maquinasLista = useMemo(() => {
+    try {
+      return (maquinasCat || [])
+        .filter(m => {
+          const st = String(m?.status || 'ativa').toLowerCase()
+          return st === 'ativa'
+        })
+        .map(m => ({
+          id: m?.id,
+          nome: m?.nome || m?.codigo || `Máquina ${m?.id}`
+        }))
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+    } catch {
+      return []
+    }
+  }, [maquinasCat])
   
   // Operadores dinâmicos a partir dos apontamentos reais
   const operadores = useMemo(() => {
@@ -217,47 +233,31 @@ const Relatorios = () => {
   const imprimirFormIdent = (a) => {
     const cliente = a.cliente || ''
     const item = (a.produto || a.codigoPerfil || '')
-    const itemCli = a.perfil_longo || ''
+    const codigoCliente = a.codigo_produto_cliente || ''
     const medida = a.comprimento_acabado_mm ? `${a.comprimento_acabado_mm} mm` : extrairComprimentoAcabado(item)
     const pedidoTecno = (a.ordemTrabalho || a.pedido_seq || '')
     const pedidoCli = (a.pedido_cliente || '')
     const qtde = a.quantidade || ''
     const pallet = (a.rack_ou_pallet || a.rackOuPallet || '')
     const lote = a.lote || ''
+    const loteMPVal = a.lote_externo || a.loteExterno || 
+                     (Array.isArray(a.lotes_externos) ? a.lotes_externos.join(', ') : '') || ''
+    const durezaVal = (a.dureza_material && String(a.dureza_material).trim()) ? a.dureza_material : 'N/A'
 
-    const html = `<!DOCTYPE html>
-    <html><head><meta charset="utf-8" />
-    <style>
-      @page { size: A4 landscape; margin: 12mm; }
-      body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .header { text-align: center; margin-bottom: 10mm; }
-      .titulo { font-size: 26pt; font-weight: 800; }
-      .sub { margin-top: 4mm; font-size: 12pt; font-weight: 700; }
-      table { width: 100%; border-collapse: separate; border-spacing: 0 12mm; }
-      th, td { vertical-align: bottom; }
-      .label { font-weight: 800; font-size: 18pt; white-space: nowrap; padding-right: 6mm; }
-      .valor { border-bottom: 3px solid #000; font-size: 18pt; padding: 0 3mm; height: 14mm; }
-      .dupla td { width: 50%; }
-    </style>
-    </head><body>
-      <div class="header">
-        <div class="titulo">Formulário de Identificação do Material Cortado</div>
-        <div class="sub">Lote: ${lote}</div>
-      </div>
-      <table>
-        <tr><td class="label">CLIENTE:</td><td class="valor">${cliente}</td></tr>
-        <tr><td class="label">ITEM:</td><td class="valor">${item}</td></tr>
-        <tr><td class="label">ITEM CLI:</td><td class="valor">${itemCli}</td></tr>
-        <tr><td class="label">MEDIDA:</td><td class="valor">${medida}</td></tr>
-        <tr><td class="label">PEDIDO TECNO:</td><td class="valor">${pedidoTecno}</td></tr>
-        <tr class="dupla">
-          <td><span class="label">QTDE:</span> <span class="valor" style="display:inline-block; min-width:60mm;">${qtde}</span></td>
-          <td><span class="label">PALET:</span> <span class="valor" style="display:inline-block; min-width:60mm;">${pallet}</span></td>
-        </tr>
-        <tr><td class="label">PEDIDO CLI:</td><td class="valor">${pedidoCli}</td></tr>
-      </table>
-    </body></html>`
-
+    const html = buildFormularioIdentificacaoHtml({
+      lote,
+      loteMP: loteMPVal,
+      cliente,
+      item,
+      codigoCliente,
+      medida,
+      pedidoTecno,
+      pedidoCli,
+      qtde,
+      pallet,
+      dureza: durezaVal
+    })
+    
     const blob = new Blob([html], { type: 'application/msword' })
     const url = URL.createObjectURL(blob)
     const aTag = document.createElement('a')
@@ -747,6 +747,27 @@ const Relatorios = () => {
     return map
   }, [maquinasCat])
 
+  const normTxt = (v) => {
+    try {
+      return String(v ?? '').trim().toLowerCase()
+    } catch {
+      return ''
+    }
+  }
+
+  const resolveMaquinaNome = (reg) => {
+    try {
+      const raw = reg?.maquina ?? reg?.maquina_nome ?? reg?.maquinaNome ?? reg?.maquina_id ?? reg?.maquinaId ?? ''
+      const s = String(raw ?? '').trim()
+      if (!s) return ''
+      // Se for UUID/id e existir no catálogo, resolver para nome
+      if (maqMap && maqMap[s]) return String(maqMap[s] || '').trim()
+      return s
+    } catch {
+      return ''
+    }
+  }
+
   const apontamentosFiltrados = useMemo(() => {
     const area = areaPorTipoRelatorio(filtros.tipoRelatorio)
     const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
@@ -755,7 +776,11 @@ const Relatorios = () => {
       const dd = toISODate(a.inicio)
       if (di && (!dd || dd < di)) return false
       if (df && (!dd || dd > df)) return false
-      if (filtros.maquina && String(a.maquina) !== String(filtros.maquina)) return false
+      if (filtros.maquina) {
+        const sel = normTxt(filtros.maquina)
+        const nome = normTxt(resolveMaquinaNome(a))
+        if (!nome || nome !== sel) return false
+      }
       if (filtros.operador && String(a.operador) !== String(filtros.operador)) return false
 
       if (area === 'embalagem') {
@@ -790,6 +815,35 @@ const Relatorios = () => {
     return copia
   }, [apontamentosFiltrados])
 
+  useEffect(() => {
+    let cancelado = false
+
+    const carregarContadorImpressoes = async () => {
+      try {
+        const ids = Array.from(new Set((apontamentosOrdenados || []).map(a => a?.id).filter(Boolean)))
+        if (ids.length === 0) {
+          if (!cancelado) setImpressoesEtiquetasPorApontamento({})
+          return
+        }
+
+        const etiquetas = await supabaseService.getByIn('etiquetas_geradas', 'apontamento_id', ids)
+        const map = {}
+        for (const e of (etiquetas || [])) {
+          const k = e?.apontamento_id
+          if (!k) continue
+          map[k] = (map[k] || 0) + 1
+        }
+
+        if (!cancelado) setImpressoesEtiquetasPorApontamento(map)
+      } catch {
+        if (!cancelado) setImpressoesEtiquetasPorApontamento({})
+      }
+    }
+
+    carregarContadorImpressoes()
+    return () => { cancelado = true }
+  }, [apontamentosOrdenados])
+
   // Filtro aplicado às paradas
   // Normaliza paradas vindas da view/tabela
   const paradas = useMemo(() => {
@@ -809,7 +863,11 @@ const Relatorios = () => {
       const dd = toISODate(p.inicio_norm)
       if (di && (!dd || dd < di)) return false
       if (df && (!dd || dd > df)) return false
-      if (filtros.maquina && String(p.maquina) !== String(filtros.maquina)) return false
+      if (filtros.maquina) {
+        const sel = normTxt(filtros.maquina)
+        const nome = normTxt(resolveMaquinaNome(p))
+        if (!nome || nome !== sel) return false
+      }
       // Operador não se aplica a paradas (não temos esse campo), então ignorar
       return true
     })
@@ -895,6 +953,7 @@ const Relatorios = () => {
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pcs/h</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Refugo</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rack</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Imp.</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
               </thead>
@@ -902,6 +961,7 @@ const Relatorios = () => {
                 {apontamentosOrdenados.map((a, index) => {
                   const duracao = duracaoMin(a.inicio, a.fim)
                   const pcsHora = duracao > 0 ? ((a.quantidade || 0) / (duracao / 60)).toFixed(1) : '-'
+                  const imp = impressoesEtiquetasPorApontamento[a?.id] || 0
                   return (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{brDate(a.inicio)}</td>
@@ -932,8 +992,9 @@ const Relatorios = () => {
                         </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{a.rack_ou_pallet || a.rackOuPallet || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold text-gray-800">{imp}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm">
-                        <button type="button" className="p-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700" title="Imprimir formulário" onClick={() => imprimirFormIdent(a)}>
+                        <button type="button" className="p-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700" title="Imprimir formulário ou etiquetas" onClick={() => { setApontamentoSelecionado(a); setPrintModalAberto(true) }}>
                           <FaPrint className="w-3 h-3" />
                         </button>
                       </td>
@@ -942,7 +1003,7 @@ const Relatorios = () => {
                 })}
                 {apontamentosOrdenados.length === 0 && (
                   <tr>
-                    <td colSpan="13" className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan="14" className="px-6 py-8 text-center text-gray-500">
                       <div className="flex flex-col items-center gap-2">
                         <FaCalendarAlt className="w-8 h-8 text-gray-300" />
                         <span>Nenhum apontamento encontrado no período selecionado</span>
@@ -1591,8 +1652,8 @@ const Relatorios = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               >
                 <option value="">Todas as máquinas</option>
-                {maquinas.map(maq => (
-                  <option key={maq.id} value={maq.id}>{maq.nome}</option>
+                {maquinasLista.map(maq => (
+                  <option key={maq.id || maq.nome} value={maq.nome}>{maq.nome}</option>
                 ))}
               </select>
             </div>
@@ -1711,6 +1772,19 @@ const Relatorios = () => {
           <PreviewRelatorio tipo={filtros.tipoRelatorio} />
         </div>
       </div>
+
+      {/* Modal de Impressão */}
+      <PrintModal
+        isOpen={printModalAberto}
+        onClose={() => {
+          setPrintModalAberto(false)
+          setApontamentoSelecionado(null)
+        }}
+        apontamento={apontamentoSelecionado}
+        onPrintSuccess={(apontamento) => {
+          console.log('Impressão realizada com sucesso para:', apontamento)
+        }}
+      />
     </div>
   )
 }

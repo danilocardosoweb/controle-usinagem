@@ -4,8 +4,13 @@ import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
+import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
+import AutocompleteCodigoCliente from '../components/AutocompleteCodigoCliente'
+import BuscaCodigoClienteService from '../services/BuscaCodigoClienteService'
+import EtiquetasService from '../services/EtiquetasService'
+import PrintService from '../services/PrintService'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
 const buildHttpPdfUrl = (basePath, fileName) => {
@@ -38,36 +43,6 @@ const tryOpenInNewTab = async (url, fallbackPathText) => {
       if (fallbackPathText) {
         try { await navigator.clipboard.writeText(fallbackPathText) } catch {}
       }
-  // Fallback: se não houver lotesExternos selecionados, mas houver rack informado,
-  // e temos o produto do apontamento, considera que todos os amarrados daquele rack
-  // e daquele item foram processados e grava na rastreabilidade.
-  if (amarradosDetalhados.length === 0) {
-    const rackAlvo = String(rackOuPallet || formData.rack_ou_pallet || '').trim()
-    const produtoAlvo = String(formData.codigoPerfil || '').trim()
-    if (rackAlvo && produtoAlvo) {
-      const candidatos = (lotesDB || []).filter(l => {
-        const rackEq = String(l.rack_embalagem || '').trim() === rackAlvo
-        const prodL = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
-        const prodEq = !!prodL && prodL === produtoAlvo
-        return rackEq && prodEq
-      })
-      for (const loteDetalhado of candidatos) {
-        amarradosDetalhados.push({
-          codigo: String(loteDetalhado.codigo || '').trim(),
-          rack: String(loteDetalhado.rack_embalagem || '').trim(),
-          lote: String(loteDetalhado.lote || '').trim(),
-          produto: String(loteDetalhado.produto || getCampoOriginalLote(loteDetalhado, 'Produto') || '').trim(),
-          pedido_seq: String(loteDetalhado.pedido_seq || '').trim(),
-          romaneio: String(loteDetalhado.romaneio || '').trim(),
-          qt_kg: Number(loteDetalhado.qt_kg || 0),
-          qtd_pc: Number(loteDetalhado.qtd_pc || 0),
-          situacao: String(loteDetalhado.situacao || '').trim(),
-          embalagem_data: loteDetalhado.embalagem_data || null,
-          nota_fiscal: String(loteDetalhado.nota_fiscal || '').trim()
-        })
-      }
-    }
-  }
       alert('O navegador bloqueou a abertura direta do arquivo local. O caminho foi copiado para a área de transferência. Cole no Explorer para abrir:\n' + (fallbackPathText || url))
     }
   } catch (e) {
@@ -128,6 +103,102 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }
 
+  const imprimirEtiquetasTermicasEmLote = async ({ lote, dist, rackOuPalletValor, dureza, loteMP }) => {
+    const impressoraTermica = getConfiguracaoImpressoras().termica
+
+    if (!isImpressoraAtiva('termica')) {
+      alert(`Impressora térmica não está configurada ou ativa.\nVá em Configurações > Impressoras para configurar.`)
+      return
+    }
+
+    if (!impressoraTermica?.ip) {
+      alert('Impressora térmica sem IP configurado. Vá em Configurações > Impressoras e preencha o IP.')
+      return
+    }
+
+    const cliente = formData.cliente || ''
+    const pedidoSeq = formData.ordemTrabalho || ''
+    const perfil = formData.codigoPerfil || ''
+    const comprimentoRaw = formData.comprimentoAcabado || ''
+    const comprimento = String(comprimentoRaw || '').replace(/[^0-9]/g, '')
+    const pedidoCliente = formData.pedidoCliente || ''
+    const durezaVal = (dureza && String(dureza).trim()) ? dureza : 'N/A'
+    const loteMPVal = loteMP || formData.loteExterno || (formData.lotesExternos && formData.lotesExternos.length ? formData.lotesExternos[0] : '')
+
+    const extrairFerramenta = (prod) => {
+      if (!prod) return ''
+      const s = String(prod).toUpperCase()
+      const re3 = /^([A-Z]{3})([A-Z0-9]+)/
+      const re2 = /^([A-Z]{2})([A-Z0-9]+)/
+      let letras = '', resto = '', qtdDigitos = 0
+      let m = s.match(re3)
+      if (m) { letras = m[1]; resto = m[2]; qtdDigitos = 3 }
+      else { m = s.match(re2); if (m) { letras = m[1]; resto = m[2]; qtdDigitos = 4 } else return '' }
+      let nums = ''
+      for (const ch of resto) {
+        if (/[0-9]/.test(ch)) nums += ch
+        else if (ch === 'O') nums += '0'
+        if (nums.length === qtdDigitos) break
+      }
+      if (nums.length < qtdDigitos) nums = nums.padEnd(qtdDigitos, '0')
+      return `${letras}-${nums}`
+    }
+
+    const ferramenta = extrairFerramenta(perfil)
+
+    const totalEtiquetas = (dist || []).reduce((acc, d) => acc + (Number(d.qtdEtiquetas) || 0), 0)
+    if (!totalEtiquetas) {
+      alert('Nenhuma etiqueta para imprimir.')
+      return
+    }
+
+    let seq = 1
+    const etiquetasParaImprimir = []
+    for (const d of (dist || [])) {
+      const qtdEtiquetas = Number(d.qtdEtiquetas) || 0
+      for (let i = 0; i < qtdEtiquetas; i++) {
+        etiquetasParaImprimir.push({
+          lote,
+          loteMP: loteMPVal || '',
+          rack: rackOuPalletValor || '',
+          qtde: String(d.qtdPorEtiqueta || ''),
+          ferramenta,
+          dureza: durezaVal,
+          numeroEtiqueta: seq,
+          totalEtiquetas,
+          codigoProdutoCliente: formData.codigoProdutoCliente || '',
+          nomeCliente: cliente || '',
+          comprimento: comprimento || '',
+          pedidoCliente,
+          pedidoSeq
+        })
+        seq += 1
+      }
+    }
+
+    const tspl = PrintService.gerarMultiplasEtiquetas(etiquetasParaImprimir)
+
+    try {
+      await PrintService.enviarTspl({
+        tipo: impressoraTermica.tipo || 'local_print_service',
+        ip: impressoraTermica.ip || '',
+        porta: Number(impressoraTermica.porta || 9100),
+        portaCom: impressoraTermica.portaCom || '',
+        caminhoCompartilhada: impressoraTermica.caminhoCompartilhada || '',
+        nomeImpressora: impressoraTermica.nomeImpressora || impressoraTermica.nome || 'TSC TE200',
+        tspl
+      })
+    } catch (err) {
+      const destino = impressoraTermica.tipo === 'usb_com'
+        ? impressoraTermica.portaCom
+        : impressoraTermica.tipo === 'compartilhada_windows'
+        ? impressoraTermica.caminhoCompartilhada
+        : `${impressoraTermica.ip}:${impressoraTermica.porta || 9100}`
+      alert(`Falha ao imprimir na TSC (${destino}).\nDetalhes: ${err?.message || 'erro desconhecido'}`)
+      throw err
+    }
+  }
+
   const STORAGE_KEY = modo === 'embalagem' ? 'apont_embalagem_draft' : 'apont_usinagem_draft'
   const [formData, setFormData] = useState({
     operador: user ? user.nome : '',
@@ -151,7 +222,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     observacoes: '',
     romaneioNumero: '',
     loteExterno: '', // compat: primeiro lote
-    lotesExternos: [] // novo: lista de lotes
+    lotesExternos: [], // novo: lista de lotes
+    codigoProdutoCliente: '' // novo: código do produto do cliente
   })
 
   // Estados do contador de tempo
@@ -214,7 +286,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const cliente = formData.cliente || ''
     const pedidoSeq = formData.ordemTrabalho || ''
     const perfil = formData.codigoPerfil || ''
-    const comprimento = formData.comprimentoAcabado || ''
+    const comprimentoRaw = formData.comprimentoAcabado || ''
+    const comprimento = String(comprimentoRaw || '').replace(/[^0-9]/g, '')
+    const pedidoCliente = formData.pedidoCliente || ''
     const qtde = quantidade || ''
     const pallet = rackOuPalletValor || ''
     const durezaVal = (dureza && String(dureza).trim()) ? dureza : 'N/A'
@@ -249,209 +323,46 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const bigCode = String(lote || '').replace(/-/g, '')
     const bigCodeTight = bigCode.length > 18
 
-    const qrText = `L=${String(lote || '')}|MP=${String(loteMPVal || '')}|P=${String(ferramenta || '')}|R=${String(pallet || '')}|Q=${String(qtde || '')}|D=${String(durezaDisplay || '')}|E=${String(numeroEtiqueta || '')}/${String(totalEtiquetas || '')}`
-    let qrDataUrl = ''
+    if (!impressoraTermica?.ip) {
+      alert('Impressora térmica sem IP configurado. Vá em Configurações > Impressoras e preencha o IP.')
+      return
+    }
+
+    const tspl = PrintService.gerarEtiquetaTspl({
+      lote,
+      loteMP: loteMPVal || '',
+      rack: pallet,
+      qtde,
+      ferramenta,
+      dureza: durezaDisplay,
+      numeroEtiqueta,
+      totalEtiquetas,
+      codigoProdutoCliente: formData.codigoProdutoCliente || '',
+      nomeCliente: cliente || '',
+      comprimento: comprimento || '',
+      pedidoCliente,
+      pedidoSeq
+    })
+
     try {
-      qrDataUrl = await QRCode.toDataURL(qrText, { errorCorrectionLevel: 'M', margin: 0, scale: 4 })
-    } catch (e) {
-      qrDataUrl = ''
+      await PrintService.enviarTspl({
+        tipo: impressoraTermica.tipo || 'local_print_service',
+        ip: impressoraTermica.ip || '',
+        porta: Number(impressoraTermica.porta || 9100),
+        portaCom: impressoraTermica.portaCom || '',
+        caminhoCompartilhada: impressoraTermica.caminhoCompartilhada || '',
+        nomeImpressora: impressoraTermica.nomeImpressora || impressoraTermica.nome || 'TSC TE200',
+        tspl
+      })
+    } catch (err) {
+      const destino = impressoraTermica.tipo === 'usb_com' 
+        ? impressoraTermica.portaCom 
+        : impressoraTermica.tipo === 'compartilhada_windows'
+        ? impressoraTermica.caminhoCompartilhada
+        : `${impressoraTermica.ip}:${impressoraTermica.porta || 9100}`
+      alert(`Falha ao imprimir na TSC (${destino}).\nDetalhes: ${err?.message || 'erro desconhecido'}`)
+      throw err
     }
-
-    const qrImgHtml = qrDataUrl
-      ? `<div class="qr-wrap"><img class="qr" src="${qrDataUrl}" alt="QR" /></div>`
-      : ''
-
-    const html = `<!DOCTYPE html>
-    <html><head><meta charset="utf-8" />
-    <style>
-      @page { size: 100mm 45mm; margin: 0; }
-      @media print {
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        html, body { margin: 0; }
-      }
-      * { box-sizing: border-box; }
-      html, body {
-        width: 378px;
-        height: 170px;
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        page-break-after: avoid;
-        page-break-before: avoid;
-        page-break-inside: avoid;
-        break-after: avoid;
-        break-before: avoid;
-        break-inside: avoid;
-      }
-      body {
-        width: 378px;
-        height: 170px;
-        font-family: Arial, sans-serif;
-        font-size: 12px;
-        line-height: 1.1;
-        background: #fff;
-        color: #000;
-        page-break-after: avoid;
-        page-break-before: avoid;
-        page-break-inside: avoid;
-        break-after: avoid;
-        break-before: avoid;
-        break-inside: avoid;
-      }
-      .header {
-        background: #000;
-        color: #fff;
-        text-align: center;
-        font-weight: bold;
-        font-size: 12px;
-        height: 22px;
-        line-height: 22px;
-        overflow: hidden;
-      }
-      .container {
-        height: 134px;
-        display: flex;
-        flex-direction: row;
-        padding: 4px 7px 0 7px;
-        overflow: hidden;
-      }
-      .left-col {
-        width: 65%;
-        display: flex;
-        flex-direction: column;
-      }
-      .right-col {
-        width: 35%;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        justify-content: space-between;
-        padding-top: 8px;
-        padding-bottom: 4px;
-        padding-right: 2px;
-      }
-      .row {
-        display: flex;
-        align-items: baseline;
-        margin-bottom: 2px;
-      }
-      .lbl {
-        font-weight: bold;
-        color: #000;
-        margin-right: 5px;
-        width: 45px;
-        flex-shrink: 0;
-        font-size: 11px;
-      }
-      .val {
-        font-weight: bold;
-        color: #000;
-        font-size: 12px;
-      }
-      .lote-group {
-        margin-top: 8px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-      .lote-row { display: block; }
-      .lote-lbl {
-        font-weight: bold;
-        color: #000;
-        font-size: 10px;
-        margin-bottom: 1px;
-      }
-      .lote-val {
-        font-family: 'Courier New', monospace;
-        font-size: 9px;
-        font-weight: bold;
-        word-break: break-all;
-        line-height: 1.05;
-        white-space: normal;
-      }
-      .big-code {
-        font-family: 'Courier New', monospace;
-        font-size: 10px;
-        font-weight: bold;
-        text-align: right;
-        white-space: nowrap;
-        line-height: 1;
-        letter-spacing: -0.8px;
-        max-width: 100%;
-        overflow: visible;
-        padding-right: 1px;
-      }
-      .big-code.tight {
-        font-size: 11px;
-        letter-spacing: -0.6px;
-        transform: scaleX(0.92);
-        transform-origin: right top;
-      }
-      .qr-wrap {
-        width: 100%;
-        display: flex;
-        justify-content: flex-end;
-        padding-right: 2px;
-        padding-bottom: 2px;
-      }
-      .qr {
-        width: 80px;
-        height: 80px;
-        object-fit: contain;
-      }
-      .footer {
-        width: 100%;
-        height: 14px;
-        text-align: center;
-        font-size: 9px;
-        font-weight: bold;
-        border-top: 1px solid #000;
-        line-height: 14px;
-        overflow: hidden;
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }
-    </style>
-    </head><body>
-      <div class="header">TECNOPERFIL ALUMÍNIO</div>
-      <div class="container">
-        <div class="left-col">
-          <div class="row"><span class="lbl">Qtde:</span><span class="val">${qtde} PC</span></div>
-          <div class="row"><span class="lbl">Rack:</span><span class="val">${pallet}</span></div>
-          <div class="row"><span class="lbl">Perfil:</span><span class="val">${ferramenta}</span></div>
-          <div class="row"><span class="lbl">Dureza:</span><span class="val">${durezaDisplay}</span></div>
-          
-          <div class="lote-group">
-            <div class="lote-row">
-              <div class="lote-lbl">Lote Usinagem:</div>
-              <div class="lote-val">${loteUsinagemPrint}</div>
-            </div>
-            <div class="lote-row">
-              <div class="lote-lbl">Lote Extrusão (MP):</div>
-              <div class="lote-val">${loteMpPrint}</div>
-            </div>
-          </div>
-        </div>
-        <div class="right-col">
-          <div class="big-code ${bigCodeTight ? 'tight' : ''}">${bigCode}</div>
-          ${qrImgHtml}
-        </div>
-      </div>
-      <div class="footer">Etiqueta ${numeroEtiqueta}/${totalEtiquetas}</div>
-    </body></html>`
-
-    // Criar blob HTML para impressão direta
-    const blob = new Blob([html], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    const printWindow = window.open(url, '_blank', 'width=400,height=200')
-    if (printWindow) {
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print()
-        }, 250)
-      }
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   // Cria conteúdo HTML estilizado para o formulário e dispara download .doc
@@ -469,7 +380,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     
     const cliente = formData.cliente || ''
     const item = formData.codigoPerfil || ''
-    const itemCli = formData.perfilLongo || '' // se existir no futuro 'item_do_cliente', trocar aqui
+    const codigoCliente = formData.codigoProdutoCliente || ''
     const medida = formData.comprimentoAcabado || ''
     const pedidoTecno = formData.ordemTrabalho || ''
     const pedidoCli = formData.pedidoCliente || ''
@@ -478,158 +389,20 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const durezaVal = dureza || ''
     const loteMPVal = loteMP || ''
 
-    const html = `<!DOCTYPE html>
-    <html><head><meta charset="utf-8" />
-    <style>
-      @page { 
-        size: A4 landscape; 
-        margin: 12.7mm; /* Margens estreitas padrão */
-      }
-      @media print {
-        @page {
-          size: landscape;
-          margin: 12.7mm;
-        }
-        body {
-          margin: 0;
-        }
-      }
-      body { 
-        font-family: 'Segoe UI', Arial, sans-serif; 
-        color: #000; 
-        margin: 0;
-        padding: 10mm;
-        background: #fff;
-        -webkit-print-color-adjust: exact; 
-        print-color-adjust: exact; 
-      }
-      .container {
-        max-width: 100%;
-        margin: 0 auto;
-        background: #fff;
-        border: 2px solid #000;
-        padding: 8mm;
-      }
-      .header { 
-        text-align: center; 
-        margin-bottom: 8mm;
-        border-bottom: 3px solid #000;
-        padding-bottom: 4mm;
-      }
-      .titulo { 
-        font-size: 24pt; 
-        font-weight: 800; 
-        text-transform: uppercase;
-        letter-spacing: 1pt;
-        margin: 0;
-      }
-      .sub { 
-        margin-top: 4mm; 
-        font-size: 11pt; 
-        font-weight: 600; 
-        color: #333;
-        display: flex;
-        gap: 8mm;
-        justify-content: center;
-        flex-wrap: nowrap;
-      }
-      .sub-item {
-        white-space: nowrap;
-      }
-      .form-grid { 
-        display: grid;
-        grid-template-columns: 25% 75%;
-        gap: 5mm 0;
-        margin-bottom: 5mm;
-      }
-      .form-row {
-        display: contents;
-      }
-      .form-row.dupla {
-        display: grid;
-        grid-column: 1 / -1;
-        grid-template-columns: 12.5% 37.5% 12.5% 37.5%;
-        gap: 0 4mm;
-        align-items: end;
-      }
-      .label { 
-        font-weight: 700; 
-        font-size: 14pt; 
-        text-transform: uppercase;
-        letter-spacing: 0.5pt;
-        color: #000;
-        padding-right: 4mm;
-        align-self: end;
-        padding-bottom: 2mm;
-      }
-      .valor { 
-        border-bottom: 2px solid #000; 
-        font-size: 16pt; 
-        font-weight: 600;
-        padding: 2mm 4mm; 
-        min-height: 8mm; 
-        text-align: center;
-        background: #f9f9f9;
-        position: relative;
-      }
-      .valor:empty::after {
-        content: '';
-        display: inline-block;
-        width: 100%;
-        height: 8mm;
-      }
-    </style>
-    </head><body>
-      <div class="container">
-        <div class="header">
-          <div class="titulo">Formulário de Identificação do Material Cortado</div>
-          <div class="sub">
-            <span class="sub-item">Lote: ${lote}</span>
-            ${loteMPVal ? `<span class="sub-item">| Lote MP: ${loteMPVal}</span>` : ''}
-          </div>
-        </div>
-        
-        <div class="form-grid">
-          <div class="form-row">
-            <div class="label">Cliente:</div>
-            <div class="valor">${cliente}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Item:</div>
-            <div class="valor">${item}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Medida:</div>
-            <div class="valor">${medida}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Pedido Tecno:</div>
-            <div class="valor">${pedidoTecno}</div>
-          </div>
-          
-          <div class="form-row dupla">
-            <div class="label">Qtde:</div>
-            <div class="valor">${qtde}</div>
-            <div class="label">Palet:</div>
-            <div class="valor">${pallet}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Pedido Cli:</div>
-            <div class="valor">${pedidoCli}</div>
-          </div>
-          
-          <div class="form-row">
-            <div class="label">Dureza:</div>
-            <div class="valor">${durezaVal}</div>
-          </div>
-        </div>
-      </div>
-    </body></html>`
-
+    const html = buildFormularioIdentificacaoHtml({
+      lote,
+      loteMP: loteMPVal,
+      cliente,
+      item,
+      codigoCliente,
+      medida,
+      pedidoTecno,
+      pedidoCli,
+      qtde,
+      pallet,
+      dureza: durezaVal
+    })
+    
     // Criar blob .doc (Word abre HTML com extensão .doc)
     const blob = new Blob([html], { type: 'application/msword' })
     const url = URL.createObjectURL(blob)
@@ -686,6 +459,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Modal para imprimir formulário de identificação
   const [imprimirAberto, setImprimirAberto] = useState(false)
   const [ultimoLote, setUltimoLote] = useState('')
+  const [ultimoApontamentoId, setUltimoApontamentoId] = useState('')
   const [tipoImpressao, setTipoImpressao] = useState('documento') // 'documento' | 'etiqueta'
   const [loteMPSelecionado, setLoteMPSelecionado] = useState('')
   const [etiquetasDistribuicao, setEtiquetasDistribuicao] = useState([{ qtdPorEtiqueta: '', qtdEtiquetas: '' }])
@@ -1099,7 +873,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       inicio: '',
       fim: '',
       quantidade: '',
-      qtdPedido: '',
+      qtdPedido: 0,
       perfilLongo: '',
       separado: '',
       cliente: '',
@@ -1111,12 +885,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       observacoes: '',
       romaneioNumero: '',
       loteExterno: '',
-      lotesExternos: []
+      lotesExternos: [],
+      codigoProdutoCliente: ''
     })
   }
 
-  // Extrai o código da ferramenta a partir do produto
-  // Regras:
   // - Se iniciar com 3 letras: 3 letras + '-' + 3 dígitos seguintes
   // - Se iniciar com 2 letras: 2 letras + '-' + 4 dígitos seguintes
   // Observação: tratar a letra 'O' como dígito '0' nos blocos numéricos
@@ -1174,6 +947,30 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     } catch {
       return ''
     }
+  }
+
+  const normalizarPedidoCliente = (v) => {
+    try {
+      const s = String(v ?? '').trim()
+      if (!s) return ''
+      return s.replace(/\.0$/, '')
+    } catch {
+      return ''
+    }
+  }
+
+  const obterPedidoClientePedido = (p) => {
+    const v =
+      p?.pedido_cliente
+      || getCampoOriginal(p, 'PEDIDO.CLIENTE')
+      || getCampoOriginal(p, 'PEDIDO DO CLIENTE')
+      || getCampoOriginal(p, 'PEDIDO CLIENTE')
+      || getCampoOriginal(p, 'NUMERO PEDIDO')
+      || getCampoOriginal(p, 'NÚMERO PEDIDO')
+      || getCampoOriginal(p, 'NRO PEDIDO')
+      || getCampoOriginal(p, 'Nº PEDIDO')
+      || ''
+    return normalizarPedidoCliente(v)
   }
 
   // Formata data/hora atual no padrão aceito por inputs type="datetime-local"
@@ -1245,7 +1042,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       perfilLongo,                       // Item/Perfil (fallback da planilha)
       separado: separadoNum,             // Quantidade separada
       cliente: getCampoOriginal(p, 'CLIENTE') || p.cliente || '',
-      pedidoCliente: p.pedido_cliente || '',
+      pedidoCliente: obterPedidoClientePedido(p),
       dtFatura,
       unidade: p.unidade || '',
       comprimentoAcabado: comp,
@@ -1355,6 +1152,29 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       }))
     }
   }, [user])
+
+  // Buscar código do cliente automaticamente quando código do perfil mudar
+  useEffect(() => {
+    if (formData.codigoPerfil && formData.codigoPerfil.trim()) {
+      buscarCodigoClienteAutomatico(formData.codigoPerfil)
+    }
+  }, [formData.codigoPerfil])
+
+  // Buscar código do cliente automaticamente
+  const buscarCodigoClienteAutomatico = async (codigoTecno) => {
+    try {
+      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecno)
+      if (codigoPreferencial) {
+        setFormData(prev => ({
+          ...prev,
+          codigoProdutoCliente: codigoPreferencial.codigo_cliente
+        }))
+        console.log(`Código do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecno}`)
+      }
+    } catch (error) {
+      console.error('Erro ao buscar código do cliente automático:', error)
+    }
+  }
 
   // Carrega rascunho salvo ao montar ou quando modo muda
   useEffect(() => {
@@ -1500,6 +1320,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       maquina: formData.maquina || '',
       produto: formData.codigoPerfil || '',
       cliente: formData.cliente || '',
+      pedido_cliente: formData.pedidoCliente || '',
       inicio: localInputToISO(formData.inicio),
       fim: formData.fim ? localInputToISO(formData.fim) : null,
       quantidade: qtdForm,
@@ -1518,12 +1339,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       lote: lote,
       romaneio_numero: formData.romaneioNumero || '',
       lote_externo: formData.loteExterno || '',
+      // NOVO: Código do produto do cliente
+      codigo_produto_cliente: formData.codigoProdutoCliente || '',
       // NOVO: Detalhes completos dos amarrados para rastreabilidade
       amarrados_detalhados: amarradosDetalhados.length > 0 ? amarradosDetalhados : null,
       ...expFields
     }
     try {
-      await addApont(payloadDB)
+      const idCriado = await addApont(payloadDB)
+      setUltimoApontamentoId(idCriado || '')
       console.log('Apontamento confirmado (Supabase):', payloadDB)
       
       // Força atualização dos apontamentos para garantir que o cálculo seja atualizado
@@ -1634,17 +1458,57 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       return
     }
 
-    const loteMP = loteMPSelecionado || (formData.lotesExternos && formData.lotesExternos[0]) || formData.loteExterno || ''
+    const loteMP = String(
+      loteMPSelecionado ||
+        (lotesMPDisponiveis && lotesMPDisponiveis.length > 0 ? lotesMPDisponiveis[0] : '') ||
+        (formData.lotesExternos && formData.lotesExternos[0]) ||
+        formData.loteExterno ||
+        ''
+    ).trim()
 
     setImprimirAberto(false)
     if (tipoImpressao === 'etiqueta') {
-      let seq = 1
-      for (const d of dist) {
-        for (let i = 0; i < d.qtdEtiquetas; i++) {
-          await imprimirEtiquetaTermica(ultimoLote, d.qtdPorEtiqueta, rackOuPallet, durezaMaterial, loteMP, seq, totalEtiquetas)
-          seq += 1
+      try {
+        const totalEtiquetas = dist.reduce((acc, d) => acc + d.qtdEtiquetas, 0)
+        const codBase = `${Date.now()}-${Math.floor(Math.random() * 1000)}`
+
+        const apontamentoParaEtiqueta = {
+          id: ultimoApontamentoId || null,
+          lote: ultimoLote,
+          lote_externo: loteMP,
+          rack_ou_pallet: rackOuPallet,
+          produto: formData.codigoPerfil || '',
+          cliente: formData.cliente || '',
+          dureza_material: durezaMaterial || 'N/A',
+          ordemTrabalho: formData.ordemTrabalho || '',
+          pedido_seq: formData.ordemTrabalho || ''
         }
-      }
+
+        const distribuicaoComCodigos = dist.map((d, idx) => ({
+          ...d,
+          codigoEtiqueta: `${codBase}-${idx + 1}`,
+          codigoProdutoCliente: formData.codigoProdutoCliente || ''
+        }))
+
+        const etiquetasRegistradas = await EtiquetasService.registrarEtiquetas(
+          apontamentoParaEtiqueta,
+          distribuicaoComCodigos,
+          user?.nome || 'Sistema'
+        )
+
+        const idsRegistrados = (etiquetasRegistradas || []).map(e => e?.id).filter(Boolean)
+        if (idsRegistrados.length > 0) {
+          try { await EtiquetasService.marcarComoImpressa(idsRegistrados) } catch {}
+        }
+      } catch {}
+
+      await imprimirEtiquetasTermicasEmLote({
+        lote: ultimoLote,
+        dist,
+        rackOuPalletValor: rackOuPallet,
+        dureza: durezaMaterial,
+        loteMP
+      })
     } else {
       imprimirDocumentoIdentificacao(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial, loteMP)
     }
@@ -2746,6 +2610,18 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 value={formData.pedidoCliente}
                 readOnly
                 className="input-field input-field-sm bg-gray-100"
+              />
+            </div>
+            
+            <div>
+              <label className="block label-sm font-medium text-gray-700 mb-1">
+                Código Cliente
+              </label>
+              <AutocompleteCodigoCliente
+                codigoTecno={formData.codigoPerfil || ''}
+                value={formData.codigoProdutoCliente}
+                onChange={(value) => setFormData(prev => ({ ...prev, codigoProdutoCliente: value }))}
+                placeholder="Digite ou busque o código do cliente..."
               />
             </div>
             

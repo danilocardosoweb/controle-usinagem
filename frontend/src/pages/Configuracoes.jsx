@@ -1,12 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FaSave, FaFileImport, FaUserPlus, FaEdit, FaTrash, FaTimes, FaTools, FaIndustry, FaWrench, FaOilCan, FaFileUpload, FaDatabase, FaSync, FaFilePdf, FaExternalLinkAlt } from 'react-icons/fa'
-import * as XLSX from 'xlsx'
+import { FaSave, FaFileImport, FaUserPlus, FaEdit, FaTrash, FaTimes, FaTools, FaIndustry, FaWrench, FaOilCan, FaFileUpload, FaDatabase, FaSync, FaFilePdf, FaExternalLinkAlt, FaBarcode } from 'react-icons/fa'
 import axios from 'axios'
-import useSupabase from '../hooks/useSupabase'
-import supabaseService from '../services/SupabaseService'
-import auditoriaService from '../services/AuditoriaService'
+import * as XLSX from 'xlsx'
 import { useAuth } from '../contexts/AuthContext'
+import { useSupabase } from '../hooks/useSupabase'
+import supabaseService from '../services/SupabaseService'
+import ConfiguradorImpressora from '../components/ConfiguradorImpressora'
+import PrintService from '../services/PrintService'
+import auditoriaService from '../services/AuditoriaService'
+import CodigosProdutosClientesTab from '../components/CodigosProdutosClientesTab'
 
 const Configuracoes = () => {
   const { user } = useAuth()
@@ -307,20 +310,59 @@ const Configuracoes = () => {
     return saved ? JSON.parse(saved) : {
       termica: {
         nome: 'Impressora Térmica',
-        caminho: '\\\\192.168.1.100\\Zebra_ZT230',
-        ip: '192.168.1.100',
-        porta: '9100',
+        tipo: 'local_print_service',
+        ip: '192.168.0.138',
+        porta: '515',
+        portaCom: 'COM1',
+        caminhoCompartilhada: '\\\\192.168.0.138\\TTP-EXP',
+        nomeImpressora: '\\\\192.168.0.138\\TTP-EXP',
+        webSerialPort: null,
         ativa: true
       },
       comum: {
         nome: 'Impressora Comum',
-        caminho: '\\\\192.168.1.101\\HP_LaserJet',
+        tipo: 'compartilhada_windows',
         ip: '192.168.1.101',
         porta: '9100',
+        portaCom: '',
+        caminhoCompartilhada: '\\\\servidor\\impressora',
         ativa: true
       }
     }
   })
+
+  const [portasComDisponiveis, setPortasComDisponiveis] = useState([])
+  const [impressorasWindowsDisponiveis, setImpressorasWindowsDisponiveis] = useState([])
+
+  useEffect(() => {
+    let cancelado = false
+
+    const carregarConfiguracaoImpressoras = async () => {
+      try {
+        const valor = await supabaseService.obterConfiguracao('configuracao_impressoras')
+        if (!valor) return
+
+        let obj = null
+        if (typeof valor === 'string') {
+          try { obj = JSON.parse(valor) } catch { obj = null }
+        } else if (typeof valor === 'object') {
+          obj = valor
+        }
+
+        if (!obj || !obj.termica || !obj.comum) return
+        if (cancelado) return
+
+        setImpressoras(obj)
+        try {
+          localStorage.setItem('configuracao_impressoras', JSON.stringify(obj))
+        } catch {}
+      } catch {
+      }
+    }
+
+    carregarConfiguracaoImpressoras()
+    return () => { cancelado = true }
+  }, [])
   const [novoInsumo, setNovoInsumo] = useState({
     codigo: '',
     nome: '',
@@ -731,8 +773,18 @@ const Configuracoes = () => {
 
   // Funções para gerenciamento de impressoras
   const salvarConfiguracaoImpressoras = () => {
-    localStorage.setItem('configuracao_impressoras', JSON.stringify(impressoras))
-    alert('Configurações de impressoras salvas com sucesso!')
+    try {
+      localStorage.setItem('configuracao_impressoras', JSON.stringify(impressoras))
+    } catch {}
+
+    supabaseService
+      .salvarConfiguracao('configuracao_impressoras', JSON.stringify(impressoras))
+      .then(() => {
+        alert('Configurações de impressoras salvas com sucesso!')
+      })
+      .catch((e) => {
+        alert('Configurações salvas localmente, mas falharam no banco.\nDetalhes: ' + String(e?.message || e))
+      })
   }
 
   const atualizarImpressora = (tipo, campo, valor) => {
@@ -745,15 +797,80 @@ const Configuracoes = () => {
     }))
   }
 
-  const testarImpressora = (tipo) => {
+  const testarImpressora = async (tipo) => {
     const impressora = impressoras[tipo]
     if (!impressora.ativa) {
       alert(`Impressora ${impressora.nome} está desativada`)
       return
     }
 
-    // Simular teste de impressão
-    alert(`Teste de impressão enviado para: ${impressora.nome}\nCaminho: ${impressora.caminho}\nIP: ${impressora.ip}:${impressora.porta}`)
+    if (tipo === 'termica') {
+      try {
+        const tipoImpressora = impressora.tipo || 'rede_ip'
+        
+        // Validar configuração conforme o tipo
+        if (tipoImpressora === 'rede_ip' && !impressora.ip) {
+          alert('Impressora térmica sem IP configurado.')
+          return
+        }
+        if (tipoImpressora === 'usb_com' && !impressora.portaCom) {
+          alert('Impressora térmica sem porta COM configurada.')
+          return
+        }
+        if (tipoImpressora === 'compartilhada_windows' && !impressora.caminhoCompartilhada) {
+          alert('Impressora térmica sem caminho compartilhado configurado.')
+          return
+        }
+        if (tipoImpressora === 'web_serial' && !impressora.webSerialPort) {
+          alert('Impressora térmica não conectada via Web Serial.\n\nClique no botão "Conectar USB" primeiro.')
+          return
+        }
+
+        const tspl = PrintService.gerarEtiquetaTspl({
+          lote: 'TESTE-IMPRESSAO',
+          loteMP: 'MP-TESTE',
+          rack: 'RACK-TESTE',
+          qtde: '15',
+          ferramenta: 'TG-2012',
+          dureza: '14',
+          numeroEtiqueta: 1,
+          totalEtiquetas: 1,
+          codigoProdutoCliente: '164121',
+          nomeCliente: 'TRAMONTINA',
+          comprimento: '1816',
+          pedidoCliente: '4500163622',
+          pedidoSeq: '78914/10'
+        })
+
+        await PrintService.enviarTspl({
+          tipo: tipoImpressora,
+          ip: impressora.ip || '',
+          porta: Number(impressora.porta || 9100),
+          portaCom: impressora.portaCom || '',
+          caminhoCompartilhada: impressora.caminhoCompartilhada || '',
+          nomeImpressora: impressora.nomeImpressora || '',
+          webSerialPort: impressora.webSerialPort || null,
+          tspl
+        })
+
+        const destino = tipoImpressora === 'local_print_service'
+          ? `Print Service Local (${impressora.nomeImpressora})`
+          : tipoImpressora === 'web_serial'
+          ? 'USB Direto (Web Serial API)'
+          : tipoImpressora === 'usb_com' 
+          ? impressora.portaCom 
+          : tipoImpressora === 'compartilhada_windows'
+          ? impressora.caminhoCompartilhada
+          : `${impressora.ip}:${impressora.porta || 9100}`
+        
+        alert(`Teste enviado para: ${impressora.nome}\nDestino: ${destino}`)
+      } catch (err) {
+        alert(`Falha no teste da térmica.\nDetalhes: ${err?.message || 'erro desconhecido'}`)
+      }
+      return
+    }
+
+    alert(`Teste: a impressão direta está implementada apenas para Etiqueta Térmica.\nImpressora: ${impressora.nome}`)
   }
 
   const salvarConfiguracoes = () => {
@@ -821,7 +938,24 @@ const Configuracoes = () => {
               colunas.cliente = idxClientePreferido !== -1 ? idxClientePreferido : cabecalhos.findIndex(c => String(c).toLowerCase().includes('cliente'))
             }
           }
-          colunas.pedidoCliente = cabecalhos.findIndex(c => String(c).toLowerCase().includes('pedido') && String(c).toLowerCase().includes('cliente'))
+          {
+            const idxPedidoClienteExato = cabecalhos.findIndex(c => norm(c) === 'pedidocliente')
+            if (idxPedidoClienteExato !== -1) colunas.pedidoCliente = idxPedidoClienteExato
+            else {
+              const idxPedidoCliente = cabecalhos.findIndex(c => {
+                const s = String(c || '').toLowerCase()
+                return s.includes('pedido') && s.includes('cliente')
+              })
+              if (idxPedidoCliente !== -1) colunas.pedidoCliente = idxPedidoCliente
+              else {
+                const idxNumeroPedido = cabecalhos.findIndex(c => {
+                  const nc = norm(c)
+                  return nc === 'numeropedido' || nc === 'nropedido' || nc === 'npedido' || nc === 'numerodopedido'
+                })
+                colunas.pedidoCliente = idxNumeroPedido
+              }
+            }
+          }
           colunas.data = todasColunas['DT.FATURA'] ?? todasColunas['DATA ENTREGA'] ?? todasColunas['DT ENTREGA'] ?? cabecalhos.findIndex(c => String(c).toLowerCase().includes('data') || String(c).toLowerCase().includes('entrega') || String(c).toLowerCase().includes('fatura'))
           colunas.produto = todasColunas['PRODUTO'] ?? cabecalhos.findIndex(c => String(c).toLowerCase().includes('produto'))
           colunas.descricao = todasColunas['DESCRIÇÃO'] ?? todasColunas['DESCRICAO'] ?? cabecalhos.findIndex(c => String(c).toLowerCase().includes('descri'))
@@ -1018,6 +1152,16 @@ const Configuracoes = () => {
             onClick={() => setAbaAtiva('expedicao')}
           >
             Expedição
+          </button>
+          <button
+            className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'codigos-clientes'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            onClick={() => setAbaAtiva('codigos-clientes')}
+          >
+            <FaBarcode className="inline mr-1" />
+            Códigos Clientes
           </button>
           <button
             className={`py-3 px-2 sm:px-3 lg:px-4 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap transition-colors ${abaAtiva === 'status'
@@ -1341,6 +1485,11 @@ const Configuracoes = () => {
         </div>
       )}
 
+      {/* Aba: Códigos de Produtos dos Clientes */}
+      {abaAtiva === 'codigos-clientes' && (
+        <CodigosProdutosClientesTab />
+      )}
+
       {/* Aba: Status */}
       {abaAtiva === 'status' && (
         <div className="space-y-6">
@@ -1449,167 +1598,19 @@ const Configuracoes = () => {
               Configure os caminhos e endereços das impressoras para etiquetas térmicas e documentos comuns.
             </p>
 
-            {/* Impressora Térmica */}
-            <div className="border border-gray-200 rounded-lg p-4 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-md font-medium text-gray-800 flex items-center">
-                  🏷️ Impressora Térmica (Etiquetas)
-                </h3>
-                <div className="flex items-center space-x-2">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={impressoras.termica.ativa}
-                      onChange={(e) => atualizarImpressora('termica', 'ativa', e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className="text-sm text-gray-600">Ativa</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => testarImpressora('termica')}
-                    className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
-                  >
-                    Testar
-                  </button>
-                </div>
-              </div>
+            <ConfiguradorImpressora
+              tipo="termica"
+              config={impressoras.termica}
+              onUpdate={(campo, valor) => atualizarImpressora('termica', campo, valor)}
+              onTestar={testarImpressora}
+            />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome da Impressora
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.termica.nome}
-                    onChange={(e) => atualizarImpressora('termica', 'nome', e.target.value)}
-                    placeholder="Ex: Zebra ZT230"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Caminho de Rede
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.termica.caminho}
-                    onChange={(e) => atualizarImpressora('termica', 'caminho', e.target.value)}
-                    placeholder="Ex: \\192.168.1.100\Zebra_ZT230"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Endereço IP
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.termica.ip}
-                    onChange={(e) => atualizarImpressora('termica', 'ip', e.target.value)}
-                    placeholder="Ex: 192.168.1.100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Porta
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.termica.porta}
-                    onChange={(e) => atualizarImpressora('termica', 'porta', e.target.value)}
-                    placeholder="Ex: 9100"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Impressora Comum */}
-            <div className="border border-gray-200 rounded-lg p-4 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-md font-medium text-gray-800 flex items-center">
-                  🖨️ Impressora Comum (Documentos)
-                </h3>
-                <div className="flex items-center space-x-2">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={impressoras.comum.ativa}
-                      onChange={(e) => atualizarImpressora('comum', 'ativa', e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className="text-sm text-gray-600">Ativa</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => testarImpressora('comum')}
-                    className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
-                  >
-                    Testar
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome da Impressora
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.comum.nome}
-                    onChange={(e) => atualizarImpressora('comum', 'nome', e.target.value)}
-                    placeholder="Ex: HP LaserJet Pro"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Caminho de Rede
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.comum.caminho}
-                    onChange={(e) => atualizarImpressora('comum', 'caminho', e.target.value)}
-                    placeholder="Ex: \\192.168.1.101\HP_LaserJet"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Endereço IP
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.comum.ip}
-                    onChange={(e) => atualizarImpressora('comum', 'ip', e.target.value)}
-                    placeholder="Ex: 192.168.1.101"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Porta
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={impressoras.comum.porta}
-                    onChange={(e) => atualizarImpressora('comum', 'porta', e.target.value)}
-                    placeholder="Ex: 9100"
-                  />
-                </div>
-              </div>
-            </div>
+            <ConfiguradorImpressora
+              tipo="comum"
+              config={impressoras.comum}
+              onUpdate={(campo, valor) => atualizarImpressora('comum', campo, valor)}
+              onTestar={testarImpressora}
+            />
 
             {/* Botões de ação */}
             <div className="flex justify-end space-x-3">
