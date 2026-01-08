@@ -43,36 +43,6 @@ const tryOpenInNewTab = async (url, fallbackPathText) => {
       if (fallbackPathText) {
         try { await navigator.clipboard.writeText(fallbackPathText) } catch {}
       }
-  // Fallback: se não houver lotesExternos selecionados, mas houver rack informado,
-  // e temos o produto do apontamento, considera que todos os amarrados daquele rack
-  // e daquele item foram processados e grava na rastreabilidade.
-  if (amarradosDetalhados.length === 0) {
-    const rackAlvo = String(rackOuPallet || formData.rack_ou_pallet || '').trim()
-    const produtoAlvo = String(formData.codigoPerfil || '').trim()
-    if (rackAlvo && produtoAlvo) {
-      const candidatos = (lotesDB || []).filter(l => {
-        const rackEq = String(l.rack_embalagem || '').trim() === rackAlvo
-        const prodL = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
-        const prodEq = !!prodL && prodL === produtoAlvo
-        return rackEq && prodEq
-      })
-      for (const loteDetalhado of candidatos) {
-        amarradosDetalhados.push({
-          codigo: String(loteDetalhado.codigo || '').trim(),
-          rack: String(loteDetalhado.rack_embalagem || '').trim(),
-          lote: String(loteDetalhado.lote || '').trim(),
-          produto: String(loteDetalhado.produto || getCampoOriginalLote(loteDetalhado, 'Produto') || '').trim(),
-          pedido_seq: String(loteDetalhado.pedido_seq || '').trim(),
-          romaneio: String(loteDetalhado.romaneio || '').trim(),
-          qt_kg: Number(loteDetalhado.qt_kg || 0),
-          qtd_pc: Number(loteDetalhado.qtd_pc || 0),
-          situacao: String(loteDetalhado.situacao || '').trim(),
-          embalagem_data: loteDetalhado.embalagem_data || null,
-          nota_fiscal: String(loteDetalhado.nota_fiscal || '').trim()
-        })
-      }
-    }
-  }
       alert('O navegador bloqueou a abertura direta do arquivo local. O caminho foi copiado para a área de transferência. Cole no Explorer para abrir:\n' + (fallbackPathText || url))
     }
   } catch (e) {
@@ -130,6 +100,100 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     } catch (error) {
       console.warn('Não foi possível carregar prioridades do PCP:', error)
       setPedidosPrioritarios(new Set())
+    }
+  }
+
+  const imprimirEtiquetasTermicasEmLote = async ({ lote, dist, rackOuPalletValor, dureza, loteMP }) => {
+    const impressoraTermica = getConfiguracaoImpressoras().termica
+
+    if (!isImpressoraAtiva('termica')) {
+      alert(`Impressora térmica não está configurada ou ativa.\nVá em Configurações > Impressoras para configurar.`)
+      return
+    }
+
+    if (!impressoraTermica?.ip) {
+      alert('Impressora térmica sem IP configurado. Vá em Configurações > Impressoras e preencha o IP.')
+      return
+    }
+
+    const cliente = formData.cliente || ''
+    const perfil = formData.codigoPerfil || ''
+    const comprimentoRaw = formData.comprimentoAcabado || ''
+    const comprimento = String(comprimentoRaw || '').replace(/[^0-9]/g, '')
+    const pedidoCliente = formData.pedidoCliente || ''
+    const durezaVal = (dureza && String(dureza).trim()) ? dureza : 'N/A'
+    const loteMPVal = loteMP || formData.loteExterno || (formData.lotesExternos && formData.lotesExternos.length ? formData.lotesExternos[0] : '')
+
+    const extrairFerramenta = (prod) => {
+      if (!prod) return ''
+      const s = String(prod).toUpperCase()
+      const re3 = /^([A-Z]{3})([A-Z0-9]+)/
+      const re2 = /^([A-Z]{2})([A-Z0-9]+)/
+      let letras = '', resto = '', qtdDigitos = 0
+      let m = s.match(re3)
+      if (m) { letras = m[1]; resto = m[2]; qtdDigitos = 3 }
+      else { m = s.match(re2); if (m) { letras = m[1]; resto = m[2]; qtdDigitos = 4 } else return '' }
+      let nums = ''
+      for (const ch of resto) {
+        if (/[0-9]/.test(ch)) nums += ch
+        else if (ch === 'O') nums += '0'
+        if (nums.length === qtdDigitos) break
+      }
+      if (nums.length < qtdDigitos) nums = nums.padEnd(qtdDigitos, '0')
+      return `${letras}-${nums}`
+    }
+
+    const ferramenta = extrairFerramenta(perfil)
+
+    const totalEtiquetas = (dist || []).reduce((acc, d) => acc + (Number(d.qtdEtiquetas) || 0), 0)
+    if (!totalEtiquetas) {
+      alert('Nenhuma etiqueta para imprimir.')
+      return
+    }
+
+    let seq = 1
+    const etiquetasParaImprimir = []
+    for (const d of (dist || [])) {
+      const qtdEtiquetas = Number(d.qtdEtiquetas) || 0
+      for (let i = 0; i < qtdEtiquetas; i++) {
+        etiquetasParaImprimir.push({
+          lote,
+          loteMP: loteMPVal || '',
+          rack: rackOuPalletValor || '',
+          qtde: String(d.qtdPorEtiqueta || ''),
+          ferramenta,
+          dureza: durezaVal,
+          numeroEtiqueta: seq,
+          totalEtiquetas,
+          codigoProdutoCliente: formData.codigoProdutoCliente || '',
+          nomeCliente: cliente || '',
+          comprimento: comprimento || '',
+          pedidoCliente
+        })
+        seq += 1
+      }
+    }
+
+    const tspl = PrintService.gerarMultiplasEtiquetas(etiquetasParaImprimir)
+
+    try {
+      await PrintService.enviarTspl({
+        tipo: impressoraTermica.tipo || 'local_print_service',
+        ip: impressoraTermica.ip || '',
+        porta: Number(impressoraTermica.porta || 9100),
+        portaCom: impressoraTermica.portaCom || '',
+        caminhoCompartilhada: impressoraTermica.caminhoCompartilhada || '',
+        nomeImpressora: impressoraTermica.nomeImpressora || impressoraTermica.nome || 'TSC TE200',
+        tspl
+      })
+    } catch (err) {
+      const destino = impressoraTermica.tipo === 'usb_com'
+        ? impressoraTermica.portaCom
+        : impressoraTermica.tipo === 'compartilhada_windows'
+        ? impressoraTermica.caminhoCompartilhada
+        : `${impressoraTermica.ip}:${impressoraTermica.porta || 9100}`
+      alert(`Falha ao imprimir na TSC (${destino}).\nDetalhes: ${err?.message || 'erro desconhecido'}`)
+      throw err
     }
   }
 
@@ -220,7 +284,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const cliente = formData.cliente || ''
     const pedidoSeq = formData.ordemTrabalho || ''
     const perfil = formData.codigoPerfil || ''
-    const comprimento = formData.comprimentoAcabado || ''
+    const comprimentoRaw = formData.comprimentoAcabado || ''
+    const comprimento = String(comprimentoRaw || '').replace(/[^0-9]/g, '')
+    const pedidoCliente = formData.pedidoCliente || ''
     const qtde = quantidade || ''
     const pallet = rackOuPalletValor || ''
     const durezaVal = (dureza && String(dureza).trim()) ? dureza : 'N/A'
@@ -270,16 +336,19 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       numeroEtiqueta,
       totalEtiquetas,
       codigoProdutoCliente: formData.codigoProdutoCliente || '',
-      nomeCliente: cliente || ''
+      nomeCliente: cliente || '',
+      comprimento: comprimento || '',
+      pedidoCliente
     })
 
     try {
       await PrintService.enviarTspl({
-        tipo: impressoraTermica.tipo || 'rede_ip',
+        tipo: impressoraTermica.tipo || 'local_print_service',
         ip: impressoraTermica.ip || '',
         porta: Number(impressoraTermica.porta || 9100),
         portaCom: impressoraTermica.portaCom || '',
         caminhoCompartilhada: impressoraTermica.caminhoCompartilhada || '',
+        nomeImpressora: impressoraTermica.nomeImpressora || impressoraTermica.nome || 'TSC TE200',
         tspl
       })
     } catch (err) {
@@ -877,6 +946,30 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }
 
+  const normalizarPedidoCliente = (v) => {
+    try {
+      const s = String(v ?? '').trim()
+      if (!s) return ''
+      return s.replace(/\.0$/, '')
+    } catch {
+      return ''
+    }
+  }
+
+  const obterPedidoClientePedido = (p) => {
+    const v =
+      p?.pedido_cliente
+      || getCampoOriginal(p, 'PEDIDO.CLIENTE')
+      || getCampoOriginal(p, 'PEDIDO DO CLIENTE')
+      || getCampoOriginal(p, 'PEDIDO CLIENTE')
+      || getCampoOriginal(p, 'NUMERO PEDIDO')
+      || getCampoOriginal(p, 'NÚMERO PEDIDO')
+      || getCampoOriginal(p, 'NRO PEDIDO')
+      || getCampoOriginal(p, 'Nº PEDIDO')
+      || ''
+    return normalizarPedidoCliente(v)
+  }
+
   // Formata data/hora atual no padrão aceito por inputs type="datetime-local"
   // Saída: YYYY-MM-DDTHH:MM (hora local)
   const getNowLocalInput = () => {
@@ -946,7 +1039,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       perfilLongo,                       // Item/Perfil (fallback da planilha)
       separado: separadoNum,             // Quantidade separada
       cliente: getCampoOriginal(p, 'CLIENTE') || p.cliente || '',
-      pedidoCliente: p.pedido_cliente || '',
+      pedidoCliente: obterPedidoClientePedido(p),
       dtFatura,
       unidade: p.unidade || '',
       comprimentoAcabado: comp,
@@ -1224,6 +1317,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       maquina: formData.maquina || '',
       produto: formData.codigoPerfil || '',
       cliente: formData.cliente || '',
+      pedido_cliente: formData.pedidoCliente || '',
       inicio: localInputToISO(formData.inicio),
       fim: formData.fim ? localInputToISO(formData.fim) : null,
       quantidade: qtdForm,
@@ -1405,13 +1499,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         }
       } catch {}
 
-      let seq = 1
-      for (const d of dist) {
-        for (let i = 0; i < d.qtdEtiquetas; i++) {
-          await imprimirEtiquetaTermica(ultimoLote, d.qtdPorEtiqueta, rackOuPallet, durezaMaterial, loteMP, seq, totalEtiquetas)
-          seq += 1
-        }
-      }
+      await imprimirEtiquetasTermicasEmLote({
+        lote: ultimoLote,
+        dist,
+        rackOuPalletValor: rackOuPallet,
+        dureza: durezaMaterial,
+        loteMP
+      })
     } else {
       imprimirDocumentoIdentificacao(ultimoLote, formData.quantidade, rackOuPallet, durezaMaterial, loteMP)
     }

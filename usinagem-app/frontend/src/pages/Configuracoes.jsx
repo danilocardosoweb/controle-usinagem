@@ -314,8 +314,8 @@ const Configuracoes = () => {
         ip: '192.168.0.138',
         porta: '515',
         portaCom: 'COM1',
-        caminhoCompartilhada: 'TSC TE200',
-        nomeImpressora: 'TSC TE200',
+        caminhoCompartilhada: '\\\\192.168.0.138\\TTP-EXP',
+        nomeImpressora: '\\\\192.168.0.138\\TTP-EXP',
         webSerialPort: null,
         ativa: true
       },
@@ -830,13 +830,14 @@ const Configuracoes = () => {
           lote: 'TESTE-IMPRESSAO',
           loteMP: 'MP-TESTE',
           rack: 'RACK-TESTE',
-          qtde: '1',
-          ferramenta: 'TSPL',
-          dureza: 'N/A',
+          qtde: '15',
+          ferramenta: 'TG-2012',
+          dureza: '14',
           numeroEtiqueta: 1,
           totalEtiquetas: 1,
-          codigoProdutoCliente: 'CLIENTE',
-          nomeCliente: 'TESTE'
+          codigoProdutoCliente: '164121',
+          nomeCliente: 'TRAMONTINA',
+          comprimento: '1816'
         })
 
         await PrintService.enviarTspl({
@@ -935,7 +936,24 @@ const Configuracoes = () => {
               colunas.cliente = idxClientePreferido !== -1 ? idxClientePreferido : cabecalhos.findIndex(c => String(c).toLowerCase().includes('cliente'))
             }
           }
-          colunas.pedidoCliente = cabecalhos.findIndex(c => String(c).toLowerCase().includes('pedido') && String(c).toLowerCase().includes('cliente'))
+          {
+            const idxPedidoClienteExato = cabecalhos.findIndex(c => norm(c) === 'pedidocliente')
+            if (idxPedidoClienteExato !== -1) colunas.pedidoCliente = idxPedidoClienteExato
+            else {
+              const idxPedidoCliente = cabecalhos.findIndex(c => {
+                const s = String(c || '').toLowerCase()
+                return s.includes('pedido') && s.includes('cliente')
+              })
+              if (idxPedidoCliente !== -1) colunas.pedidoCliente = idxPedidoCliente
+              else {
+                const idxNumeroPedido = cabecalhos.findIndex(c => {
+                  const nc = norm(c)
+                  return nc === 'numeropedido' || nc === 'nropedido' || nc === 'npedido' || nc === 'numerodopedido'
+                })
+                colunas.pedidoCliente = idxNumeroPedido
+              }
+            }
+          }
           colunas.data = todasColunas['DT.FATURA'] ?? todasColunas['DATA ENTREGA'] ?? todasColunas['DT ENTREGA'] ?? cabecalhos.findIndex(c => String(c).toLowerCase().includes('data') || String(c).toLowerCase().includes('entrega') || String(c).toLowerCase().includes('fatura'))
           colunas.produto = todasColunas['PRODUTO'] ?? cabecalhos.findIndex(c => String(c).toLowerCase().includes('produto'))
           colunas.descricao = todasColunas['DESCRIÇÃO'] ?? todasColunas['DESCRICAO'] ?? cabecalhos.findIndex(c => String(c).toLowerCase().includes('descri'))

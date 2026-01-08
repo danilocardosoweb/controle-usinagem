@@ -256,7 +256,7 @@ export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTesta
           <>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nome da Impressora Windows
+                Nome da Impressora Windows (Local ou Compartilhada)
               </label>
               <div className="flex gap-2">
                 <select
@@ -294,8 +294,11 @@ export default function ConfiguradorImpressora({ tipo, config, onUpdate, onTesta
                 className="input-field"
                 value={config.nomeImpressora || ''}
                 onChange={(e) => handleChange('nomeImpressora', e.target.value)}
-                placeholder="Ex: TSC TE200"
+                placeholder="Ex: TSC TE200 ou \\192.168.0.138\TTP-EXP"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                💡 Para impressora compartilhada em rede, use: \\192.168.0.138\TTP-EXP
+              </p>
             </div>
           </>
         )}

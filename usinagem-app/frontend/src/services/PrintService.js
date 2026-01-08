@@ -141,6 +141,16 @@ class PrintService {
     return String(text || '').replace(/"/g, "'")
   }
 
+  /**
+   * Gera comandos TSPL para etiqueta 100x45mm na TSC TE200 (203 DPI)
+   * 
+   * ESPECIFICAÇÕES TÉCNICAS:
+   * - Etiqueta física: 100mm (largura) x 45mm (altura)
+   * - Resolução: 203 DPI = 8 dots/mm
+   * - Largura em dots: 100 × 8 = 800 dots
+   * - Altura em dots: 45 × 8 = 360 dots
+   * - Orientação: Paisagem (etiqueta mais larga que alta)
+   */
   static gerarEtiquetaTspl({
     lote,
     loteMP,
@@ -151,13 +161,17 @@ class PrintService {
     numeroEtiqueta,
     totalEtiquetas,
     codigoProdutoCliente,
-    nomeCliente
+    nomeCliente,
+    comprimento,
+    pedidoCliente
   }) {
-    const widthDots = this.mmToDots(100)
-    const heightDots = this.mmToDots(45)
-
-    const xMargin = 16
-    const yMargin = 10
+    // Etiqueta 100mm x 45mm (800 x 360 dots em 203dpi)
+    const widthMm = 100
+    const heightMm = 45
+    const widthDots = 800  // 100mm × 8 dots/mm
+    const heightDots = 360 // 45mm × 8 dots/mm
+    const xColEsq = 40   // coluna esquerda
+    const xColDir = 380  // coluna direita (mais próxima do centro)
 
     const safeLote = this._tsplSafeText(lote)
     const safeMp = this._tsplSafeText(loteMP)
@@ -167,38 +181,169 @@ class PrintService {
     const safeDur = this._tsplSafeText(dureza)
     const safeCodCli = this._tsplSafeText(codigoProdutoCliente)
     const safeNome = this._tsplSafeText(nomeCliente)
+    const safeComp = this._tsplSafeText(comprimento)
+    const safePedidoCliente = this._tsplSafeText(pedidoCliente)
+    const loteLine1 = String(safeLote || '').slice(0, 32)
+    const loteLine2 = String(safeLote || '').slice(32, 64)
 
-    const qrText = this._tsplSafeText(
-      `L=${String(lote || '')}|MP=${String(loteMP || '')}|P=${String(ferramenta || '')}|R=${String(rack || '')}|Q=${String(qtde || '')}|D=${String(dureza || '')}|E=${String(numeroEtiqueta || '')}/${String(totalEtiquetas || '')}|CC=${String(codigoProdutoCliente || '')}`
-    )
-
-    const rightColX = widthDots - 180
-    const qrX = rightColX
-    const qrY = yMargin + 30
+    // Gerar ID único baseado no lote e data
+    const idEtiqueta = `${String(lote || '').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16)}${String(numeroEtiqueta).padStart(4, '0')}`
 
     const lines = [
-      `SIZE 100 mm,45 mm`,
-      `GAP 2 mm,0 mm`,
+      // ========== COMANDOS DE RESET E INICIALIZAÇÃO ==========
+      `\r\n`,
+      `SIZE ${widthMm} mm,${heightMm} mm`,
+      `GAP 3 mm,0 mm`,
       `DIRECTION 1`,
+      `DENSITY 8`,
+      `SPEED 6`,
       `REFERENCE 0,0`,
+      `OFFSET 0 mm`,
+      `SHIFT 0`,
       `CLS`,
-      // Header
-      `TEXT ${xMargin},${yMargin},"0",0,1,1,"TECNOPERFIL ALUMINIO"`,
-      // Conteúdo
-      `TEXT ${xMargin},${yMargin + 30},"0",0,1,1,"Qtde: ${safeQtde} PC"`,
-      `TEXT ${xMargin},${yMargin + 55},"0",0,1,1,"Rack: ${safeRack}"`,
-      `TEXT ${xMargin},${yMargin + 80},"0",0,1,1,"Perfil: ${safeFerr}"`,
-      `TEXT ${xMargin},${yMargin + 105},"0",0,1,1,"Dureza: ${safeDur}"`,
-      `TEXT ${xMargin},${yMargin + 135},"0",0,1,1,"MP: ${safeMp}"`,
-      `TEXT ${xMargin},${yMargin + 160},"0",0,1,1,"Lote: ${safeLote}"`,
-      safeCodCli ? `TEXT ${xMargin},${yMargin + 185},"0",0,1,1,"Cod Cliente: ${safeCodCli}"` : '',
-      safeNome ? `TEXT ${xMargin},${yMargin + 210},"0",0,1,1,"Nome: ${safeNome}"` : '',
-      // QR Code
-      `QRCODE ${qrX},${qrY},L,4,A,0,"${qrText}"`,
-      // Rodapé
-      `TEXT ${xMargin},${heightDots - 28},"0",0,1,1,"Etiqueta ${numeroEtiqueta}/${totalEtiquetas}"`,
+      
+      // ========== TÍTULO NO TOPO ==========
+      // Fonte "3" (maior, mais destacada), texto sem acento para evitar falhas
+      `TEXT ${Math.floor(widthDots / 2) - 180},18,"3",0,1,1,"TECNOPERFIL ALUMINIO"`,
+
+      // ========== CONTEÚDO PRINCIPAL (mais espaçado) ==========
+      // Coluna esquerda
+      `TEXT ${xColEsq},70,"2",0,1,1,"Qtde: ${safeQtde} PC"`,
+      `TEXT ${xColEsq},105,"2",0,1,1,"Perfil: ${safeFerr}"`,
+      `TEXT ${xColEsq},140,"2",0,1,1,"Dureza: ${safeDur}"`,
+      `TEXT ${xColEsq},175,"2",0,1,1,"Comp.: ${safeComp || '-'} mm"`,
+
+      `TEXT ${xColEsq},215,"2",0,1,1,"Cod. Cliente: ${safeCodCli || '-'}"`,
+      `TEXT ${xColEsq},250,"2",0,1,1,"Nome: ${safeNome || '-'}"`,
+
+      // Coluna direita (aproximada do centro)
+      `TEXT ${xColDir},105,"2",0,1,1,"Rack: ${safeRack}"`,
+      `TEXT ${xColDir},140,"2",0,1,1,"Lote MP: ${safeMp || '-'}"`,
+
+      `TEXT ${xColDir},185,"2",0,1,1,"Pedido.Cliente: ${safePedidoCliente || '-'}"`,
+
+      // Rodapé: Lote Usinagem
+      `TEXT ${xColEsq},300,"2",0,1,1,"Lote Usinagem:"`,
+      `TEXT ${xColEsq},325,"2",0,1,1,"${loteLine1 || '-'}"`,
+      (loteLine2 ? `TEXT ${xColEsq},350,"2",0,1,1,"${loteLine2}"` : ''),
+
+      // Finalização obrigatória do job TSPL (Solução 1: PRINT + FEED)
+      // Para impressão unitária mantemos PRINT + FEED dentro do mesmo job
       `PRINT 1,1`,
-      ''
+      `FEED 1`
+    ].filter(Boolean)
+
+    return lines.join('\r\n')
+  }
+
+  /**
+   * Gera comandos TSPL para múltiplas etiquetas em um único job
+   * Isso é mais eficiente e evita problemas de buffer
+   */
+  static gerarMultiplasEtiquetas(etiquetas) {
+    if (!etiquetas || etiquetas.length === 0) return ''
+
+    const widthMm = 100
+    const heightMm = 45
+
+    // Header do job (configuração única)
+    const header = [
+      `\r\n`,
+      `SIZE ${widthMm} mm,${heightMm} mm`,
+      `GAP 3 mm,0 mm`,
+      `DIRECTION 1`,
+      `DENSITY 8`,
+      `SPEED 6`,
+      `REFERENCE 0,0`,
+      `OFFSET 0 mm`,
+      `SHIFT 0`,
+      ``
+    ].join('\r\n')
+
+    // Gerar cada etiqueta sem os comandos SIZE/GAP (já definidos no header)
+    const etiquetasCommands = etiquetas.map((dados, index) => {
+      return this._gerarConteudoEtiqueta({
+        ...dados,
+        numeroEtiqueta: index + 1,
+        totalEtiquetas: etiquetas.length
+      })
+    }).join('\r\n')
+
+    // Para múltiplas etiquetas, cada conteúdo termina em PRINT 1,1 e
+    // enviamos um único FEED 1 ao final do job para evitar delays
+    const footer = ['FEED 1', ''].join('\r\n')
+
+    return header + etiquetasCommands + '\r\n' + footer
+  }
+
+  /**
+   * Gera apenas o conteúdo de uma etiqueta (sem SIZE/GAP)
+   * Para uso em impressão sequencial
+   */
+  static _gerarConteudoEtiqueta({
+    lote,
+    loteMP,
+    rack,
+    qtde,
+    ferramenta,
+    dureza,
+    numeroEtiqueta,
+    totalEtiquetas,
+    codigoProdutoCliente,
+    nomeCliente,
+    comprimento,
+    pedidoCliente
+  }) {
+    const widthDots = 800
+    const heightDots = 360
+    const xColEsq = 40
+    const xColDir = 380
+
+    const safeLote = this._tsplSafeText(lote)
+    const safeMp = this._tsplSafeText(loteMP)
+    const safeRack = this._tsplSafeText(rack)
+    const safeQtde = this._tsplSafeText(qtde)
+    const safeFerr = this._tsplSafeText(ferramenta)
+    const safeDur = this._tsplSafeText(dureza)
+    const safeCodCli = this._tsplSafeText(codigoProdutoCliente)
+    const safeNome = this._tsplSafeText(nomeCliente)
+    const safeComp = this._tsplSafeText(comprimento)
+    const safePedidoCliente = this._tsplSafeText(pedidoCliente)
+
+    const loteLine1 = String(safeLote || '').slice(0, 32)
+    const loteLine2 = String(safeLote || '').slice(32, 64)
+
+    const idEtiqueta = `${String(lote || '').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16)}${String(numeroEtiqueta).padStart(4, '0')}`
+
+    const lines = [
+      `CLS`,
+
+      // Título no topo (mesma fonte/posição da impressão única)
+      `TEXT ${Math.floor(widthDots / 2) - 180},18,"3",0,1,1,"TECNOPERFIL ALUMINIO"`,
+
+      // Coluna esquerda
+      `TEXT ${xColEsq},70,"2",0,1,1,"Qtde: ${safeQtde} PC"`,
+      `TEXT ${xColEsq},105,"2",0,1,1,"Perfil: ${safeFerr}"`,
+      `TEXT ${xColEsq},140,"2",0,1,1,"Dureza: ${safeDur}"`,
+      `TEXT ${xColEsq},175,"2",0,1,1,"Comp.: ${safeComp || '-'} mm"`,
+
+      `TEXT ${xColEsq},215,"2",0,1,1,"Cod. Cliente: ${safeCodCli || '-'}"`,
+      `TEXT ${xColEsq},250,"2",0,1,1,"Nome: ${safeNome || '-'}"`,
+
+      // Coluna direita
+      `TEXT ${xColDir},105,"2",0,1,1,"Rack: ${safeRack}"`,
+      `TEXT ${xColDir},140,"2",0,1,1,"Lote MP: ${safeMp || '-'}"`,
+
+      `TEXT ${xColDir},185,"2",0,1,1,"Pedido.Cliente: ${safePedidoCliente || '-'}"`,
+
+      // Rodapé
+      `TEXT ${xColEsq},300,"2",0,1,1,"Lote Usinagem:"`,
+      `TEXT ${xColEsq},325,"2",0,1,1,"${loteLine1 || '-'}"`,
+      (loteLine2 ? `TEXT ${xColEsq},350,"2",0,1,1,"${loteLine2}"` : ''),
+
+      // Para uso em múltiplas etiquetas, aqui finalizamos apenas com PRINT.
+      // O FEED 1 é enviado uma única vez no final do job em gerarMultiplasEtiquetas.
+      `PRINT 1,1`
     ].filter(Boolean)
 
     return lines.join('\r\n')

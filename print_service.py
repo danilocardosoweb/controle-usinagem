@@ -15,13 +15,14 @@ import win32print
 import win32api
 import json
 import sys
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import threading
 import logging
 import traceback
 
-SERVICE_VERSION = "2026-01-07 15:45"
+SERVICE_VERSION = "2026-01-08 08:45"
 
 # Configurar logging
 logging.basicConfig(
@@ -110,10 +111,22 @@ class PrintServiceHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode('utf-8'))
     
     def imprimir(self, nome_impressora, dados):
-        """Imprimir dados na impressora"""
+        """
+        Imprimir dados na impressora térmica TSC TE200
+        
+        Estratégias para evitar problemas:
+        1. Enviar dados em chunks pequenos (1024 bytes)
+        2. Delay entre chunks para buffer processar
+        3. Delay maior antes de finalizar job
+        4. Um job por documento (não múltiplos PRINT em sequência rápida)
+        """
         try:
-            # Abrir impressora
+            logger.info(f'🔍 Tentando conectar à impressora: {nome_impressora}')
+            logger.info(f'📊 Tamanho dos dados: {len(dados)} bytes')
+            
+            # Abrir impressora (suporta UNC path como \\192.168.0.138\TTP-EXP)
             hprinter = win32print.OpenPrinter(nome_impressora)
+            logger.info(f'✅ Conectado à impressora: {nome_impressora}')
             
             # Converter dados para bytes
             if isinstance(dados, str):
@@ -121,27 +134,56 @@ class PrintServiceHandler(BaseHTTPRequestHandler):
             else:
                 dados_bytes = dados
             
+            logger.info(f'📤 Enviando {len(dados_bytes)} bytes para impressora...')
+            
+            # Log dos primeiros 500 caracteres para debug
+            preview = dados[:500] if isinstance(dados, str) else dados_bytes[:500].decode('utf-8', errors='ignore')
+            logger.info(f'📝 Preview dos dados:\n{preview}...')
+            
             try:
-                # Iniciar documento de impressão
-                doc_info = ("Impressão TSPL", None, "RAW")
+                # Iniciar documento de impressão RAW (sem StartPagePrinter, conforme boas práticas TSPL)
+                doc_info = ("Etiqueta TSPL", None, "RAW")
                 win32print.StartDocPrinter(hprinter, 1, doc_info)
-                win32print.StartPagePrinter(hprinter)
 
-                # Enviar dados para impressora
-                win32print.WritePrinter(hprinter, dados_bytes)
+                # Enviar dados em chunks menores para evitar overflow de buffer
+                chunk_size = 1024  # Reduzido de 4096 para 1024
+                bytes_sent = 0
+                total_chunks = (len(dados_bytes) + chunk_size - 1) // chunk_size
 
-                # Finalizar página/documento
-                win32print.EndPagePrinter(hprinter)
+                # Para jobs pequenos (1-2 chunks) não faz sentido atrasar.
+                # Para jobs grandes, manter um delay mínimo para evitar overflow no driver/buffer.
+                inter_chunk_sleep = 0.0 if total_chunks <= 2 else 0.005
+
+                while bytes_sent < len(dados_bytes):
+                    chunk = dados_bytes[bytes_sent:bytes_sent + chunk_size]
+                    win32print.WritePrinter(hprinter, chunk)
+                    bytes_sent += len(chunk)
+
+                    # Log a cada 5 chunks para não poluir
+                    chunk_num = bytes_sent // chunk_size
+                    if chunk_num % 5 == 0 or bytes_sent >= len(dados_bytes):
+                        logger.info(f'  → Chunk {chunk_num}/{total_chunks} - {bytes_sent}/{len(dados_bytes)} bytes')
+
+                    # Pequeno delay entre chunks para TSC processar
+                    if inter_chunk_sleep:
+                        time.sleep(inter_chunk_sleep)
+
+                # Pequeno delay para garantir que driver/spooler processe o buffer
+                time.sleep(0.05)
+
+                # Finalizar documento RAW
                 win32print.EndDocPrinter(hprinter)
-                
-                logger.info(f'✅ Impressão enviada para: {nome_impressora}')
+
+                logger.info(f'✅ Job TSPL finalizado para: {nome_impressora}')
             
             finally:
                 # Fechar impressora
                 win32print.ClosePrinter(hprinter)
         
         except Exception as e:
-            logger.error(f'❌ Erro ao imprimir: {str(e)}')
+            logger.error(f'❌ Erro ao imprimir em {nome_impressora}: {str(e)}')
+            logger.error(f'💡 Dica: Se for impressora compartilhada, use formato UNC: \\\\192.168.0.138\\TTP-EXP')
+            logger.error(traceback.format_exc())
             raise
     
     def listar_impressoras(self):
