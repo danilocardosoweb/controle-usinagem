@@ -260,6 +260,27 @@ Registro de baixas de estoque com rastreabilidade por lote.
 **Propósito:**
 Permite rastrear consumo/venda de lotes específicos, mantendo rastreabilidade completa desde a usinagem até a baixa. Suporta estorno de baixas com justificativa.
 
+## Tabela: `estoque_acabados_inventarios`
+Inventários e ajustes de estoque de itens acabados (por produto), com correção para **valor final** (contagem física).
+- `id`: UUID.
+- `produto`: Código do produto (texto).
+- `saldo_antes_pc`: Saldo calculado antes do inventário (NUMERIC(18,3)).
+- `saldo_depois_pc`: Saldo físico (valor final) informado no inventário (NUMERIC(18,3)).
+- `delta_pc`: Diferença aplicada ao saldo (`saldo_depois_pc - saldo_antes_pc`) (NUMERIC(18,3)).
+- `motivo`: Motivo do ajuste (texto; obrigatório).
+- `observacao`: Observação/justificativa complementar (texto; opcional).
+- `lote`: Código do lote (texto; opcional).
+- `numero_pedido`: Número do pedido associado (texto; opcional).
+- `criado_por`: Referência para `usuarios(id)` (UUID; opcional).
+- `created_at`: Timestamp de criação (UTC).
+
+**RLS Policies:**
+- `allow_select_anon_estoque_acabados_inventarios`: Role `anon` pode visualizar (SELECT).
+- `allow_insert_anon_estoque_acabados_inventarios`: Role `anon` pode inserir (INSERT).
+
+**Observação:**
+Como o app usa autenticação própria (sem Supabase Auth), `auth.uid()` retorna NULL. As policies usam role `anon` para permitir operações. A validação de permissões (admin-only) é feita no frontend via `useAuth()` context.
+
 ## Tabela: `exp_insumos`
 Catálogo de insumos de estoque.
 - `id`: UUID gerado automaticamente.

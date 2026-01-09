@@ -1,4 +1,5 @@
 # Log de Alterações
+[08/01/2026 19:47] - [Estoque] - [Ajuste de Inventário (Itens Acabados): modal com autocomplete de produtos, ajuste para valor final, histórico de inventários, cálculo de delta, motivo e observação (admin-only)] - [Cascade]
 [07/01/2026 09:44] - [Frontend/Database] - [Contador de impressão de etiquetas: registro em etiquetas_geradas (por apontamento) e coluna "Imp." em Relatórios] - [Cascade]
 [05/01/2026 14:07] - [Frontend] - [Etiqueta térmica: adicionado QR Code com dados compactos de rastreabilidade do lote] - [Cascade]
 [19/12/2025 09:25] - [Frontend] - [Manual do Usuário: nova página geral com guia de uso e item no menu lateral] - [Cascade]

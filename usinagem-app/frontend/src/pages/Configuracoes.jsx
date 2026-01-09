@@ -837,7 +837,9 @@ const Configuracoes = () => {
           totalEtiquetas: 1,
           codigoProdutoCliente: '164121',
           nomeCliente: 'TRAMONTINA',
-          comprimento: '1816'
+          comprimento: '1816',
+          pedidoCliente: '4500163622',
+          pedidoSeq: '78914/10'
         })
 
         await PrintService.enviarTspl({

@@ -1053,6 +1053,17 @@ const Pedidos = () => {
       return 0
     }
   }, [pedidosFiltrados])
+
+  const totalSaldoAProdFiltrados = useMemo(() => {
+    try {
+      return pedidosFiltrados.reduce((acc, p) => {
+        const v = Number(p.saldo_a_prod ?? 0)
+        return acc + (Number.isFinite(v) ? v : 0)
+      }, 0)
+    } catch {
+      return 0
+    }
+  }, [pedidosFiltrados])
   
   // Exibe mensagem de carregamento quando estiver buscando dados do IndexedDB
   if (carregandoDB) {
@@ -1178,12 +1189,20 @@ const Pedidos = () => {
 
       {/* Resumo dos itens filtrados */}
       <div className="flex justify-end text-sm text-gray-600">
-        <span className="px-2 py-1 bg-white rounded border border-gray-200 shadow-sm">
-          Total Qtd. Pedido (itens filtrados):{' '}
-          <span className="font-semibold">
-            {totalQtdPedidoFiltrados.toLocaleString('pt-BR')}
+        <div className="flex gap-2">
+          <span className="px-2 py-1 bg-white rounded border border-gray-200 shadow-sm">
+            Total Qtd. Pedido (itens filtrados):{' '}
+            <span className="font-semibold">
+              {totalQtdPedidoFiltrados.toLocaleString('pt-BR')}
+            </span>
           </span>
-        </span>
+          <span className="px-2 py-1 bg-white rounded border border-gray-200 shadow-sm">
+            Saldo a produzir (itens filtrados):{' '}
+            <span className="font-semibold">
+              {totalSaldoAProdFiltrados.toLocaleString('pt-BR')}
+            </span>
+          </span>
+        </div>
       </div>
 
       {/* Tabela de pedidos */}

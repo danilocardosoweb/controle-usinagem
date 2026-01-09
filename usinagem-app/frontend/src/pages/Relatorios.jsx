@@ -148,12 +148,22 @@ const Relatorios = () => {
     return resultado
   }
 
-  // Dados simulados para os filtros
-  const maquinas = [
-    { id: 1, nome: 'Usinagem 01' },
-    { id: 2, nome: 'Usinagem 02' },
-    { id: 3, nome: 'Usinagem 03' }
-  ]
+  const maquinasLista = useMemo(() => {
+    try {
+      return (maquinasCat || [])
+        .filter(m => {
+          const st = String(m?.status || 'ativa').toLowerCase()
+          return st === 'ativa'
+        })
+        .map(m => ({
+          id: m?.id,
+          nome: m?.nome || m?.codigo || `Máquina ${m?.id}`
+        }))
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+    } catch {
+      return []
+    }
+  }, [maquinasCat])
   
   // Operadores dinâmicos a partir dos apontamentos reais
   const operadores = useMemo(() => {
@@ -737,6 +747,27 @@ const Relatorios = () => {
     return map
   }, [maquinasCat])
 
+  const normTxt = (v) => {
+    try {
+      return String(v ?? '').trim().toLowerCase()
+    } catch {
+      return ''
+    }
+  }
+
+  const resolveMaquinaNome = (reg) => {
+    try {
+      const raw = reg?.maquina ?? reg?.maquina_nome ?? reg?.maquinaNome ?? reg?.maquina_id ?? reg?.maquinaId ?? ''
+      const s = String(raw ?? '').trim()
+      if (!s) return ''
+      // Se for UUID/id e existir no catálogo, resolver para nome
+      if (maqMap && maqMap[s]) return String(maqMap[s] || '').trim()
+      return s
+    } catch {
+      return ''
+    }
+  }
+
   const apontamentosFiltrados = useMemo(() => {
     const area = areaPorTipoRelatorio(filtros.tipoRelatorio)
     const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
@@ -745,7 +776,11 @@ const Relatorios = () => {
       const dd = toISODate(a.inicio)
       if (di && (!dd || dd < di)) return false
       if (df && (!dd || dd > df)) return false
-      if (filtros.maquina && String(a.maquina) !== String(filtros.maquina)) return false
+      if (filtros.maquina) {
+        const sel = normTxt(filtros.maquina)
+        const nome = normTxt(resolveMaquinaNome(a))
+        if (!nome || nome !== sel) return false
+      }
       if (filtros.operador && String(a.operador) !== String(filtros.operador)) return false
 
       if (area === 'embalagem') {
@@ -828,7 +863,11 @@ const Relatorios = () => {
       const dd = toISODate(p.inicio_norm)
       if (di && (!dd || dd < di)) return false
       if (df && (!dd || dd > df)) return false
-      if (filtros.maquina && String(p.maquina) !== String(filtros.maquina)) return false
+      if (filtros.maquina) {
+        const sel = normTxt(filtros.maquina)
+        const nome = normTxt(resolveMaquinaNome(p))
+        if (!nome || nome !== sel) return false
+      }
       // Operador não se aplica a paradas (não temos esse campo), então ignorar
       return true
     })
@@ -1613,8 +1652,8 @@ const Relatorios = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               >
                 <option value="">Todas as máquinas</option>
-                {maquinas.map(maq => (
-                  <option key={maq.id} value={maq.id}>{maq.nome}</option>
+                {maquinasLista.map(maq => (
+                  <option key={maq.id || maq.nome} value={maq.nome}>{maq.nome}</option>
                 ))}
               </select>
             </div>

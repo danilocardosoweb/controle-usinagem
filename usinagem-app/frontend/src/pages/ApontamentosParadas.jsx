@@ -10,6 +10,8 @@ const ApontamentosParadas = () => {
     fim: '',
     observacoes: ''
   })
+  const [usarMotivoCustomizado, setUsarMotivoCustomizado] = useState(false)
+  
   // Usaremos a tabela/view atualmente existente no seu Supabase
   const { items: paradas, addItem: addParada } = useSupabase('apontamentos_parada')
   // Máquinas do Supabase
@@ -27,12 +29,35 @@ const ApontamentosParadas = () => {
     } catch { return String(txt).toLowerCase() }
   }
 
+  // Encontra o tipo_parada (valor fixo) baseado na descrição normalizada
+  const encontrarTipoParadaPorDescricao = (descricaoNormalizada) => {
+    const tipo = (tiposParada || []).find(t => {
+      const desc = t?.descricao || t?.nome || ''
+      return normalizeTipo(desc) === descricaoNormalizada
+    })
+    return tipo?.tipo_parada || tipo?.id || descricaoNormalizada
+  }
+
   // Lista de motivos filtrados pelo tipo selecionado
   const motivosFiltrados = useMemo(() => {
-    const sel = normalizeTipo(formData.tipoParada)
-    if (!sel) return motivosParada || []
-    return (motivosParada || []).filter(m => normalizeTipo(m?.tipo_parada || m?.tipo) === sel)
-  }, [motivosParada, formData.tipoParada])
+    if (!formData.tipoParada) return motivosParada || []
+    
+    // O formData.tipoParada contém a descrição normalizada (ex: "manutencao_preventiva")
+    // Precisamos encontrar o tipo_parada correspondente (ex: "manutencao")
+    const tipoParadaFixo = encontrarTipoParadaPorDescricao(formData.tipoParada)
+    
+    const filtrados = (motivosParada || []).filter(m => {
+      const tipoMotivo = m?.tipo_parada || m?.tipo || ''
+      return tipoMotivo === tipoParadaFixo
+    })
+    
+    console.log('DEBUG: Tipo selecionado (normalizado):', formData.tipoParada)
+    console.log('DEBUG: Tipo parada (fixo):', tipoParadaFixo)
+    console.log('DEBUG: Motivos disponíveis:', motivosParada)
+    console.log('DEBUG: Motivos filtrados:', filtrados)
+    
+    return filtrados
+  }, [motivosParada, formData.tipoParada, tiposParada])
 
   // Removido seed local: agora os valores devem vir de Configurações (Supabase)
   // Utilitário: converter datetime-local (YYYY-MM-DDTHH:MM) para ISO (UTC)
@@ -71,30 +96,31 @@ const ApontamentosParadas = () => {
   const handleChange = (e) => {
     const { name, value } = e.target
     
-    // Se selecionou um motivo, preenche o tipo automaticamente
-    if (name === 'motivoParada') {
-      // Como o select passa a enviar a DESCRIÇÃO no value, tentamos achar tanto por id quanto por descricao
-      const motivo = (motivosParada || []).find(m => String(m.id) === String(value) || String(m.descricao ?? m.nome) === String(value))
-      if (motivo) {
-        setFormData({
-          ...formData,
-          motivoParada: motivo.descricao ?? motivo.nome,
-          tipoParada: normalizeTipo(motivo.tipo_parada || motivo.tipo || formData.tipoParada)
-        })
-        return
-      }
-    }
-    // Se selecionou um tipo, limpar motivo se não pertencer ao novo tipo
+    // Se selecionou um tipo, apenas atualizar o tipo (não limpar motivo)
     if (name === 'tipoParada') {
       const novoTipo = normalizeTipo(value)
-      const aindaValido = (motivosParada || []).some(m => {
-        const mm = normalizeTipo(m?.tipo_parada || m?.tipo)
-        return mm === novoTipo && (String(m?.descricao ?? m?.nome ?? m) === String(formData.motivoParada))
-      })
-      setFormData(prev => ({ ...prev, tipoParada: novoTipo, motivoParada: aindaValido ? prev.motivoParada : '' }))
+      setFormData(prev => ({ ...prev, tipoParada: novoTipo }))
       return
     }
     
+    // Se selecionou um motivo, preencher o tipo automaticamente
+    if (name === 'motivoParada') {
+      const motivo = (motivosParada || []).find(m => String(m.descricao ?? m.nome ?? m) === String(value))
+      if (motivo) {
+        const tipoDoMotivo = normalizeTipo(motivo.tipo_parada || motivo.tipo || '')
+        setFormData(prev => ({
+          ...prev,
+          motivoParada: value,
+          tipoParada: tipoDoMotivo
+        }))
+        return
+      }
+      // Se não encontrou motivo, apenas atualizar o campo
+      setFormData(prev => ({ ...prev, motivoParada: value }))
+      return
+    }
+    
+    // Para outros campos
     setFormData({
       ...formData,
       [name]: value
@@ -222,22 +248,57 @@ const ApontamentosParadas = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Motivo da Parada</label>
-              <select
-                className="input-field"
-                value={formData.motivoParada}
-                onChange={(e) => handleChange({ target: { name: 'motivoParada', value: e.target.value } })}
-                required
-              >
-                <option value="">Selecione o motivo</option>
-                {(motivosFiltrados || []).map(m => {
-                  const desc = (m && (m.descricao ?? m.nome ?? m)) || '-'
-                  const key = m && (m.id ?? desc)
-                  // Salvar e exibir a DESCRIÇÃO como valor
-                  return (
-                    <option key={key} value={desc}>{desc}</option>
-                  )
-                })}
-              </select>
+              {!usarMotivoCustomizado ? (
+                <div className="flex gap-2">
+                  <select
+                    className="input-field flex-1"
+                    value={formData.motivoParada}
+                    onChange={(e) => handleChange({ target: { name: 'motivoParada', value: e.target.value } })}
+                  >
+                    <option value="">Selecione o motivo</option>
+                    {(motivosFiltrados || []).map(m => {
+                      const desc = (m && (m.descricao ?? m.nome ?? m)) || '-'
+                      const key = m && (m.id ?? desc)
+                      return (
+                        <option key={key} value={desc}>{desc}</option>
+                      )
+                    })}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsarMotivoCustomizado(true)
+                      setFormData(prev => ({ ...prev, motivoParada: '' }))
+                    }}
+                    className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 whitespace-nowrap text-sm font-medium"
+                    title="Digitar motivo customizado"
+                  >
+                    + Outro
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input-field flex-1"
+                    value={formData.motivoParada}
+                    onChange={(e) => setFormData(prev => ({ ...prev, motivoParada: e.target.value }))}
+                    placeholder="Digite o motivo da parada"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsarMotivoCustomizado(false)
+                      setFormData(prev => ({ ...prev, motivoParada: '' }))
+                    }}
+                    className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 whitespace-nowrap text-sm font-medium"
+                    title="Voltar para lista"
+                  >
+                    ← Lista
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>

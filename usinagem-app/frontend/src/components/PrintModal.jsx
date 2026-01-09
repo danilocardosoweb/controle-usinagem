@@ -102,6 +102,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const ferramenta = extrairFerramenta(apontamento.produto || apontamento.codigoPerfil || '')
       const nomeCliente = apontamento.cliente || apontamento.nome_cliente || ''
       const comprimentoAcabado = extrairComprimentoAcabado(apontamento.produto || apontamento.codigoPerfil || '')
+      const pedidoSeq = String(apontamento.ordemTrabalho || apontamento.ordem_trabalho || apontamento.pedido_seq || '').trim()
       const pedidoCliente = pedidoClienteResolvido || ''
 
       const totalEtiquetasLote = distribuicaoEtiquetas.reduce((sum, d) => sum + (Number(d.qtdEtiquetas) || 0), 0)
@@ -128,7 +129,8 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
             codigoProdutoCliente: codigoProdutoCliente || '',
             nomeCliente: nomeCliente || '',
             comprimento: comprimentoAcabado || apontamento.comprimento || apontamento.comp || '',
-            pedidoCliente
+            pedidoCliente,
+            pedidoSeq
           })
           seq += 1
         }
@@ -416,7 +418,8 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
         codigoProdutoCliente: codigoProdutoCliente || '',
         nomeCliente: nomeCliente || '',
         comprimento: comprimentoAcabado || apontamento.comprimento || apontamento.comp || '',
-        pedidoCliente
+        pedidoCliente,
+        pedidoSeq
       })
 
       await PrintService.enviarTspl({

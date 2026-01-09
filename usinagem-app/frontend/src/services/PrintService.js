@@ -163,15 +163,16 @@ class PrintService {
     codigoProdutoCliente,
     nomeCliente,
     comprimento,
-    pedidoCliente
+    pedidoCliente,
+    pedidoSeq
   }) {
     // Etiqueta 100mm x 45mm (800 x 360 dots em 203dpi)
     const widthMm = 100
     const heightMm = 45
     const widthDots = 800  // 100mm × 8 dots/mm
     const heightDots = 360 // 45mm × 8 dots/mm
-    const xColEsq = 40   // coluna esquerda
-    const xColDir = 380  // coluna direita (mais próxima do centro)
+    const xColEsq = 15   // coluna esquerda
+    const xColDir = 480  // coluna direita
 
     const safeLote = this._tsplSafeText(lote)
     const safeMp = this._tsplSafeText(loteMP)
@@ -183,8 +184,14 @@ class PrintService {
     const safeNome = this._tsplSafeText(nomeCliente)
     const safeComp = this._tsplSafeText(comprimento)
     const safePedidoCliente = this._tsplSafeText(pedidoCliente)
-    const loteLine1 = String(safeLote || '').slice(0, 32)
-    const loteLine2 = String(safeLote || '').slice(32, 64)
+    const safePedidoSeq = this._tsplSafeText(pedidoSeq)
+
+    const tituloEmpresa = 'T E C N O P E R F I L  A L U M I N I O'
+
+    const faixaX = 80
+    const faixaY = 10
+    const faixaW = 640
+    const faixaH = 36
 
     // Gerar ID único baseado no lote e data
     const idEtiqueta = `${String(lote || '').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16)}${String(numeroEtiqueta).padStart(4, '0')}`
@@ -204,28 +211,26 @@ class PrintService {
       
       // ========== TÍTULO NO TOPO ==========
       // Fonte "3" (maior, mais destacada), texto sem acento para evitar falhas
-      `TEXT ${Math.floor(widthDots / 2) - 180},18,"3",0,1,1,"TECNOPERFIL ALUMINIO"`,
+      `TEXT ${faixaX + 10},18,"3",0,1,1,"${tituloEmpresa}"`,
+      `TEXT ${faixaX + 11},18,"3",0,1,1,"${tituloEmpresa}"`,
+      `REVERSE ${faixaX},${faixaY},${faixaW},${faixaH}`,
 
       // ========== CONTEÚDO PRINCIPAL (mais espaçado) ==========
-      // Coluna esquerda
-      `TEXT ${xColEsq},70,"2",0,1,1,"Qtde: ${safeQtde} PC"`,
-      `TEXT ${xColEsq},105,"2",0,1,1,"Perfil: ${safeFerr}"`,
-      `TEXT ${xColEsq},140,"2",0,1,1,"Dureza: ${safeDur}"`,
+      // Coluna 1
+      `TEXT ${xColEsq},70,"2",0,1,1,"Nome: ${safeNome || '-'}"`,
+      `TEXT ${xColEsq},105,"2",0,1,1,"Pedido Cliente: ${safePedidoCliente || '-'}"`,
+      `TEXT ${xColEsq},140,"2",0,1,1,"Perfil: ${safeFerr}"`,
       `TEXT ${xColEsq},175,"2",0,1,1,"Comp.: ${safeComp || '-'} mm"`,
+      `TEXT ${xColEsq},210,"2",0,1,1,"Rack: ${safeRack}"`,
+      `TEXT ${xColEsq},245,"2",0,1,1,"Lote MP: ${safeMp || '-'}"`,
 
-      `TEXT ${xColEsq},215,"2",0,1,1,"Cod. Cliente: ${safeCodCli || '-'}"`,
-      `TEXT ${xColEsq},250,"2",0,1,1,"Nome: ${safeNome || '-'}"`,
+      // Coluna 2
+      `TEXT ${xColDir},70,"2",0,1,1,"Cod. Cliente: ${safeCodCli || '-'}"`,
+      `TEXT ${xColDir},105,"2",0,1,1,"Qtde: ${safeQtde} PC"`,
+      `TEXT ${xColDir},140,"2",0,1,1,"Pedido/Seq: ${safePedidoSeq || '-'}"`,
 
-      // Coluna direita (aproximada do centro)
-      `TEXT ${xColDir},105,"2",0,1,1,"Rack: ${safeRack}"`,
-      `TEXT ${xColDir},140,"2",0,1,1,"Lote MP: ${safeMp || '-'}"`,
-
-      `TEXT ${xColDir},185,"2",0,1,1,"Pedido.Cliente: ${safePedidoCliente || '-'}"`,
-
-      // Rodapé: Lote Usinagem
-      `TEXT ${xColEsq},300,"2",0,1,1,"Lote Usinagem:"`,
-      `TEXT ${xColEsq},325,"2",0,1,1,"${loteLine1 || '-'}"`,
-      (loteLine2 ? `TEXT ${xColEsq},350,"2",0,1,1,"${loteLine2}"` : ''),
+      // Rodapé: Lote Usinagem (somente o valor centralizado)
+      `BLOCK 15,300,770,25,"2",0,1,1,0,1,"${safeLote || '-'}"`,
 
       // Finalização obrigatória do job TSPL (Solução 1: PRINT + FEED)
       // Para impressão unitária mantemos PRINT + FEED dentro do mesmo job
@@ -292,12 +297,13 @@ class PrintService {
     codigoProdutoCliente,
     nomeCliente,
     comprimento,
-    pedidoCliente
+    pedidoCliente,
+    pedidoSeq
   }) {
     const widthDots = 800
     const heightDots = 360
-    const xColEsq = 40
-    const xColDir = 380
+    const xColEsq = 15
+    const xColDir = 480
 
     const safeLote = this._tsplSafeText(lote)
     const safeMp = this._tsplSafeText(loteMP)
@@ -309,9 +315,14 @@ class PrintService {
     const safeNome = this._tsplSafeText(nomeCliente)
     const safeComp = this._tsplSafeText(comprimento)
     const safePedidoCliente = this._tsplSafeText(pedidoCliente)
+    const safePedidoSeq = this._tsplSafeText(pedidoSeq)
 
-    const loteLine1 = String(safeLote || '').slice(0, 32)
-    const loteLine2 = String(safeLote || '').slice(32, 64)
+    const tituloEmpresa = 'T E C N O P E R F I L  A L U M I N I O'
+
+    const faixaX = 80
+    const faixaY = 10
+    const faixaW = 640
+    const faixaH = 36
 
     const idEtiqueta = `${String(lote || '').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16)}${String(numeroEtiqueta).padStart(4, '0')}`
 
@@ -319,27 +330,25 @@ class PrintService {
       `CLS`,
 
       // Título no topo (mesma fonte/posição da impressão única)
-      `TEXT ${Math.floor(widthDots / 2) - 180},18,"3",0,1,1,"TECNOPERFIL ALUMINIO"`,
+      `TEXT ${faixaX + 10},18,"3",0,1,1,"${tituloEmpresa}"`,
+      `TEXT ${faixaX + 11},18,"3",0,1,1,"${tituloEmpresa}"`,
+      `REVERSE ${faixaX},${faixaY},${faixaW},${faixaH}`,
 
-      // Coluna esquerda
-      `TEXT ${xColEsq},70,"2",0,1,1,"Qtde: ${safeQtde} PC"`,
-      `TEXT ${xColEsq},105,"2",0,1,1,"Perfil: ${safeFerr}"`,
-      `TEXT ${xColEsq},140,"2",0,1,1,"Dureza: ${safeDur}"`,
+      // Coluna 1
+      `TEXT ${xColEsq},70,"2",0,1,1,"Nome: ${safeNome || '-'}"`,
+      `TEXT ${xColEsq},105,"2",0,1,1,"Pedido Cliente: ${safePedidoCliente || '-'}"`,
+      `TEXT ${xColEsq},140,"2",0,1,1,"Perfil: ${safeFerr}"`,
       `TEXT ${xColEsq},175,"2",0,1,1,"Comp.: ${safeComp || '-'} mm"`,
+      `TEXT ${xColEsq},210,"2",0,1,1,"Rack: ${safeRack}"`,
+      `TEXT ${xColEsq},245,"2",0,1,1,"Lote MP: ${safeMp || '-'}"`,
 
-      `TEXT ${xColEsq},215,"2",0,1,1,"Cod. Cliente: ${safeCodCli || '-'}"`,
-      `TEXT ${xColEsq},250,"2",0,1,1,"Nome: ${safeNome || '-'}"`,
+      // Coluna 2
+      `TEXT ${xColDir},70,"2",0,1,1,"Cod. Cliente: ${safeCodCli || '-'}"`,
+      `TEXT ${xColDir},105,"2",0,1,1,"Qtde: ${safeQtde} PC"`,
+      `TEXT ${xColDir},140,"2",0,1,1,"Pedido/Seq: ${safePedidoSeq || '-'}"`,
 
-      // Coluna direita
-      `TEXT ${xColDir},105,"2",0,1,1,"Rack: ${safeRack}"`,
-      `TEXT ${xColDir},140,"2",0,1,1,"Lote MP: ${safeMp || '-'}"`,
-
-      `TEXT ${xColDir},185,"2",0,1,1,"Pedido.Cliente: ${safePedidoCliente || '-'}"`,
-
-      // Rodapé
-      `TEXT ${xColEsq},300,"2",0,1,1,"Lote Usinagem:"`,
-      `TEXT ${xColEsq},325,"2",0,1,1,"${loteLine1 || '-'}"`,
-      (loteLine2 ? `TEXT ${xColEsq},350,"2",0,1,1,"${loteLine2}"` : ''),
+      // Rodapé: Lote Usinagem (somente o valor centralizado)
+      `BLOCK 15,300,770,25,"2",0,1,1,0,1,"${safeLote || '-'}"`,
 
       // Para uso em múltiplas etiquetas, aqui finalizamos apenas com PRINT.
       // O FEED 1 é enviado uma única vez no final do job em gerarMultiplasEtiquetas.

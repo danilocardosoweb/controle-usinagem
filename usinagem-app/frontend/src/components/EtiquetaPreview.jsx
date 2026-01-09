@@ -17,7 +17,8 @@ const EtiquetaPreview = ({
   codigoProdutoCliente = '',
   nomeCliente = '',
   comprimento = '',
-  pedidoCliente = ''
+  pedidoCliente = '',
+  pedidoSeq = ''
 }) => {
   const loteLine1 = String(lote || '').slice(0, 32)
   const loteLine2 = String(lote || '').slice(32, 64)
@@ -30,51 +31,35 @@ const EtiquetaPreview = ({
       style={{ width: '400px', height: '180px' }}
     >
       {/* Header - Faixa preta */}
-      <div className="bg-gray-900 text-white text-center py-1 font-bold text-sm tracking-wide">
-        TECNOPERFIL ALUMINIO
+      <div className="py-1">
+        <div className="bg-gray-900 text-white text-center py-[2px] font-black text-sm tracking-[0.25em] w-4/5 mx-auto rounded-sm">
+          TECNOPERFIL ALUMINIO
+        </div>
       </div>
 
       {/* Conteúdo Principal - Duas colunas */}
-      <div className="flex-1 flex px-2 py-1 text-xs gap-3">
+      <div className="flex-1 flex px-1 py-1 text-xs gap-3">
         {/* Coluna Esquerda */}
         <div className="flex-1 space-y-1">
-          {/* Qtde */}
-          <div className="font-semibold"><strong>Qtde:</strong> {qtde} PC</div>
-          
-          {/* Perfil */}
-          <div className="font-semibold"><strong>Perfil:</strong> {ferramenta}</div>
-          
-          {/* Dureza */}
-          <div className="font-semibold"><strong>Dureza:</strong> {dureza}</div>
-
-          {/* Comp */}
-          <div className="font-semibold"><strong>Comp.:</strong> {comprimento ? `${comprimento} mm` : '-'} </div>
-          
-          {/* Cod Cliente */}
-          <div className="text-[9px]"><strong>Cod Cliente:</strong> {codigoProdutoCliente || '-'}</div>
-          
-          {/* Nome */}
           <div className="text-[9px]"><strong>Nome:</strong> {nomeCliente || '-'}</div>
+          <div className="text-[9px]"><strong>Pedido Cliente:</strong> {pedidoCliente || '-'}</div>
+          <div className="font-semibold"><strong>Perfil:</strong> {ferramenta}</div>
+          <div className="font-semibold"><strong>Comp.:</strong> {comprimento ? `${comprimento} mm` : '-'}</div>
+          <div className="font-semibold"><strong>Rack:</strong> {rack}</div>
+          <div className="text-[9px]"><strong>Lote MP:</strong> {loteMP || '-'}</div>
         </div>
 
         {/* Coluna Direita */}
-        <div className="flex-1 space-y-1">
-          {/* Rack */}
-          <div className="font-semibold"><strong>Rack:</strong> {rack}</div>
-          
-          {/* Lote MP */}
-          <div className="text-[9px]"><strong>Lote MP:</strong> {loteMP || '-'}</div>
-
-          {/* Pedido.Cliente */}
-          <div className="text-[9px]"><strong>Pedido.Cliente:</strong> {pedidoCliente || '-'}</div>
+        <div className="w-[160px] space-y-1 mr-1">
+          <div className="text-[9px]"><strong>Cod. Cliente:</strong> {codigoProdutoCliente || '-'}</div>
+          <div className="font-semibold"><strong>Qtde:</strong> {qtde} PC</div>
+          <div className="text-[9px]"><strong>Pedido/Seq:</strong> {pedidoSeq || '-'}</div>
         </div>
       </div>
 
       {/* Rodapé - Faixa preta */}
-      <div className="px-2 pb-2 text-[9px]">
-        <div><strong>Lote Usinagem:</strong></div>
-        <div className="font-mono text-[8px] break-all">{loteLine1 || '-'}</div>
-        {loteLine2 ? <div className="font-mono text-[8px] break-all">{loteLine2}</div> : null}
+      <div className="px-1 pb-2 text-[9px]">
+        <div className="font-mono text-[8px] text-center truncate">{lote || '-'}</div>
       </div>
     </div>
   )

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench } from 'react-icons/fa'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
 import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
@@ -103,6 +103,67 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }
 
+  // Apontamento rápido de peça morta (refugo imediato)
+  const handleSalvarPecaMorta = async (e) => {
+    e?.preventDefault?.()
+    if (!formData.ordemTrabalho) {
+      alert('Selecione um Pedido/Seq antes de apontar peça morta.')
+      return
+    }
+    if (!formData.codigoPerfil) {
+      alert('Selecione o produto antes de apontar peça morta.')
+      return
+    }
+    const qtd = Number(pecaMortaQtd || 0)
+    if (!Number.isFinite(qtd) || qtd <= 0) {
+      alert('Informe uma quantidade válida para peça morta.')
+      return
+    }
+    if (!pecaMortaMotivo && !String(pecaMortaTexto || '').trim()) {
+      alert('Informe o motivo (selecione ou escreva).')
+      return
+    }
+    const nowIso = new Date().toISOString()
+    const obsPecaMorta = `[Peça morta] Motivo: ${pecaMortaMotivo || 'texto'}${pecaMortaTexto ? ' | ' + pecaMortaTexto : ''}`
+    const expFields = (modo === 'embalagem')
+      ? { exp_unidade: 'embalagem', exp_stage: 'para-embarque', etapa_embalagem: formData.etapaEmbalagem || null }
+      : { exp_unidade: 'usinagem' }
+    const loteVinculado = (formData.lotesExternos && formData.lotesExternos[0]) ? formData.lotesExternos[0] : (formData.loteExterno || '')
+    try {
+      setPecaMortaSaving(true)
+      await supabaseService.add('apontamentos', {
+        operador: formData.operador || (user ? user.nome : ''),
+        maquina: formData.maquina || '',
+        produto: formData.codigoPerfil || '',
+        cliente: formData.cliente || '',
+        pedido_cliente: formData.pedidoCliente || '',
+        ordem_trabalho: formData.ordemTrabalho || '',
+        pedido_seq: formData.ordemTrabalho || '',
+        nro_op: formData.nroOp || '',
+        perfil_longo: formData.perfilLongo || '',
+        inicio: nowIso,
+        fim: nowIso,
+        quantidade: 0,
+        qtd_refugo: qtd,
+        comprimento_refugo: Number(formData.comprimentoAcabado || 0) || null,
+        qtd_pedido: formData.qtdPedido ? Number(formData.qtdPedido) : null,
+        lote: loteVinculado || null,
+        observacoes: obsPecaMorta,
+        ...expFields
+      })
+      await recarregarApontamentos()
+      setPecaMortaAberto(false)
+      setPecaMortaQtd('')
+      setPecaMortaMotivo('')
+      setPecaMortaTexto('')
+    } catch (err) {
+      console.error('Erro ao salvar peça morta:', err)
+      alert('Falha ao salvar peça morta')
+    } finally {
+      setPecaMortaSaving(false)
+    }
+  }
+
   const imprimirEtiquetasTermicasEmLote = async ({ lote, dist, rackOuPalletValor, dureza, loteMP }) => {
     const impressoraTermica = getConfiguracaoImpressoras().termica
 
@@ -117,6 +178,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
 
     const cliente = formData.cliente || ''
+    const pedidoSeq = formData.ordemTrabalho || ''
     const perfil = formData.codigoPerfil || ''
     const comprimentoRaw = formData.comprimentoAcabado || ''
     const comprimento = String(comprimentoRaw || '').replace(/[^0-9]/g, '')
@@ -168,7 +230,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           codigoProdutoCliente: formData.codigoProdutoCliente || '',
           nomeCliente: cliente || '',
           comprimento: comprimento || '',
-          pedidoCliente
+          pedidoCliente,
+          pedidoSeq
         })
         seq += 1
       }
@@ -338,7 +401,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       codigoProdutoCliente: formData.codigoProdutoCliente || '',
       nomeCliente: cliente || '',
       comprimento: comprimento || '',
-      pedidoCliente
+      pedidoCliente,
+      pedidoSeq
     })
 
     try {
@@ -448,6 +512,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [qtdRefugo, setQtdRefugo] = useState('')
   const [comprimentoRefugo, setComprimentoRefugo] = useState('')
   const [durezaMaterial, setDurezaMaterial] = useState('')
+  // Modal de peça morta
+  const [pecaMortaAberto, setPecaMortaAberto] = useState(false)
+  const [pecaMortaQtd, setPecaMortaQtd] = useState('')
+  const [pecaMortaMotivo, setPecaMortaMotivo] = useState('')
+  const [pecaMortaTexto, setPecaMortaTexto] = useState('')
+  const [pecaMortaSaving, setPecaMortaSaving] = useState(false)
+  const motivosPecaMorta = ['Falha de processo', 'Erro operacional', 'Engano', 'Quebra de ferramenta', 'Outros']
   // Modal de listagem de apontamentos da ordem selecionada
   const [listarApontAberto, setListarApontAberto] = useState(false)
   const [showTimerModal, setShowTimerModal] = useState(false)
@@ -1619,6 +1690,22 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               </div>
               <button
                 type="button"
+                className="p-2 rounded border border-red-200 text-red-600 hover:bg-red-50 hover:text-red-800"
+                title="Apontar peça morta vinculada ao pedido/lote atual"
+                onClick={() => {
+                  if (!formData.ordemTrabalho) { alert('Selecione um Pedido/Seq antes de apontar peça morta.'); return }
+                  if (!formData.codigoPerfil) { alert('Selecione o produto antes de apontar peça morta.'); return }
+                  setPecaMortaQtd('')
+                  setPecaMortaMotivo('')
+                  setPecaMortaTexto('')
+                  setPecaMortaAberto(true)
+                }}
+                aria-label="Apontar peça morta"
+              >
+                <FaSkullCrossbones />
+              </button>
+              <button
+                type="button"
                 className="p-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 title="Ver apontamentos deste pedido"
                 onClick={() => setListarApontAberto(true)}
@@ -1842,6 +1929,95 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Peça morta (apontamento imediato) */}
+      {pecaMortaAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] px-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg form-compact">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div className="flex items-center gap-2 text-gray-800 font-semibold">
+                <FaSkullCrossbones className="text-red-600" /> Peça morta (refugo imediato)
+              </div>
+              <button className="text-sm text-gray-500" onClick={() => setPecaMortaAberto(false)}>Fechar</button>
+            </div>
+
+            <form className="p-4 space-y-3" onSubmit={handleSalvarPecaMorta}>
+              <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
+                <div>
+                  <div className="text-xs text-gray-500">Pedido/Seq</div>
+                  <div className="font-semibold text-gray-800 break-words">{formData.ordemTrabalho || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Produto</div>
+                  <div className="font-semibold text-gray-800 break-words">{formData.codigoPerfil || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Cliente</div>
+                  <div className="font-semibold text-gray-800 break-words">{formData.cliente || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Lote vinculado</div>
+                  <div className="font-semibold text-gray-800 break-words">
+                    {(formData.lotesExternos && formData.lotesExternos[0]) ? formData.lotesExternos[0] : (formData.loteExterno || '-')}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Quantidade (peças)</label>
+                <input
+                  type="number"
+                  min="1"
+                  className="input-field w-full"
+                  value={pecaMortaQtd}
+                  onChange={(e) => setPecaMortaQtd(e.target.value)}
+                  disabled={pecaMortaSaving}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Motivo (lista)</label>
+                  <select
+                    className="input-field w-full"
+                    value={pecaMortaMotivo}
+                    onChange={(e) => setPecaMortaMotivo(e.target.value)}
+                    disabled={pecaMortaSaving}
+                  >
+                    <option value="">Selecione...</option>
+                    {motivosPecaMorta.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Motivo (texto livre)</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="Descreva o motivo"
+                    value={pecaMortaTexto}
+                    onChange={(e) => setPecaMortaTexto(e.target.value)}
+                    disabled={pecaMortaSaving}
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-500">
+                É obrigatório informar um motivo (selecionar na lista ou digitar no texto livre).
+              </p>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button type="button" className="btn-outline" onClick={() => setPecaMortaAberto(false)} disabled={pecaMortaSaving}>Cancelar</button>
+                <button type="submit" className="btn-primary" disabled={pecaMortaSaving}>
+                  {pecaMortaSaving ? 'Salvando...' : 'Salvar peça morta'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

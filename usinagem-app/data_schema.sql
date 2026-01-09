@@ -444,6 +444,39 @@ CREATE TABLE IF NOT EXISTS public.exp_estoque_baixas (
   created_at timestamptz default timezone('utc', now())
 );
 
+-- Inventários/Ajustes de estoque de Itens Acabados (por Produto)
+-- Registra ajustes para valor final (contagem física), mantendo antes/depois/delta e motivo.
+CREATE TABLE IF NOT EXISTS public.estoque_acabados_inventarios (
+  id uuid primary key default gen_random_uuid(),
+  produto text not null,
+  saldo_antes_pc numeric(18,3) not null check (saldo_antes_pc >= 0),
+  saldo_depois_pc numeric(18,3) not null check (saldo_depois_pc >= 0),
+  delta_pc numeric(18,3) not null,
+  motivo text not null,
+  observacao text null,
+  criado_por uuid null references public.usuarios(id) on delete set null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+CREATE INDEX IF NOT EXISTS idx_estoque_acabados_invent_produto ON public.estoque_acabados_inventarios(produto);
+CREATE INDEX IF NOT EXISTS idx_estoque_acabados_invent_created ON public.estoque_acabados_inventarios(created_at desc);
+
+-- RLS: Como o app usa autenticação própria (sem Supabase Auth), auth.uid() fica NULL.
+-- Usar role 'anon' para permitir operações nesta tabela.
+ALTER TABLE public.estoque_acabados_inventarios ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "allow_select_anon_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios;
+CREATE POLICY "allow_select_anon_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios
+  FOR SELECT
+  TO anon
+  USING (true);
+
+DROP POLICY IF EXISTS "allow_insert_anon_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios;
+CREATE POLICY "allow_insert_anon_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
 -- Tabela de movimentos de Insumos
 CREATE TABLE IF NOT EXISTS public.exp_insumos_mov (
   id uuid primary key default gen_random_uuid(),
@@ -648,6 +681,12 @@ DROP VIEW IF EXISTS public.vw_ferramentas_status;
 DROP VIEW IF EXISTS public.vw_ferramentas_consumo_30d;
 DROP VIEW IF EXISTS public.vw_insumos_consumo_30d;
 DROP VIEW IF EXISTS public.vw_insumos_saldo;
+-- Rollback Inventários de Itens Acabados
+DROP POLICY IF EXISTS "allow_select_anon_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios;
+DROP POLICY IF EXISTS "allow_insert_anon_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios;
+DROP POLICY IF EXISTS "admin_can_view_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios;
+DROP POLICY IF EXISTS "admin_can_insert_estoque_acabados_inventarios" ON public.estoque_acabados_inventarios;
+DROP TABLE IF EXISTS public.estoque_acabados_inventarios;
 ALTER TABLE IF EXISTS public.exp_estoque_baixas
   DROP COLUMN IF EXISTS produto;
 DROP TABLE IF EXISTS public.exp_estoque_baixas;

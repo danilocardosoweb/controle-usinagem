@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { FaBoxOpen, FaCubes, FaExclamationTriangle, FaTools, FaArrowDown, FaClock, FaChartPie, FaPlusCircle, FaHistory } from 'react-icons/fa'
+import { FaBoxOpen, FaCubes, FaExclamationTriangle, FaTools, FaArrowDown, FaClock, FaChartPie, FaPlusCircle, FaHistory, FaComments, FaImage } from 'react-icons/fa'
 import useSupabase from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
+import ImageModalViewer from '../components/ImageModalViewer'
+import CorrecaoLancamentoInsumoModal from '../components/CorrecaoLancamentoInsumoModal'
 
 export default function Estoque() {
   const CATEGORIAS_USINAGEM = [
@@ -46,12 +48,13 @@ export default function Estoque() {
   const { items: ferrStatus, loadItems: loadFerrStatus } = useSupabase('vw_ferramentas_status')
   const { items: ferrConsumo30 } = useSupabase('vw_ferramentas_consumo_30d')
   const { items: ferrMov } = useSupabase('exp_ferramentas_mov')
+  const { items: inventariosAcabados, loadItems: loadInventariosAcabados } = useSupabase('estoque_acabados_inventarios')
 
   const [tab, setTab] = useState('acabados') // acabados | ferramentas
   const [periodo, setPeriodo] = useState('30') // dias para giro
   const [baixaOpen, setBaixaOpen] = useState(false)
   const [baixaSaving, setBaixaSaving] = useState(false)
-  const [baixaForm, setBaixaForm] = useState({ produto: '', quantidade: '', motivo: 'producao' })
+  const [baixaForm, setBaixaForm] = useState({ produto: '', quantidade: '', motivo: 'producao', pedido: '', numero_pedido: '', cliente: '' })
   const [erroBaixa, setErroBaixa] = useState('')
 
   const [filtroProduto, setFiltroProduto] = useState('')
@@ -75,6 +78,13 @@ export default function Estoque() {
   const [minAcabadosSaving, setMinAcabadosSaving] = useState(false)
   const [minEditProduto, setMinEditProduto] = useState('')
   const [minEditValor, setMinEditValor] = useState('')
+  const [observacoesModalOpen, setObservacoesModalOpen] = useState(false)
+  const [observacoesProdutoSelecionado, setObservacoesProdutoSelecionado] = useState('')
+  const [inventarioOpen, setInventarioOpen] = useState(false)
+  const [inventarioSaving, setInventarioSaving] = useState(false)
+  const [inventarioForm, setInventarioForm] = useState({ produto: '', saldoAtual: 0, saldoFinal: '', motivo: 'inventario', observacao: '', lote: '', numero_pedido: '' })
+  const [inventarioProdutoSearch, setInventarioProdutoSearch] = useState('')
+  const [inventarioProdutoShowSuggestions, setInventarioProdutoShowSuggestions] = useState(false)
 
   const [minInsumoSavingId, setMinInsumoSavingId] = useState('')
   const [minInsumoEditId, setMinInsumoEditId] = useState('')
@@ -104,6 +114,11 @@ export default function Estoque() {
   const [cadFerrSaving, setCadFerrSaving] = useState(false)
   const [cadFerrError, setCadFerrError] = useState('')
   const [cadFerrForm, setCadFerrForm] = useState({ ferramenta: '', descricao: '', ativo: true })
+
+  // Modais de Imagem e Correção
+  const [imageModalOpen, setImageModalOpen] = useState(false)
+  const [imageModalData, setImageModalData] = useState({ url: '', name: '' })
+  const [correcaoLancamentoOpen, setCorrecaoLancamentoOpen] = useState(false)
 
   const insumoFotoInputRef = useRef(null)
 
@@ -192,6 +207,30 @@ export default function Estoque() {
       .filter(b => !b.estornado)
   }, [baixas])
 
+  // Mapa de observações por produto (todas as observações)
+  const observacoesPorProduto = useMemo(() => {
+    const map = {}
+    ;(Array.isArray(inventariosAcabados) ? inventariosAcabados : [])
+      .sort((a, b) => new Date(b?.created_at || 0) - new Date(a?.created_at || 0))
+      .forEach((inv) => {
+        const produto = String(inv?.produto || '').trim()
+        if (!produto) return
+        if (!map[produto]) map[produto] = []
+        const obs = String(inv?.observacao || '').trim()
+        if (obs) {
+          map[produto].push({
+            data: inv?.created_at,
+            observacao: obs,
+            motivo: inv?.motivo,
+            saldo_antes: inv?.saldo_antes_pc,
+            saldo_depois: inv?.saldo_depois_pc,
+            delta: inv?.delta_pc
+          })
+        }
+      })
+    return map
+  }, [inventariosAcabados])
+
   // Saldo por produto+lote
   const saldoPorChave = useMemo(() => {
     const saldos = {}
@@ -222,6 +261,20 @@ export default function Estoque() {
       if (!map[prod]) map[prod] = { produto: prod, saldo: 0, min: 0 }
       map[prod].saldo += Number(s.saldo || 0)
     })
+
+    // Adicionar produtos que existem apenas em ajustes de inventário (sem apontamentos)
+    ;(Array.isArray(inventariosAcabados) ? inventariosAcabados : []).forEach((inv) => {
+      const prod = String(inv?.produto || '').trim()
+      if (!prod || map[prod]) return
+      map[prod] = { produto: prod, saldo: 0, min: 0 }
+    })
+
+    // Aplicar deltas de inventário
+    Object.values(map).forEach((row) => {
+      const delta = Number(observacoesPorProduto?.[row.produto]?.reduce((sum, obs) => sum + (Number(obs.delta) || 0), 0) || 0)
+      row.saldo += delta
+    })
+
     // Mínimo sugerido: pcs_por_pallet se existir (sem criar tabela nova)
     Object.values(map).forEach((row) => {
       const cfg = cfgByFerramenta[row.produto]
@@ -230,7 +283,17 @@ export default function Estoque() {
       row.min = Number.isFinite(override) ? override : (pcsPal > 0 ? pcsPal : 0)
     })
     return Object.values(map)
-  }, [saldoPorChave, cfgByFerramenta, minAcabadosMap])
+  }, [saldoPorChave, cfgByFerramenta, minAcabadosMap, inventariosAcabados, observacoesPorProduto])
+
+  // Sugestões de produtos para autocomplete no ajuste de inventário
+  const inventarioProdutoSuggestions = useMemo(() => {
+    const search = String(inventarioProdutoSearch || '').trim().toLowerCase()
+    if (!search) return (Array.isArray(estoquePorProduto) ? estoquePorProduto : []).map(r => r.produto)
+    return (Array.isArray(estoquePorProduto) ? estoquePorProduto : [])
+      .map(r => r.produto)
+      .filter(p => String(p || '').toLowerCase().includes(search))
+      .slice(0, 10)
+  }, [inventarioProdutoSearch, estoquePorProduto])
 
   const handleOpenFerrStatusEdit = (f) => {
     if (!f) return
@@ -554,7 +617,7 @@ export default function Estoque() {
   }, [entradasEmbalagem, baixasValidas])
 
   // Abrir/fechar modal de baixa automática
-  const openBaixa = (produto = '') => { setBaixaForm({ produto, quantidade: '', motivo: 'producao' }); setErroBaixa(''); setBaixaOpen(true) }
+  const openBaixa = (produto = '') => { setBaixaForm({ produto, quantidade: '', motivo: 'producao', pedido: '', numero_pedido: '', cliente: '' }); setErroBaixa(''); setBaixaOpen(true) }
   const closeBaixa = () => { if (!baixaSaving) setBaixaOpen(false) }
 
   // Confirmar baixa: valida saldo e grava em exp_estoque_baixas
@@ -646,6 +709,7 @@ export default function Estoque() {
             <div className="px-4 py-2 border-b flex items-center justify-between">
               <div className="font-semibold flex items-center gap-2"><FaBoxOpen/> Itens Acabados (Embalados)</div>
               <div className="flex items-center gap-2">
+                <button className="text-xs bg-blue-600 text-white px-3 py-1 rounded inline-flex items-center gap-2" onClick={()=>setInventarioOpen(true)}><FaPlusCircle/> Ajustar inventário</button>
                 <button className="text-xs bg-gray-100 px-3 py-1 rounded" onClick={()=>setAcabadosVerSecundario(v=>!v)}>
                   {acabadosVerSecundario ? 'Ocultar secundários' : 'Ver secundários'}
                 </button>
@@ -682,15 +746,15 @@ export default function Estoque() {
               </div>
             </div>
 
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="text-left px-4 py-2">Produto</th>
-                    <th className="text-left px-4 py-2">Saldo</th>
-                    <th className="text-left px-4 py-2">Mínimo</th>
-                    <th className="text-left px-4 py-2">Status</th>
-                    <th className="text-left px-4 py-2">Ações</th>
+                    <th className="text-left px-4 py-2 whitespace-nowrap">Produto</th>
+                    <th className="text-left px-4 py-2 whitespace-nowrap">Saldo</th>
+                    <th className="text-left px-4 py-2 whitespace-nowrap">Mínimo</th>
+                    <th className="text-left px-4 py-2 whitespace-nowrap">Status</th>
+                    <th className="text-left px-4 py-2 whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -760,7 +824,22 @@ export default function Estoque() {
                           )}
                         </td>
                         <td className="px-4 py-2"><span className={`px-2 py-1 rounded ${statusClass}`}>{r.saldo < 0 ? 'Saldo negativo' : (r.min && r.saldo < r.min ? 'Abaixo do mínimo' : 'OK')}</span></td>
-                        <td className="px-4 py-2"><button className="text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded" onClick={()=>openBaixa(r.produto)}>Baixa</button></td>
+                        <td className="px-4 py-2 flex items-center gap-2">
+                          {(observacoesPorProduto?.[r.produto]?.length || 0) > 0 && (
+                            <button
+                              type="button"
+                              className="text-xs bg-yellow-50 hover:bg-yellow-100 px-2 py-1 rounded inline-flex items-center gap-1"
+                              onClick={() => {
+                                setObservacoesProdutoSelecionado(r.produto)
+                                setObservacoesModalOpen(true)
+                              }}
+                              title={`${observacoesPorProduto?.[r.produto]?.length || 0} observação(ões)`}
+                            >
+                              <FaComments className="text-sm" /> {observacoesPorProduto?.[r.produto]?.length || 0}
+                            </button>
+                          )}
+                          <button className="text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded" onClick={()=>openBaixa(r.produto)}>Baixa</button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -771,6 +850,217 @@ export default function Estoque() {
               </table>
             </div>
           </div>
+
+      {inventarioOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div className="font-semibold text-gray-800">Ajustar inventário (valor final)</div>
+              <button type="button" className="text-sm text-gray-500" onClick={() => setInventarioOpen(false)}>Fechar</button>
+            </div>
+
+            <form className="p-4 space-y-3" onSubmit={async (e) => {
+              e.preventDefault()
+              const produto = String(inventarioForm?.produto || '').trim()
+              const saldoFinal = Number(String(inventarioForm?.saldoFinal || '').replace(',', '.'))
+              const motivo = String(inventarioForm?.motivo || '').trim()
+              
+              if (!produto) { alert('Selecione o produto'); return }
+              if (!Number.isFinite(saldoFinal) || saldoFinal < 0) { alert('Contagem física inválida'); return }
+              
+              try {
+                setInventarioSaving(true)
+                const saldoAntes = Number(inventarioForm?.saldoAtual || 0)
+                const delta = saldoFinal - saldoAntes
+                await supabaseService.add('estoque_acabados_inventarios', {
+                  produto,
+                  saldo_antes_pc: saldoAntes,
+                  saldo_depois_pc: saldoFinal,
+                  delta_pc: delta,
+                  motivo,
+                  observacao: inventarioForm?.observacao || null,
+                  lote: inventarioForm?.lote || null,
+                  numero_pedido: inventarioForm?.numero_pedido || null,
+                  criado_por: null
+                })
+                await loadInventariosAcabados()
+                setInventarioOpen(false)
+                setInventarioForm({ produto: '', saldoAtual: 0, saldoFinal: '', motivo: 'inventario', observacao: '', lote: '', numero_pedido: '' })
+              } catch (err) {
+                console.error('Erro ao salvar inventário:', err)
+                alert('Falha ao salvar inventário')
+              } finally {
+                setInventarioSaving(false)
+              }
+            }}>
+              <div className="relative">
+                <label className="block text-sm text-gray-600 mb-1">Produto</label>
+                <input
+                  type="text"
+                  className="w-full border rounded px-2 py-2"
+                  placeholder="Digite ou selecione um produto..."
+                  value={inventarioForm?.produto || inventarioProdutoSearch}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setInventarioProdutoSearch(val)
+                    setInventarioForm((prev) => ({ ...prev, produto: val }))
+                    setInventarioProdutoShowSuggestions(true)
+                  }}
+                  onFocus={() => setInventarioProdutoShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setInventarioProdutoShowSuggestions(false), 200)}
+                  disabled={inventarioSaving}
+                  required
+                />
+                {inventarioProdutoShowSuggestions && inventarioProdutoSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 border rounded bg-white shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {inventarioProdutoSuggestions.map((prod) => (
+                      <button
+                        key={`inv-sugg-${prod}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+                        onClick={() => {
+                          const row = estoquePorProduto.find((r) => String(r?.produto || '').trim() === String(prod || '').trim())
+                          const saldoAtual = Number(row?.saldo || 0)
+                          setInventarioForm((prev) => ({ ...prev, produto: prod, saldoAtual }))
+                          setInventarioProdutoSearch(prod)
+                          setInventarioProdutoShowSuggestions(false)
+                        }}
+                      >
+                        {prod}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Saldo atual</label>
+                  <input
+                    className="w-full border rounded px-2 py-2 bg-gray-100"
+                    value={Number(inventarioForm?.saldoAtual || 0).toLocaleString('pt-BR')}
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Contagem física (valor final)</label>
+                  <input
+                    className="w-full border rounded px-2 py-2"
+                    value={inventarioForm?.saldoFinal || ''}
+                    onChange={(e) => setInventarioForm((prev) => ({ ...prev, saldoFinal: e.target.value }))}
+                    disabled={inventarioSaving}
+                    inputMode="decimal"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Motivo</label>
+                <select
+                  className="w-full border rounded px-2 py-2"
+                  value={inventarioForm?.motivo || 'inventario'}
+                  onChange={(e) => setInventarioForm((prev) => ({ ...prev, motivo: e.target.value }))}
+                  disabled={inventarioSaving}
+                  required
+                >
+                  <option value="inventario">Inventário</option>
+                  <option value="correcao_erro">Correção de erro</option>
+                  <option value="ajuste_pos_usinagem_embalagem">Ajuste pós usinagem/embalagem</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Lote</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-2 py-2"
+                    placeholder="Ex: LOTE-001"
+                    value={inventarioForm?.lote || ''}
+                    onChange={(e) => setInventarioForm((prev) => ({ ...prev, lote: e.target.value }))}
+                    disabled={inventarioSaving}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Número do Pedido</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-2 py-2"
+                    placeholder="Ex: PED-001"
+                    value={inventarioForm?.numero_pedido || ''}
+                    onChange={(e) => setInventarioForm((prev) => ({ ...prev, numero_pedido: e.target.value }))}
+                    disabled={inventarioSaving}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Observação</label>
+                <textarea
+                  className="w-full border rounded px-2 py-2"
+                  rows={3}
+                  value={inventarioForm?.observacao || ''}
+                  onChange={(e) => setInventarioForm((prev) => ({ ...prev, observacao: e.target.value }))}
+                  disabled={inventarioSaving}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button type="button" className="px-3 py-2 rounded border" onClick={() => setInventarioOpen(false)} disabled={inventarioSaving}>Cancelar</button>
+                <button type="submit" className="px-3 py-2 rounded bg-blue-600 text-white" disabled={inventarioSaving}>
+                  {inventarioSaving ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {observacoesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-4xl max-h-[90vh] rounded-lg bg-white shadow-xl flex flex-col">
+            <div className="flex items-center justify-between border-b px-4 py-3 flex-shrink-0">
+              <div className="font-semibold text-gray-800">Observações - {observacoesProdutoSelecionado}</div>
+              <button type="button" className="text-sm text-gray-500" onClick={() => setObservacoesModalOpen(false)}>Fechar</button>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1">
+              {(observacoesPorProduto?.[observacoesProdutoSelecionado] || []).length > 0 ? (
+                <div className="space-y-4">
+                  {observacoesPorProduto[observacoesProdutoSelecionado].map((obs, idx) => (
+                    <div key={idx} className="border rounded-lg p-4 bg-gray-50">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="text-xs text-gray-500">
+                          {obs.data ? new Date(obs.data).toLocaleString('pt-BR') : '-'}
+                        </div>
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">{obs.motivo || '-'}</span>
+                      </div>
+                      <div className="text-sm text-gray-700 mb-3 p-3 bg-white rounded border-l-4 border-yellow-400 max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
+                        {obs.observacao}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 text-xs text-gray-600">
+                        <div className="bg-white p-2 rounded border">
+                          <span className="font-semibold">Antes:</span> {Number(obs.saldo_antes || 0).toLocaleString('pt-BR')}
+                        </div>
+                        <div className="bg-white p-2 rounded border">
+                          <span className="font-semibold">Depois:</span> {Number(obs.saldo_depois || 0).toLocaleString('pt-BR')}
+                        </div>
+                        <div className="bg-white p-2 rounded border">
+                          <span className="font-semibold">Delta:</span> {Number(obs.delta || 0).toLocaleString('pt-BR')}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center text-sm text-gray-500 py-8">Nenhuma observação registrada para este produto.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
           {acabadosVerSecundario && (
             <>
@@ -1520,7 +1810,16 @@ export default function Estoque() {
           </div>
 
           <div className="bg-white rounded shadow overflow-hidden">
-            <div className="px-4 py-2 border-b font-semibold flex items-center gap-2">Insumos</div>
+            <div className="px-4 py-2 border-b font-semibold flex items-center justify-between">
+              <span className="flex items-center gap-2">Insumos</span>
+              <button
+                onClick={() => setCorrecaoLancamentoOpen(true)}
+                className="text-xs bg-orange-600 text-white px-3 py-1 rounded hover:bg-orange-700 transition"
+                title="Corrigir lançamentos incorretos"
+              >
+                Corrigir Lançamentos
+              </button>
+            </div>
             <div className="p-4 border-b bg-white">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="md:col-span-2">
@@ -1557,9 +1856,16 @@ export default function Estoque() {
                         <td className="px-4 py-2">
                           <div className="flex items-center gap-2">
                             {i.foto_url ? (
-                              <a href={i.foto_url} target="_blank" rel="noreferrer" title="Abrir foto">
-                                <img src={i.foto_url} alt={i.nome} className="h-8 w-8 object-cover rounded border" />
-                              </a>
+                              <button
+                                onClick={() => {
+                                  setImageModalData({ url: i.foto_url, name: i.nome })
+                                  setImageModalOpen(true)
+                                }}
+                                className="cursor-pointer hover:opacity-80 transition"
+                                title="Clique para visualizar"
+                              >
+                                <img src={i.foto_url} alt={i.nome} className="h-8 w-8 object-cover rounded border hover:border-blue-500" />
+                              </button>
                             ) : (
                               <div className="h-8 w-8 rounded border bg-gray-50" />
                             )}
@@ -1704,6 +2010,18 @@ export default function Estoque() {
                   <option value="ajuste">Ajuste</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-sm text-gray-600">Pedido</label>
+                <input type="text" className="w-full border rounded px-2 py-1" placeholder="Ex: PED-001" value={baixaForm.pedido} onChange={(e)=>setBaixaForm(f=>({...f, pedido:e.target.value}))} />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600">Nº Pedido</label>
+                <input type="text" className="w-full border rounded px-2 py-1" placeholder="Ex: 123456" value={baixaForm.numero_pedido} onChange={(e)=>setBaixaForm(f=>({...f, numero_pedido:e.target.value}))} />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600">Cliente</label>
+                <input type="text" className="w-full border rounded px-2 py-1" placeholder="Ex: Empresa XYZ" value={baixaForm.cliente} onChange={(e)=>setBaixaForm(f=>({...f, cliente:e.target.value}))} />
+              </div>
               {erroBaixa && <div className="text-red-600 text-sm">{erroBaixa}</div>}
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button type="button" className="px-3 py-1 rounded bg-gray-100" onClick={closeBaixa} disabled={baixaSaving}>Cancelar</button>
@@ -1713,6 +2031,24 @@ export default function Estoque() {
           </div>
         </div>
       )}
+
+      {/* Modal de Visualização de Imagem */}
+      <ImageModalViewer
+        isOpen={imageModalOpen}
+        imageUrl={imageModalData.url}
+        imageName={imageModalData.name}
+        onClose={() => setImageModalOpen(false)}
+      />
+
+      {/* Modal de Correção de Lançamentos */}
+      <CorrecaoLancamentoInsumoModal
+        isOpen={correcaoLancamentoOpen}
+        onClose={() => setCorrecaoLancamentoOpen(false)}
+        onSuccess={() => {
+          loadInsumosMov()
+          loadInsumosSaldo()
+        }}
+      />
     </div>
   )
 }
