@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary-200 hover:bg-secondary-300 text-secondary-800 font-bold py-2 px-4 rounded;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-md p-6;
+  }
+  
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500;
+  }
+
+  /* Estilos compactos para formularios densos */
+  .form-compact {
+    @apply text-sm; /* reduz fonte */
+  }
+
+  .input-field-sm {
+    @apply text-sm px-2 py-1; /* reduz altura e padding */
+  }
+
+  .label-sm {
+    @apply text-xs; /* rótulos menores */
+  }
+
+  .grid-compact {
+    @apply gap-3; /* menos espaçamento entre campos */
+  }
+
+  /* Tabela compacta para maior densidade de informação */
+  .table-compact {
+    @apply text-xs; /* fonte menor */
+  }
+  .table-compact th {
+    @apply px-2 py-1 whitespace-nowrap; /* cabeçalho mais estreito */
+  }
+  .table-compact td {
+    @apply px-2 py-1 align-middle; /* células mais compactas */
+  }
+  .table-compact .col-truncate {
+    @apply max-w-[200px] truncate; /* truncar descrições longas */
+  }
+}
