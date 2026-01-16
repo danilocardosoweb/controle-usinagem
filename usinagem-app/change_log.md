@@ -1,4 +1,8 @@
 # Log de Alterações
+[16/01/2026 10:17] - [Apontamentos de Usinagem] - [Extração de Comprimento do Perfil Longo: nova coluna "Comprimento Longo" na tabela de apontamentos, função extrairComprimentoPerfilLongo adaptada, busca por comprimento longo no modal de busca de pedidos] - [Cascade]
+[16/01/2026 10:14] - [Relatórios] - [Filtros por Cliente e Pedido Cliente: novos campos de entrada de texto nos filtros, lógica de filtro case-insensitive com busca parcial, aplicado a todos os relatórios] - [Cascade]
+[16/01/2026 10:12] - [Pedidos e Produtos] - [Exportação para Excel: botões "Exportar Filtrado" e "Exportar Completo", ícone minimalista FaFileExcel, geração de arquivo com todas as colunas relevantes, ajuste automático de largura de colunas, nomeação com data] - [Cascade]
+[16/01/2026 10:07] - [Pedidos.jsx] - [Correção: adicionada função formatarData para formatar datas em padrão brasileiro (DD/MM/YYYY)] - [Cascade]
 [08/01/2026 19:47] - [Estoque] - [Ajuste de Inventário (Itens Acabados): modal com autocomplete de produtos, ajuste para valor final, histórico de inventários, cálculo de delta, motivo e observação (admin-only)] - [Cascade]
 [07/01/2026 09:44] - [Frontend/Database] - [Contador de impressão de etiquetas: registro em etiquetas_geradas (por apontamento) e coluna "Imp." em Relatórios] - [Cascade]
 [05/01/2026 14:07] - [Frontend] - [Etiqueta térmica: adicionado QR Code com dados compactos de rastreabilidade do lote] - [Cascade]

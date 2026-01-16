@@ -18,6 +18,8 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
   - Início e fim da operação
   - Quantidade produzida
   - Observações
+- **Extração de Comprimento do Perfil Longo:** Nova coluna "Comprimento Longo" na tabela de apontamentos, exibindo o comprimento extraído automaticamente do campo "Perfil Longo" usando a função `extrairComprimentoPerfilLongo`
+- **Busca por Comprimento Longo:** Modal de busca de pedidos permite filtrar por comprimento longo digitando números (ex: 679 para encontrar perfis com 679mm)
 
 ### 2.1 Apontamentos da Embalagem (com etapas)
 
@@ -66,6 +68,7 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 - **Cards de Indicadores (KPIs):** Total de apontamentos, Produção total, Tempo total trabalhado, Produtividade média (pcs/hora), Operadores ativos, Taxa de refugo
 - **Insights Automáticos:** Alertas de taxa de refugo elevada, apontamentos sem hora de término, produtividade abaixo do esperado, metas de produção atingidas
 - **UI Moderna:** Tabelas com destaque visual para métricas importantes, cores indicativas de performance
+- **Filtros por Cliente e Pedido Cliente:** Novos campos de entrada de texto nos filtros para busca case-insensitive com match parcial, aplicado a todos os tipos de relatórios
 
 ### 5. Previsão de Trabalho
 
@@ -75,6 +78,18 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 - Ferramenta para estimativas manuais de novos pedidos
 - Histórico de produtividade por produto, máquina e operador
 - Indicadores de confiabilidade das estimativas baseados no número de registros históricos
+
+### 5.1 Pedidos e Produtos
+
+- **Página de Gerenciamento de Pedidos:** Visualização e filtro de todos os pedidos da carteira
+- **Filtros Operacionais:** Cliente, Pedido Cliente, Produto/Descrição, Status, Prioridade, Ferramenta, Comprimento
+- **Exportação para Excel:** 
+  - Botão "Exportar Filtrado" - exporta apenas os pedidos com filtros aplicados
+  - Botão "Exportar Completo" - exporta todos os pedidos do banco
+  - Arquivo gerado com todas as colunas relevantes (Nº OP, Pedido/Seq, Cliente, Ferramenta, Produto, Qtd. Pedido, Saldo, Estoque, etc.)
+  - Ajuste automático de largura de colunas para melhor legibilidade
+  - Nomeação do arquivo com data atual (ex: `Pedidos_Filtrado_16-01-2026.xlsx`)
+- **Indicadores de Resumo:** Total de quantidade pedida e saldo a produzir dos itens filtrados
 
 ### 6. Estoque (Itens Acabados)
 
