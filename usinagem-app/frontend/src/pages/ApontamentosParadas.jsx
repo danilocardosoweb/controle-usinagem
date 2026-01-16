@@ -29,35 +29,21 @@ const ApontamentosParadas = () => {
     } catch { return String(txt).toLowerCase() }
   }
 
-  // Encontra o tipo_parada (valor fixo) baseado na descrição normalizada
-  const encontrarTipoParadaPorDescricao = (descricaoNormalizada) => {
-    const tipo = (tiposParada || []).find(t => {
-      const desc = t?.descricao || t?.nome || ''
-      return normalizeTipo(desc) === descricaoNormalizada
-    })
-    return tipo?.tipo_parada || tipo?.id || descricaoNormalizada
-  }
-
   // Lista de motivos filtrados pelo tipo selecionado
+  // O formData.tipoParada contém a descrição normalizada (ex: "planejada", "nao_planejada")
+  // O motivo.tipo_parada também é normalizado (ex: "planejada", "nao_planejada")
   const motivosFiltrados = useMemo(() => {
     if (!formData.tipoParada) return motivosParada || []
     
-    // O formData.tipoParada contém a descrição normalizada (ex: "manutencao_preventiva")
-    // Precisamos encontrar o tipo_parada correspondente (ex: "manutencao")
-    const tipoParadaFixo = encontrarTipoParadaPorDescricao(formData.tipoParada)
+    const tipoSelecionado = formData.tipoParada // já normalizado
     
     const filtrados = (motivosParada || []).filter(m => {
-      const tipoMotivo = m?.tipo_parada || m?.tipo || ''
-      return tipoMotivo === tipoParadaFixo
+      const tipoMotivo = m?.tipo_parada || ''
+      return tipoMotivo === tipoSelecionado
     })
     
-    console.log('DEBUG: Tipo selecionado (normalizado):', formData.tipoParada)
-    console.log('DEBUG: Tipo parada (fixo):', tipoParadaFixo)
-    console.log('DEBUG: Motivos disponíveis:', motivosParada)
-    console.log('DEBUG: Motivos filtrados:', filtrados)
-    
     return filtrados
-  }, [motivosParada, formData.tipoParada, tiposParada])
+  }, [motivosParada, formData.tipoParada])
 
   // Removido seed local: agora os valores devem vir de Configurações (Supabase)
   // Utilitário: converter datetime-local (YYYY-MM-DDTHH:MM) para ISO (UTC)
