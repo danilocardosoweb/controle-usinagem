@@ -75,6 +75,8 @@ const Relatorios = () => {
     dataFim: '',
     maquina: '',
     operador: '',
+    cliente: '', // filtro por cliente
+    pedidoCliente: '', // filtro por pedido cliente
     produto: '', // filtro por produto
     ferramenta: '', // filtro por ferramenta
     comprimento: '', // filtro por comprimento (ex: "810 mm")
@@ -782,6 +784,18 @@ const Relatorios = () => {
         if (!nome || nome !== sel) return false
       }
       if (filtros.operador && String(a.operador) !== String(filtros.operador)) return false
+
+      // Filtros por Cliente e Pedido Cliente
+      if (filtros.cliente) {
+        const clienteApontamento = String(a.cliente || '').toLowerCase()
+        const clienteFiltro = String(filtros.cliente).toLowerCase()
+        if (!clienteApontamento.includes(clienteFiltro)) return false
+      }
+      if (filtros.pedidoCliente) {
+        const pedidoClienteApontamento = String(a.pedido_cliente || '').toLowerCase()
+        const pedidoClienteFiltro = String(filtros.pedidoCliente).toLowerCase()
+        if (!pedidoClienteApontamento.includes(pedidoClienteFiltro)) return false
+      }
 
       if (area === 'embalagem') {
         if (String(a.exp_unidade || '').toLowerCase() !== 'embalagem') return false
@@ -1597,8 +1611,8 @@ const Relatorios = () => {
         
         {filtrosAberto && (
         <form onSubmit={handleSubmit}>
-          {/* Grid responsivo para filtros principais (7 colunas em md+) */}
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-4 mb-4">
+          {/* Grid responsivo para filtros principais (9 colunas em md+) */}
+          <div className="grid grid-cols-1 md:grid-cols-9 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Tipo de Relatório
@@ -1673,6 +1687,34 @@ const Relatorios = () => {
                   <option key={op.id} value={op.id}>{op.nome}</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Cliente
+              </label>
+              <input
+                type="text"
+                name="cliente"
+                value={filtros.cliente}
+                onChange={handleChange}
+                placeholder="Filtrar por cliente"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Pedido Cliente
+              </label>
+              <input
+                type="text"
+                name="pedidoCliente"
+                value={filtros.pedidoCliente}
+                onChange={handleChange}
+                placeholder="Filtrar por pedido cliente"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
             </div>
 
             <div>

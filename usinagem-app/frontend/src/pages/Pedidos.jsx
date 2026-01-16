@@ -1,6 +1,6 @@
   import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { FaFilter, FaSearch, FaSort, FaSortUp, FaSortDown, FaEye, FaEdit, FaTrash, FaDatabase, FaSync, FaList, FaStar } from 'react-icons/fa'
+import { FaFilter, FaSearch, FaSort, FaSortUp, FaSortDown, FaEye, FaEdit, FaTrash, FaDatabase, FaSync, FaList, FaStar, FaFileExcel } from 'react-icons/fa'
 import axios from 'axios'
 import * as XLSX from 'xlsx'
 import { useSupabase } from '../hooks/useSupabase'
@@ -285,6 +285,17 @@ const Pedidos = () => {
     const resto = String(produto).slice(8)
     const m = resto.match(/^\d+/)
     return m ? String(parseInt(m[0], 10)) : ''
+  }
+
+  const formatarData = (data) => {
+    if (!data) return ''
+    try {
+      const d = new Date(data)
+      if (isNaN(d.getTime())) return ''
+      return d.toLocaleDateString('pt-BR')
+    } catch {
+      return ''
+    }
   }
 
   // Pré-agrega apontamentos do usuário por (Pedido/Seq + Nº OP) e por (Pedido/Seq) para fallback
@@ -1008,17 +1019,73 @@ const Pedidos = () => {
       comprimento: '',
       prioridade: 'todos'
     })
+    setPaginacao(prev => ({
+      ...prev,
+      pagina: 1
+    }))
   }
-  
-  // Função para formatar data
-  const formatarData = (dataString) => {
-    if (!dataString) return ''
-    
+
+  // Função para exportar dados para Excel
+  const exportarParaExcel = (usarFiltrados = true) => {
     try {
-      const data = new Date(dataString)
-      return data.toLocaleDateString('pt-BR')
-    } catch (e) {
-      return dataString
+      const dados = usarFiltrados ? pedidosFiltrados : pedidosDB
+      
+      if (!dados || dados.length === 0) {
+        alert('Nenhum dado para exportar')
+        return
+      }
+
+      // Preparar dados para exportação
+      const dadosExportacao = dados.map(p => ({
+        'Nº OP': p.nro_op || '',
+        'Pedido/Seq': p.pedido_seq || '',
+        'Pedido Cliente': p.pedido_cliente || '',
+        'Cliente': p.cliente || '',
+        'Data Entrega': p.dt_fatura ? new Date(p.dt_fatura).toLocaleDateString('pt-BR') : '',
+        'Ferramenta': extrairFerramenta(p.produto) || '',
+        'Produto': p.produto || '',
+        'Descrição': p.descricao || '',
+        'Unidade': p.unidade || '',
+        'Qtd. Pedido': p.qtd_pedido || 0,
+        'Saldo a Prod.': p.saldo_a_prod || 0,
+        'Estoque': p.estoque_aca || 0,
+        'Separado': p.separado || 0
+      }))
+
+      // Criar workbook
+      const ws = XLSX.utils.json_to_sheet(dadosExportacao)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Pedidos')
+
+      // Ajustar largura das colunas
+      const colWidths = [
+        { wch: 12 }, // Nº OP
+        { wch: 15 }, // Pedido/Seq
+        { wch: 15 }, // Pedido Cliente
+        { wch: 20 }, // Cliente
+        { wch: 15 }, // Data Entrega
+        { wch: 12 }, // Ferramenta
+        { wch: 20 }, // Produto
+        { wch: 30 }, // Descrição
+        { wch: 10 }, // Unidade
+        { wch: 12 }, // Qtd. Pedido
+        { wch: 12 }, // Saldo a Prod.
+        { wch: 10 }, // Estoque
+        { wch: 10 }  // Separado
+      ]
+      ws['!cols'] = colWidths
+
+      // Gerar nome do arquivo
+      const dataAtual = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')
+      const nomeArquivo = usarFiltrados 
+        ? `Pedidos_Filtrados_${dataAtual}.xlsx`
+        : `Pedidos_Completo_${dataAtual}.xlsx`
+
+      // Salvar arquivo
+      XLSX.writeFile(wb, nomeArquivo)
+    } catch (err) {
+      console.error('Erro ao exportar para Excel:', err)
+      alert('Erro ao exportar dados para Excel')
     }
   }
   
@@ -1187,8 +1254,8 @@ const Pedidos = () => {
         </div>
       </div>
 
-      {/* Resumo dos itens filtrados */}
-      <div className="flex justify-end text-sm text-gray-600">
+      {/* Resumo dos itens filtrados e botões de exportação */}
+      <div className="flex justify-between items-center text-sm text-gray-600">
         <div className="flex gap-2">
           <span className="px-2 py-1 bg-white rounded border border-gray-200 shadow-sm">
             Total Qtd. Pedido (itens filtrados):{' '}
@@ -1202,6 +1269,26 @@ const Pedidos = () => {
               {totalSaldoAProdFiltrados.toLocaleString('pt-BR')}
             </span>
           </span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => exportarParaExcel(true)}
+            className="flex items-center gap-1 px-3 py-1 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
+            title="Exportar dados filtrados para Excel"
+          >
+            <FaFileExcel />
+            Exportar Filtrado
+          </button>
+          <button
+            type="button"
+            onClick={() => exportarParaExcel(false)}
+            className="flex items-center gap-1 px-3 py-1 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+            title="Exportar todos os dados para Excel"
+          >
+            <FaFileExcel />
+            Exportar Completo
+          </button>
         </div>
       </div>
 

@@ -902,6 +902,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     return ''
   }
 
+  // Extrai o comprimento do perfil longo (material longo)
+  const extrairComprimentoPerfilLongo = (perfilLongo) => {
+    if (!perfilLongo) return ''
+    const resto = String(perfilLongo).slice(8)
+    const match = resto.match(/^\d+/)
+    const valor = match ? parseInt(match[0], 10) : null
+    return Number.isFinite(valor) ? `${valor} mm` : ''
+  }
+
   // Converte um valor datetime-local (YYYY-MM-DDTHH:MM) para Date local
   const parseLocalInputToDate = (val) => {
     try {
@@ -1189,14 +1198,16 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const t = buscaTexto.toString().trim().toLowerCase()
     const tDigits = t.replace(/\D/g, '')
     const comprimentoNum = (o.comprimentoAcabado || '').replace(/\D/g, '')
+    const comprimentoLongoNum = extrairComprimentoPerfilLongo(o.perfilLongo || '').replace(/\D/g, '')
     const idStr = String(o.id || '').toLowerCase()
     const idDigits = idStr.replace(/\D/g, '')
     const pedCliStr = String(o.pedidoCliente || '').toLowerCase()
     const pedCliDigits = pedCliStr.replace(/\D/g, '')
 
-    // 1) Busca numérica: tenta comprimento (prefixo) e Pedido/Seq por dígitos
+    // 1) Busca numérica: tenta comprimento (prefixo), comprimento longo e Pedido/Seq por dígitos
     if (tDigits) {
       if (comprimentoNum.startsWith(tDigits)) return true
+      if (comprimentoLongoNum.startsWith(tDigits)) return true
       if (idDigits.includes(tDigits)) return true
       if (pedCliDigits && pedCliDigits.includes(tDigits)) return true
     }
@@ -3152,6 +3163,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2">Fim</th>
                     {modo === 'embalagem' && <th className="text-left px-3 py-2">Etapa</th>}
                     <th className="text-left px-3 py-2">Quantidade</th>
+                    <th className="text-left px-3 py-2">Comprimento</th>
+                    <th className="text-left px-3 py-2">Comprimento Longo</th>
                     <th className="text-left px-3 py-2">Operador</th>
                     <th className="text-left px-3 py-2">Rack/Pallet</th>
                     <th className="text-left px-3 py-2">Obs.</th>
@@ -3169,6 +3182,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                         </td>
                       )}
                       <td className="px-3 py-2">{a.quantidade}</td>
+                      <td className="px-3 py-2">{a.comprimento_acabado_mm ? `${a.comprimento_acabado_mm}mm` : '-'}</td>
+                      <td className="px-3 py-2">{extrairComprimentoPerfilLongo(a.perfil_longo || '')}</td>
                       <td className="px-3 py-2">{a.operador || ''}</td>
                       <td className="px-3 py-2">{a.rackOuPallet || ''}</td>
                       <td className="px-3 py-2">{a.observacoes || ''}</td>
@@ -3188,7 +3203,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   ))}
                   {apontamentosDaOrdem.length === 0 && (
                     <tr>
-                      <td colSpan={String((isAdmin() ? 6 : 5) + (modo === 'embalagem' ? 1 : 0))} className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para este pedido</td>
+                      <td colSpan={String((isAdmin() ? 7 : 6) + (modo === 'embalagem' ? 1 : 0))} className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para este pedido</td>
                     </tr>
                   )}
                 </tbody>
@@ -3259,6 +3274,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2">Ferramenta</th>
                     <th className="text-left px-3 py-2">Produto</th>
                     <th className="text-left px-3 py-2">Comprimento</th>
+                    <th className="text-left px-3 py-2">Comprimento Longo</th>
                     <th className="text-left px-3 py-2">Cliente</th>
                     <th className="text-left px-3 py-2">Pedido.Cliente</th>
                     <th className="text-left px-3 py-2"></th>
@@ -3271,6 +3287,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2">{o.ferramenta}</td>
                       <td className="px-3 py-2">{o.codigoPerfil}</td>
                       <td className="px-3 py-2">{o.comprimentoAcabado}</td>
+                      <td className="px-3 py-2">{extrairComprimentoPerfilLongo(o.perfilLongo || '')}</td>
                       <td className="px-3 py-2">{o.cliente}</td>
                       <td className="px-3 py-2">{o.pedidoCliente}</td>
                       <td className="px-3 py-2 text-right">

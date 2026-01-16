@@ -489,6 +489,7 @@ CREATE TABLE IF NOT EXISTS public.exp_insumos_mov (
   motivo text null,
   maquina text null,
   responsavel text null,
+  planta text null,
   observacao text null,
   created_at timestamptz not null default now()
 );

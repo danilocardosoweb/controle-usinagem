@@ -1272,6 +1272,19 @@ export default function Estoque() {
                 <input className="w-full border rounded px-2 py-1" list="unidades-padrao" value={insumoEntradaForm.unidade} onChange={(e)=>setInsumoEntradaForm(f=>({...f, unidade:e.target.value}))} />
               </div>
             </div>
+
+            <div>
+              <label className="block text-sm text-gray-600">Planta</label>
+              <select
+                className="w-full border rounded px-2 py-1"
+                value={insumoEntradaForm.planta}
+                onChange={(e) => setInsumoEntradaForm(f => ({ ...f, planta: e.target.value }))}
+              >
+                <option value="">Selecione a planta...</option>
+                <option value="Alúnica">Alúnica</option>
+                <option value="Tecnoperfil">Tecnoperfil</option>
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-sm text-gray-600">Quantidade</label>

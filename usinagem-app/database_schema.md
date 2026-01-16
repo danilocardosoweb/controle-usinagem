@@ -301,7 +301,7 @@ Movimentações de insumos (fonte de verdade para saldo).
 - `tipo`: `entrada` | `saida` | `ajuste`.
 - `quantidade`: Quantidade movimentada (> 0).
 - `unidade`: Unidade.
-- `motivo`, `maquina`, `responsavel`, `observacao`: Rastreabilidade.
+- `motivo`, `maquina`, `responsavel`, `planta`, `observacao`: Rastreabilidade (inclui planta física, ex.: "Alúnica" ou "Tecnoperfil").
 - `created_at`: Timestamp.
 
 ## Tabela: `exp_ferramentas_mov`
