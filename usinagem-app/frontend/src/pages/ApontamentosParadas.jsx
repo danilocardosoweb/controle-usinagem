@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSupabase } from '../hooks/useSupabase'
+import { useAuth } from '../contexts/AuthContext'
+import { FaEdit } from 'react-icons/fa'
 
 const ApontamentosParadas = () => {
+  const { user } = useAuth()
+  const isAdmin = user?.nivel_acesso === 'admin' || user?.role === 'admin'
+  
   const [formData, setFormData] = useState({
     maquina: '',
     motivoParada: '',
@@ -11,9 +16,15 @@ const ApontamentosParadas = () => {
     observacoes: ''
   })
   const [usarMotivoCustomizado, setUsarMotivoCustomizado] = useState(false)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editingParada, setEditingParada] = useState(null)
+  
+  // Filtros
+  const [filtroData, setFiltroData] = useState('')
+  const [filtroOperador, setFiltroOperador] = useState('')
   
   // Usaremos a tabela/view atualmente existente no seu Supabase
-  const { items: paradas, addItem: addParada } = useSupabase('apontamentos_parada')
+  const { items: paradas, addItem: addParada, updateItem: updateParada } = useSupabase('apontamentos_parada')
   // Máquinas do Supabase
   const { items: maquinas } = useSupabase('maquinas')
   // Motivos e tipos de parada do Supabase (tabelas snake_case)
@@ -135,7 +146,8 @@ const ApontamentosParadas = () => {
       // lidar com possíveis nomes de colunas no backend
       inicio_timestamp: localInputToISO(formData.inicio),
       fim_timestamp: formData.fim ? localInputToISO(formData.fim) : null,
-      observacoes: formData.observacoes || ''
+      observacoes: formData.observacoes || '',
+      usuario: user?.nome || user?.username || 'Desconhecido'
     }
     await addParada(payload)
     alert('Parada registrada com sucesso!')
@@ -152,18 +164,72 @@ const ApontamentosParadas = () => {
     setFimAuto(true)
   }
 
+  // Lista de operadores únicos para o filtro
+  const operadoresUnicos = useMemo(() => {
+    const ops = (paradas || []).map(p => p.usuario).filter(Boolean)
+    return [...new Set(ops)].sort()
+  }, [paradas])
+
   const paradasRecentes = useMemo(() => {
-    const norm = (paradas || []).map(p => ({
+    let norm = (paradas || []).map(p => ({
       id: p.id,
       maquina: p.maquina,
       motivo: p.motivo_parada || p.motivoParada || '-',
       tipo: p.tipo_parada || p.tipoParada || '-',
       inicio: p.inicio || p.inicio_timestamp,
       fim: p.fim || p.fim_timestamp,
+      usuario: p.usuario || '-',
+      observacoes: p.observacoes || ''
     }))
+    
+    // Aplicar filtro de data
+    if (filtroData) {
+      norm = norm.filter(p => {
+        if (!p.inicio) return false
+        const dataParada = new Date(p.inicio).toISOString().split('T')[0]
+        return dataParada === filtroData
+      })
+    }
+    
+    // Aplicar filtro de operador
+    if (filtroOperador) {
+      norm = norm.filter(p => p.usuario === filtroOperador)
+    }
+    
     norm.sort((a,b)=>String(b.inicio||'').localeCompare(String(a.inicio||'')))
-    return norm.slice(0, 10)
-  }, [paradas])
+    return norm.slice(0, 50) // Aumentar limite quando filtrado
+  }, [paradas, filtroData, filtroOperador])
+
+  // Função para abrir modal de edição (apenas admin)
+  const handleEditParada = (parada) => {
+    setEditingParada({
+      ...parada,
+      inicio: parada.inicio ? toDateTimeLocal(new Date(parada.inicio)) : '',
+      fim: parada.fim ? toDateTimeLocal(new Date(parada.fim)) : ''
+    })
+    setEditModalOpen(true)
+  }
+
+  // Função para salvar edição
+  const handleSaveEdit = async () => {
+    if (!editingParada) return
+    
+    const payload = {
+      id: editingParada.id,
+      maquina: editingParada.maquina,
+      motivo_parada: editingParada.motivo,
+      tipo_parada: editingParada.tipo,
+      inicio_timestamp: localInputToISO(editingParada.inicio),
+      fim_timestamp: editingParada.fim ? localInputToISO(editingParada.fim) : null,
+      observacoes: editingParada.observacoes || '',
+      usuario: editingParada.usuario
+    }
+    
+    await updateParada(payload)
+    alert('Apontamento corrigido com sucesso!')
+    setEditModalOpen(false)
+    setEditingParada(null)
+  }
 
   const formatDateTime = (iso) => {
     if (!iso) return '-'
@@ -329,7 +395,42 @@ const ApontamentosParadas = () => {
       </div>
       
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-4">Paradas Recentes</h2>
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <h2 className="text-lg font-semibold text-gray-700">Paradas Recentes</h2>
+          
+          <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Dia:</label>
+              <input
+                type="date"
+                className="input-field text-sm py-1"
+                value={filtroData}
+                onChange={(e) => setFiltroData(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Operador:</label>
+              <select
+                className="input-field text-sm py-1"
+                value={filtroOperador}
+                onChange={(e) => setFiltroOperador(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {operadoresUnicos.map(op => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
+            </div>
+            {(filtroData || filtroOperador) && (
+              <button
+                onClick={() => { setFiltroData(''); setFiltroOperador(''); }}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                Limpar filtros
+              </button>
+            )}
+          </div>
+        </div>
         
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -341,6 +442,9 @@ const ApontamentosParadas = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Início</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fim</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duração</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuário</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Obs.</th>
+                {isAdmin && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -365,18 +469,128 @@ const ApontamentosParadas = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDateTime(p.inicio)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDateTime(p.fim)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{minutos != null ? `${minutos} min` : '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.usuario}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title={p.observacoes}>
+                      {p.observacoes || '-'}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <button
+                          onClick={() => handleEditParada(p)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Corrigir apontamento"
+                        >
+                          <FaEdit />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
               {paradasRecentes.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="px-6 py-6 text-center text-gray-500">Nenhuma parada registrada</td>
+                  <td colSpan={isAdmin ? 9 : 8} className="px-6 py-6 text-center text-gray-500">Nenhuma parada registrada</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Modal de Edição (apenas admin) */}
+      {editModalOpen && editingParada && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Corrigir Apontamento</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Máquina</label>
+                <select
+                  className="input-field"
+                  value={editingParada.maquina}
+                  onChange={(e) => setEditingParada({...editingParada, maquina: e.target.value})}
+                >
+                  <option value="">Selecione</option>
+                  {(maquinas || []).map(m => (
+                    <option key={m.id} value={m.nome || m.codigo}>{m.nome || m.codigo}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Parada</label>
+                <select
+                  className="input-field"
+                  value={editingParada.tipo}
+                  onChange={(e) => setEditingParada({...editingParada, tipo: e.target.value})}
+                >
+                  <option value="">Selecione</option>
+                  {(tiposParada || []).map(t => (
+                    <option key={t.id} value={normalizeTipo(t.descricao)}>{t.descricao}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingParada.motivo}
+                  onChange={(e) => setEditingParada({...editingParada, motivo: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Início</label>
+                  <input
+                    type="datetime-local"
+                    className="input-field"
+                    value={editingParada.inicio}
+                    onChange={(e) => setEditingParada({...editingParada, inicio: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fim</label>
+                  <input
+                    type="datetime-local"
+                    className="input-field"
+                    value={editingParada.fim}
+                    onChange={(e) => setEditingParada({...editingParada, fim: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
+                <textarea
+                  className="input-field"
+                  rows="2"
+                  value={editingParada.observacoes}
+                  onChange={(e) => setEditingParada({...editingParada, observacoes: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setEditModalOpen(false); setEditingParada(null); }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Salvar Correção
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
