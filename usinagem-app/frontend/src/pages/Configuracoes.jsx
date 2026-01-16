@@ -1245,6 +1245,7 @@ const Configuracoes = () => {
                       : setNovoUsuario({ ...novoUsuario, nivel_acesso: e.target.value })
                     }
                   >
+                    <option value="visualizador">Visualizador</option>
                     <option value="operador">Operador</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="admin">Administrador</option>
@@ -1327,6 +1328,7 @@ const Configuracoes = () => {
                         {usuario.nivel_acesso === 'admin' && 'Administrador'}
                         {usuario.nivel_acesso === 'supervisor' && 'Supervisor'}
                         {usuario.nivel_acesso === 'operador' && 'Operador'}
+                        {usuario.nivel_acesso === 'visualizador' && 'Visualizador'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button

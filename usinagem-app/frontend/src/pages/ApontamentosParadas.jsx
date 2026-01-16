@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSupabase } from '../hooks/useSupabase'
 import { useAuth } from '../contexts/AuthContext'
 import { FaEdit } from 'react-icons/fa'
+import { isVisualizador } from '../utils/auth'
 
 const ApontamentosParadas = () => {
   const { user } = useAuth()
   const isAdmin = user?.nivel_acesso === 'admin' || user?.role === 'admin'
+  const somenteVisualizacao = isVisualizador(user)
   
   const [formData, setFormData] = useState({
     maquina: '',
@@ -389,7 +391,17 @@ const ApontamentosParadas = () => {
           </div>
 
           <div className="flex justify-end">
-            <button type="submit" className="btn-primary">Registrar Parada</button>
+            <button 
+              type="submit" 
+              className="btn-primary"
+              disabled={somenteVisualizacao}
+              title={somenteVisualizacao ? 'Você não tem permissão para registrar paradas' : ''}
+            >
+              Registrar Parada
+            </button>
+            {somenteVisualizacao && (
+              <span className="ml-3 text-sm text-gray-500 italic">Modo visualização</span>
+            )}
           </div>
         </form>
       </div>

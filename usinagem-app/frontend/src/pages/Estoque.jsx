@@ -5,8 +5,12 @@ import supabaseService from '../services/SupabaseService'
 import ImageModalViewer from '../components/ImageModalViewer'
 import CorrecaoLancamentoInsumoModal from '../components/CorrecaoLancamentoInsumoModal'
 import * as XLSX from 'xlsx'
+import { useAuth } from '../contexts/AuthContext'
+import { isVisualizador } from '../utils/auth'
 
 export default function Estoque() {
+  const { user } = useAuth()
+  const somenteVisualizacao = isVisualizador(user)
   const CATEGORIAS_USINAGEM = [
     'CNC - Ferramental',
     'CNC - Consumíveis',
@@ -2077,16 +2081,27 @@ export default function Estoque() {
                 <button className="px-4 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition inline-flex items-center gap-2" onClick={exportarInsumosExcel}>
                   <FaFileExcel/> Exportar Excel
                 </button>
-                <button className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition" onClick={()=>{ setInsumoEntradaOpen(true); setErroInsumo('') }}>
+                <button 
+                  className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                  onClick={()=>{ setInsumoEntradaOpen(true); setErroInsumo('') }}
+                  disabled={somenteVisualizacao}
+                  title={somenteVisualizacao ? 'Modo visualização' : ''}
+                >
                   <div className="flex items-center gap-2"><FaArrowDown/> Entrada</div>
                 </button>
-                <button className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition" onClick={()=>{ setInsumoSaidaOpen(true); setErroInsumo('') }}>
+                <button 
+                  className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                  onClick={()=>{ setInsumoSaidaOpen(true); setErroInsumo('') }}
+                  disabled={somenteVisualizacao}
+                  title={somenteVisualizacao ? 'Modo visualização' : ''}
+                >
                   <div className="flex items-center gap-2"><FaArrowDown/> Saída</div>
                 </button>
                 <button
                   onClick={() => setCorrecaoLancamentoOpen(true)}
-                  className="px-4 py-2 rounded bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 transition"
-                  title="Corrigir lançamentos incorretos"
+                  className="px-4 py-2 rounded bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={somenteVisualizacao ? 'Modo visualização' : 'Corrigir lançamentos incorretos'}
+                  disabled={somenteVisualizacao}
                 >
                   Corrigir Lançamentos
                 </button>
@@ -2286,10 +2301,20 @@ export default function Estoque() {
                 <button className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition inline-flex items-center gap-2" onClick={exportarFerramentasExcel}>
                   <FaFileExcel/> Exportar Excel
                 </button>
-                <button className="px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition" onClick={()=>{ setFerrMovOpen(true); setErroFerr('') }}>
+                <button 
+                  className="px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                  onClick={()=>{ setFerrMovOpen(true); setErroFerr('') }}
+                  disabled={somenteVisualizacao}
+                  title={somenteVisualizacao ? 'Modo visualização' : ''}
+                >
                   <div className="flex items-center gap-2"><FaClock/> Movimentar</div>
                 </button>
-                <button className="px-4 py-2 rounded bg-gray-700 text-white text-sm font-medium hover:bg-gray-800 transition" onClick={()=>{ setCadFerrOpen(true); setCadFerrError(''); setCadFerrForm({ ferramenta: '', numero_serial: '', descricao: '', ativo: true }) }}>
+                <button 
+                  className="px-4 py-2 rounded bg-gray-700 text-white text-sm font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                  onClick={()=>{ setCadFerrOpen(true); setCadFerrError(''); setCadFerrForm({ ferramenta: '', numero_serial: '', descricao: '', ativo: true }) }}
+                  disabled={somenteVisualizacao}
+                  title={somenteVisualizacao ? 'Modo visualização' : ''}
+                >
                   <div className="flex items-center gap-2"><FaPlusCircle/> Cadastrar</div>
                 </button>
                 <button

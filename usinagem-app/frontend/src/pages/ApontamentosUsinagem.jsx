@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext' // Importando o contexto de au
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones } from 'react-icons/fa'
+import { isVisualizador } from '../utils/auth'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
 import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
@@ -55,6 +56,7 @@ const tryOpenInNewTab = async (url, fallbackPathText) => {
 
 const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subtituloForm = 'Novo Apontamento', modo = 'usinagem' }) => {
   const { user } = useAuth() // Obtendo o usuário logado
+  const somenteVisualizacao = isVisualizador(user)
   const { items: pedidosDB, loading: carregandoPedidos } = useSupabase('pedidos')
   const { items: apontamentosDB, addItem: addApont, loadItems: recarregarApontamentos } = useSupabase('apontamentos')
   // Lotes importados (Dados • Lotes) via Supabase
@@ -3098,7 +3100,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               <FaBroom />
               <span>Limpar</span>
             </button>
-            <button type="submit" className="btn-primary">Registrar Apontamento</button>
+            <button 
+              type="submit" 
+              className="btn-primary"
+              disabled={somenteVisualizacao}
+              title={somenteVisualizacao ? 'Você não tem permissão para registrar apontamentos' : ''}
+            >
+              Registrar Apontamento
+            </button>
+            {somenteVisualizacao && (
+              <span className="ml-3 text-sm text-gray-500 italic">Modo visualização</span>
+            )}
           </div>
         </form>
       </div>
