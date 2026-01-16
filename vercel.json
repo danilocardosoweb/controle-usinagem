@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
-  "installCommand": "cd frontend && npm install",
+  "buildCommand": "cd usinagem-app/frontend && npm install && npm run build",
+  "outputDirectory": "usinagem-app/frontend/dist",
+  "installCommand": "cd usinagem-app/frontend && npm install",
   "rewrites": [
     {
       "source": "/(.*)",
