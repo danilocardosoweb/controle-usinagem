@@ -10,6 +10,8 @@ echo.
 
 cd /d "%~dp0"
 
+set "ROOT=%cd%"
+
 REM Verificar se está no diretório correto
 if not exist "usinagem-app" (
     echo Erro: Pasta 'usinagem-app' não encontrada!
@@ -27,7 +29,8 @@ if not exist "venv" (
 )
 
 echo Instalando pacotes do backend...
-pip install -q -r requirements.txt
+call venv\Scripts\python -m pip install -q --upgrade pip
+call venv\Scripts\python -m pip install -q -r requirements.txt
 if errorlevel 1 (
     echo Erro ao instalar dependências do backend!
     pause
@@ -37,20 +40,18 @@ if errorlevel 1 (
 REM Instalar dependências do frontend se necessário
 echo [2/4] Verificando dependências do frontend...
 cd ..\frontend
-if not exist "node_modules" (
-    echo Instalando dependências do frontend...
-    call npm install
-    if errorlevel 1 (
-        echo Erro ao instalar dependências do frontend!
-        pause
-        exit /b 1
-    )
+echo Instalando/atualizando dependências do frontend...
+call npm install
+if errorlevel 1 (
+    echo Erro ao instalar dependências do frontend!
+    pause
+    exit /b 1
 )
 
 REM Iniciar o backend em uma nova janela
 echo [3/4] Iniciando servidor backend...
 cd ..\backend
-start "Backend - Controle de Usinagem" cmd /k "python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+start "Backend - Controle de Usinagem" cmd /k "cd /d \"%ROOT%\usinagem-app\backend\" && call venv\Scripts\activate && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 
 REM Aguardar um pouco para o backend iniciar
 timeout /t 3 /nobreak

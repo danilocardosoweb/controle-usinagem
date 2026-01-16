@@ -165,6 +165,15 @@ ALTER TABLE public.ferramentas_cfg
   ADD COLUMN IF NOT EXISTS embalagem text,
   ADD COLUMN IF NOT EXISTS pcs_por_caixa int;
 
+-- Campos para Cadastro Inteligente de Ferramentas CNC
+ALTER TABLE public.ferramentas_cfg
+  ADD COLUMN IF NOT EXISTS corpo_mm numeric(10,2),
+  ADD COLUMN IF NOT EXISTS quant_pcs int,
+  ADD COLUMN IF NOT EXISTS vida_valor int,
+  ADD COLUMN IF NOT EXISTS vida_unidade text DEFAULT 'dias' CHECK (vida_unidade IN ('dias', 'horas', 'semanas', 'meses')),
+  ADD COLUMN IF NOT EXISTS ultima_troca date,
+  ADD COLUMN IF NOT EXISTS numero_serial text;
+
 UPDATE public.ferramentas_cfg
 SET ferramenta = codigo
 WHERE ferramenta IS NULL AND codigo IS NOT NULL;

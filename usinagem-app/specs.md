@@ -106,6 +106,89 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 - **Tabela de Produtos**: Exibe saldo atualizado incluindo ajustes de inventário
 - **Validação de Permissões**: Apenas admins podem acessar modal de ajuste (validação no frontend via `useAuth()` context)
 
+#### 6.1 Sub-abas: Insumos e Status de Ferramentas
+
+A aba "Ferramentas e Insumos" foi reorganizada em **duas sub-abas separadas** para melhor controle e gestão:
+
+**Sub-aba 1: Insumos** 📦
+- **Dashboard Visual com Indicadores:**
+  - Card "Abaixo do Mínimo" (vermelho) - quantidade de insumos que precisam reposição
+  - Card "Consumo Médio (30d)" (azul) - referência de consumo para planejamento
+  - Card "Total de Insumos" (verde) - total de itens cadastrados
+- **Ações Rápidas:** Entrada, Saída, Corrigir Lançamentos, Ver Histórico
+- **Tabela de Insumos** com:
+  - Filtro por nome/categoria
+  - Checkbox "Somente abaixo do mínimo"
+  - Edição inline de quantidade mínima
+  - Fotos dos itens com visualizador modal
+  - Status visual (OK / Abaixo do mínimo)
+- **Histórico de Movimentações** (opcional) com tipo, data, quantidade, responsável
+
+**Sub-aba 2: Status de Ferramentas** 🔧
+- **Dashboard Visual com Indicadores de Saúde:**
+  - Card "Total Monitoradas" (indigo) - ferramentas ativas
+  - Card "Atenção" (amarelo) - próximas do vencimento
+  - Card "Para Trocar" (vermelho) - urgentes
+- **Ações Rápidas:** Movimentar, Cadastrar, Gerenciar Categorias
+- **Tabela de Status** com:
+  - Vida útil configurável (dias, horas, semanas)
+  - Última troca com data formatada
+  - Restante em unidade apropriada
+  - Status com cores intuitivas (verde/amarelo/vermelho)
+  - Responsável pelo acompanhamento
+  - Botão "Editar" para atualizar informações
+  - Checkbox "Mostrar também estoque (inativas)"
+- **Histórico de Movimentações** (opcional) com tipo, data, máquina, responsável
+
+**Design Criativo:**
+- Navegação com abas coloridas (azul para Insumos, indigo para Ferramentas)
+- Cards com gradientes e bordas coloridas para melhor visualização
+- Badges de status com cores e ícones intuitivos
+- Tabelas com hover effects e melhor legibilidade
+- Históricos separados por tipo para rastreabilidade completa
+
+#### 6.2 Cadastro Inteligente de Ferramentas CNC
+
+Modal avançado para cadastro de ferramentas com **cálculos automáticos** e campos específicos para itens CNC:
+
+**Campos de Cadastro:**
+- **Identificação:** Código (obrigatório), Corpo em mm
+- **Especificações:** Quantidade em peças, Responsável
+- **Vida Útil & Cálculos:**
+  - Valor da vida útil (obrigatório)
+  - Unidade: Dias, Horas, Semanas, Meses
+  - Última troca (data)
+  - **Cálculo automático de "Restante":** Sistema calcula baseado em (Última troca + Vida útil)
+- **Status:** Checkbox para ativar/desativar ferramenta
+
+**Funcionalidades Inteligentes:**
+- Validação de campos obrigatórios
+- Dicas visuais mostrando como o "Restante" será calculado
+- Interface organizada em 4 seções coloridas (Identificação, Especificações, Vida Útil, Status)
+- Suporte a diferentes unidades de tempo (dias, horas, semanas, meses)
+- Preenchimento automático de "Última troca" com data atual
+
+**Banco de Dados:**
+- Novos campos em `ferramentas_cfg`: `corpo_mm`, `quant_pcs`, `vida_valor`, `vida_unidade`, `ultima_troca`, `numero_serial`
+- Validação de `vida_unidade` com CHECK constraint
+- Campo `numero_serial` para diferenciar ferramentas idênticas (ex: Fresa-001, Fresa-002)
+
+#### 6.3 Sistema de Numeração Serial para Ferramentas Idênticas
+
+Permite cadastrar múltiplas ferramentas do mesmo tipo com identificadores únicos para rastreamento de manutenção:
+
+**Exemplo de Uso:**
+- Código: `Fresa` + Serial: `001` = `Fresa-001`
+- Código: `Fresa` + Serial: `002` = `Fresa-002`
+- Código: `Broca` + Serial: `001` = `Broca-001`
+
+**Benefícios:**
+- Rastreamento individual de cada ferramenta
+- Controle de afiação (saber qual foi afiada e qual não foi)
+- Histórico de manutenção por ferramenta específica
+- Melhor gestão de vida útil por unidade
+- Identificação clara em caso de quebra ou desgaste
+
 ### 7. EXP - Usinagem
 
 - Área dedicada à evolução dos recursos de expedição integrados à usinagem

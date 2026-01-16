@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { FaBoxOpen, FaCubes, FaExclamationTriangle, FaTools, FaArrowDown, FaClock, FaChartPie, FaPlusCircle, FaHistory, FaComments, FaImage } from 'react-icons/fa'
+import { FaBoxOpen, FaCubes, FaExclamationTriangle, FaTools, FaArrowDown, FaClock, FaChartPie, FaPlusCircle, FaHistory, FaComments, FaImage, FaFileExcel } from 'react-icons/fa'
 import useSupabase from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import ImageModalViewer from '../components/ImageModalViewer'
 import CorrecaoLancamentoInsumoModal from '../components/CorrecaoLancamentoInsumoModal'
+import * as XLSX from 'xlsx'
 
 export default function Estoque() {
   const CATEGORIAS_USINAGEM = [
@@ -49,8 +50,22 @@ export default function Estoque() {
   const { items: ferrConsumo30 } = useSupabase('vw_ferramentas_consumo_30d')
   const { items: ferrMov } = useSupabase('exp_ferramentas_mov')
   const { items: inventariosAcabados, loadItems: loadInventariosAcabados } = useSupabase('estoque_acabados_inventarios')
+  const { items: movimentacoesDeposito, loadItems: loadMovimentacoesDeposito } = useSupabase('movimentacoes_deposito')
+
+  // Função para obter o depósito atual de um produto
+  const getDepositoAtual = (produto) => {
+    const movs = (Array.isArray(movimentacoesDeposito) ? movimentacoesDeposito : [])
+      .filter(m => String(m.produto || '').trim() === String(produto || '').trim())
+      .sort((a, b) => new Date(b.movimentado_em || 0) - new Date(a.movimentado_em || 0))
+    
+    if (movs.length > 0) {
+      return movs[0].deposito_destino || 'alunica'
+    }
+    return 'alunica'
+  }
 
   const [tab, setTab] = useState('acabados') // acabados | ferramentas
+  const [subTab, setSubTab] = useState('insumos') // insumos | ferramentas_status
   const [periodo, setPeriodo] = useState('30') // dias para giro
   const [baixaOpen, setBaixaOpen] = useState(false)
   const [baixaSaving, setBaixaSaving] = useState(false)
@@ -113,7 +128,26 @@ export default function Estoque() {
   const [cadFerrOpen, setCadFerrOpen] = useState(false)
   const [cadFerrSaving, setCadFerrSaving] = useState(false)
   const [cadFerrError, setCadFerrError] = useState('')
-  const [cadFerrForm, setCadFerrForm] = useState({ ferramenta: '', descricao: '', ativo: true })
+  
+  // Modal de Movimentação de Depósito (Itens Acabados)
+  const [depositoMovOpen, setDepositoMovOpen] = useState(false)
+  const [depositoMovSaving, setDepositoMovSaving] = useState(false)
+  const [depositoMovError, setDepositoMovError] = useState('')
+  const [depositoMovForm, setDepositoMovForm] = useState({ produto: '', deposito_origem: 'alunica', deposito_destino: 'tecnoperfil', motivo: '', observacao: '' })
+  
+  const [cadFerrForm, setCadFerrForm] = useState({
+    ferramenta: '',
+    numero_serial: '',
+    corpo_mm: '',
+    quant_pcs: '',
+    vida_valor: '',
+    vida_unidade: 'horas',
+    ultima_troca: new Date().toISOString().split('T')[0],
+    responsavel: '',
+    ativo: true,
+    produtos: [],
+    tempo_por_peca: ''
+  })
 
   // Modais de Imagem e Correção
   const [imageModalOpen, setImageModalOpen] = useState(false)
@@ -300,18 +334,20 @@ export default function Estoque() {
     const key = String(f.ferramenta || '').trim()
     const cfg = cfgByFerramenta[key]
     const cfgVida = ferrVidaCfg?.[key]
-    const unidade = cfgVida?.vida_unidade || 'dias'
-    const valor = cfgVida?.vida_valor ?? (cfg?.vida_util_dias ?? '')
+    const unidade = cfgVida?.vida_unidade || 'horas'
+    const valor = cfgVida?.vida_valor ?? (cfg?.vida_valor ?? '')
     setFerrStatusEditError('')
     setFerrStatusEditForm({
       id: cfg?.id || '',
       ferramenta: key,
+      numero_serial: cfg?.numero_serial || '',
+      corpo_mm: cfg?.corpo_mm || '',
+      quant_pcs: cfg?.quant_pcs || '',
       vida_valor: valor === '' ? '' : String(valor),
       vida_unidade: unidade,
-      vida_util_dias: String(cfg?.vida_util_dias || ''),
       ultima_troca: cfg?.ultima_troca ? new Date(cfg.ultima_troca).toISOString().slice(0, 10) : '',
       responsavel: cfg?.responsavel || '',
-      status: cfg?.ativo === false ? 'estoque' : 'ativa'
+      ativo: cfg?.ativo !== false
     })
     setFerrStatusEditOpen(true)
   }
@@ -330,20 +366,15 @@ export default function Estoque() {
       setFerrStatusEditError('Vida útil inválida.')
       return
     }
-    const unidade = ferrStatusEditForm.vida_unidade || 'dias'
-    let vidaDias = null
-    if (vidaValor != null) {
-      if (unidade === 'dias') vidaDias = vidaValor
-      else if (unidade === 'horas') vidaDias = vidaValor / 24
-      else if (unidade === 'semanas') vidaDias = vidaValor * 7
-      else vidaDias = vidaValor
-      if (Number.isFinite(vidaDias)) vidaDias = Math.ceil(vidaDias)
-    }
     try {
       setFerrStatusEditSaving(true)
       await supabaseService.update('ferramentas_cfg', {
         id,
-        vida_util_dias: vidaDias,
+        numero_serial: ferrStatusEditForm.numero_serial || null,
+        corpo_mm: ferrStatusEditForm.corpo_mm ? Number(ferrStatusEditForm.corpo_mm) : null,
+        quant_pcs: ferrStatusEditForm.quant_pcs ? Number(ferrStatusEditForm.quant_pcs) : null,
+        vida_valor: vidaValor,
+        vida_unidade: ferrStatusEditForm.vida_unidade || 'horas',
         ultima_troca: ferrStatusEditForm.ultima_troca || null,
         responsavel: ferrStatusEditForm.responsavel || null,
         ativo: ferrStatusEditForm.status !== 'estoque',
@@ -490,8 +521,32 @@ export default function Estoque() {
   const produtosParadosCard = produtosParadosFiltrado
 
   const ferrStatusFiltrado = useMemo(() => {
-    const list = Array.isArray(ferrStatus) ? [...ferrStatus] : []
-    const ativosPrimeiro = list.sort((a, b) => {
+    // Combinar ferramentas de ferramentas_cfg com dados de vw_ferramentas_status
+    const statusMap = {}
+    ;(Array.isArray(ferrStatus) ? ferrStatus : []).forEach((f) => {
+      statusMap[String(f.ferramenta || '').trim()] = f
+    })
+
+    // Criar lista com todas as ferramentas cadastradas
+    const allFerramentas = (Array.isArray(ferramentasCfg) ? ferramentasCfg : [])
+      .map((cfg) => {
+        const ferrCode = String(cfg.ferramenta || cfg.codigo || '').trim()
+        const statusData = statusMap[ferrCode]
+        return {
+          id: cfg.id,
+          ferramenta: ferrCode,
+          vida_util_dias: cfg.vida_valor,
+          vida_unidade: cfg.vida_unidade,
+          ultima_troca: cfg.ultima_troca,
+          restante_dias: statusData?.restante_dias,
+          status: statusData?.status || 'ativa',
+          responsavel: cfg.responsavel || statusData?.responsavel,
+          ativo: cfg.ativo !== false
+        }
+      })
+      .filter((f) => f.ferramenta)
+
+    const ativosPrimeiro = allFerramentas.sort((a, b) => {
       const rank = (s) => {
         const v = String(s || '').toLowerCase()
         if (v === 'ativa') return 0
@@ -501,24 +556,16 @@ export default function Estoque() {
         if (v === 'inativa') return 4
         return 5
       }
-      const cfgA = cfgByFerramenta[String(a.ferramenta || '')]
-      const cfgB = cfgByFerramenta[String(b.ferramenta || '')]
-      const statusA = cfgA?.ativo === false ? 'estoque' : a.status
-      const statusB = cfgB?.ativo === false ? 'estoque' : b.status
+      const statusA = a.ativo === false ? 'estoque' : a.status
+      const statusB = b.ativo === false ? 'estoque' : b.status
       const rA = rank(statusA)
       const rB = rank(statusB)
       if (rA !== rB) return rA - rB
       return String(a.ferramenta || '').localeCompare(String(b.ferramenta || ''))
     })
-    if (!ferrMostrarEstoque) {
-      return ativosPrimeiro.filter((f) => {
-        const cfg = cfgByFerramenta[String(f.ferramenta || '')]
-        const st = cfg?.ativo === false ? 'estoque' : String(f.status || '').toLowerCase()
-        return st !== 'estoque' && st !== 'inativa'
-      })
-    }
+
     return ativosPrimeiro
-  }, [ferrStatus, ferrMostrarEstoque, cfgByFerramenta])
+  }, [ferrStatus, ferramentasCfg])
 
   // 2) Ferramentas e Insumos (leitura e indicadores simples, sem criar novas tabelas)
   const ferramentasStatus = useMemo(() => {
@@ -592,6 +639,56 @@ export default function Estoque() {
     if (min && saldo < min) return 'bg-red-100 text-red-700'
     if (min && saldo < min * 1.3) return 'bg-yellow-100 text-yellow-800'
     return 'bg-green-100 text-green-800'
+  }
+
+  // Funções de Exportação para Excel
+  const exportarItensAcabadosExcel = () => {
+    const dados = (Array.isArray(estoquePorProdutoFiltrado) ? estoquePorProdutoFiltrado : []).map(item => ({
+      'Produto': item.produto || '-',
+      'Saldo (pcs)': item.saldo || 0,
+      'Mínimo': item.min || 0,
+      'Status': item.saldo < item.min ? 'Abaixo do Mínimo' : 'OK'
+    }))
+    const ws = XLSX.utils.json_to_sheet(dados)
+    ws['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 15 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Itens Acabados')
+    XLSX.writeFile(wb, `Estoque_ItensAcabados_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`)
+  }
+
+  const exportarInsumosExcel = () => {
+    const saldoMap = {}
+    ;(Array.isArray(insumosSaldo) ? insumosSaldo : []).forEach(r => { saldoMap[String(r.nome)] = Number(r.saldo || 0) })
+    const dados = (Array.isArray(insumosFiltrados) ? insumosFiltrados : []).map(item => ({
+      'Insumo': item.nome || '-',
+      'Categoria': item.categoria || '-',
+      'Saldo': saldoMap[String(item.nome)] || 0,
+      'Unidade': item.unidade || '-',
+      'Mínimo': item.qtd_minima || 0,
+      'Status': (saldoMap[String(item.nome)] || 0) < (item.qtd_minima || 0) ? 'Abaixo do Mínimo' : 'OK'
+    }))
+    const ws = XLSX.utils.json_to_sheet(dados)
+    ws['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 15 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Insumos')
+    XLSX.writeFile(wb, `Estoque_Insumos_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`)
+  }
+
+  const exportarFerramentasExcel = () => {
+    const dados = (Array.isArray(ferrStatusFiltrado) ? ferrStatusFiltrado : []).map(f => ({
+      'Ferramenta': f.ferramenta || '-',
+      'Vida Útil': f.vida_util_dias ? `${f.vida_util_dias} dias` : (f.vida_unidade ? `${f.vida_valor} ${f.vida_unidade}` : '-'),
+      'Última Troca': f.ultima_troca ? new Date(f.ultima_troca).toLocaleDateString('pt-BR') : '-',
+      'Restante': f.restante_dias ? `${Math.max(0, Math.round(f.restante_dias))}d` : '-',
+      'Status': f.status || 'ativa',
+      'Responsável': f.responsavel || '-',
+      'Ativo': f.ativo !== false ? 'Sim' : 'Não'
+    }))
+    const ws = XLSX.utils.json_to_sheet(dados)
+    ws['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 10 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Ferramentas')
+    XLSX.writeFile(wb, `Estoque_Ferramentas_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`)
   }
 
   // Histórico de movimentações (unificado): Entradas (apontamentos embalagem) + Saídas (baixas)
@@ -709,6 +806,7 @@ export default function Estoque() {
             <div className="px-4 py-2 border-b flex items-center justify-between">
               <div className="font-semibold flex items-center gap-2"><FaBoxOpen/> Itens Acabados (Embalados)</div>
               <div className="flex items-center gap-2">
+                <button className="text-xs bg-green-600 text-white px-3 py-1 rounded inline-flex items-center gap-2 hover:bg-green-700 transition" onClick={exportarItensAcabadosExcel}><FaFileExcel/> Exportar Excel</button>
                 <button className="text-xs bg-blue-600 text-white px-3 py-1 rounded inline-flex items-center gap-2" onClick={()=>setInventarioOpen(true)}><FaPlusCircle/> Ajustar inventário</button>
                 <button className="text-xs bg-gray-100 px-3 py-1 rounded" onClick={()=>setAcabadosVerSecundario(v=>!v)}>
                   {acabadosVerSecundario ? 'Ocultar secundários' : 'Ver secundários'}
@@ -754,6 +852,7 @@ export default function Estoque() {
                     <th className="text-left px-4 py-2 whitespace-nowrap">Saldo</th>
                     <th className="text-left px-4 py-2 whitespace-nowrap">Mínimo</th>
                     <th className="text-left px-4 py-2 whitespace-nowrap">Status</th>
+                    <th className="text-left px-4 py-2 whitespace-nowrap">Depósito</th>
                     <th className="text-left px-4 py-2 whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
@@ -824,7 +923,15 @@ export default function Estoque() {
                           )}
                         </td>
                         <td className="px-4 py-2"><span className={`px-2 py-1 rounded ${statusClass}`}>{r.saldo < 0 ? 'Saldo negativo' : (r.min && r.saldo < r.min ? 'Abaixo do mínimo' : 'OK')}</span></td>
-                        <td className="px-4 py-2 flex items-center gap-2">
+                        <td className="px-4 py-2">
+                          {(() => {
+                            const deposito = getDepositoAtual(r.produto)
+                            const cor = deposito === 'tecnoperfil' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                            const label = deposito === 'tecnoperfil' ? 'Tecnoperfil' : 'Alúnica'
+                            return <span className={`px-2 py-1 rounded text-xs font-medium ${cor}`}>{label}</span>
+                          })()}
+                        </td>
+                        <td className="px-4 py-2 flex items-center gap-1">
                           {(observacoesPorProduto?.[r.produto]?.length || 0) > 0 && (
                             <button
                               type="button"
@@ -838,7 +945,8 @@ export default function Estoque() {
                               <FaComments className="text-sm" /> {observacoesPorProduto?.[r.produto]?.length || 0}
                             </button>
                           )}
-                          <button className="text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded" onClick={()=>openBaixa(r.produto)}>Baixa</button>
+                          <button className="text-xs bg-purple-600 text-white hover:bg-purple-700 px-2 py-1 rounded whitespace-nowrap" onClick={()=>{ setDepositoMovForm({...depositoMovForm, produto: r.produto}); setDepositoMovOpen(true); setDepositoMovError('') }}>Mover</button>
+                          <button className="text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded whitespace-nowrap" onClick={()=>openBaixa(r.produto)}>Baixa</button>
                         </td>
                       </tr>
                     )
@@ -1373,71 +1481,163 @@ export default function Estoque() {
     )}
 
     {ferrStatusEditOpen && (
-      <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-        <div className="bg-white rounded shadow-lg w-full max-w-md">
-          <div className="px-4 py-2 border-b font-semibold">Editar status da ferramenta</div>
+      <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 overflow-y-auto p-4">
+        <div className="bg-white rounded shadow-lg w-full max-w-lg my-4">
+          <div className="px-4 py-3 border-b bg-gradient-to-r from-indigo-50 to-indigo-100">
+            <h2 className="text-base font-semibold text-indigo-900 flex items-center gap-2">
+              <FaTools className="text-indigo-600" />
+              Editar Ferramenta CNC
+            </h2>
+          </div>
           <form className="p-4 space-y-3" onSubmit={handleSaveFerrStatusEdit}>
-            <div>
-              <div className="text-xs text-gray-500 uppercase">Ferramenta</div>
-              <div className="font-semibold text-gray-800">{ferrStatusEditForm.ferramenta || '-'}</div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+            {/* Seção 1: Identificação */}
+            <div className="bg-blue-50 rounded p-3 border-l-4 border-blue-600">
+              <h3 className="text-xs font-semibold text-blue-900 mb-2">📌 Identificação</h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Código</label>
+                  <input className="w-full border rounded px-2 py-1 text-xs bg-gray-100" value={ferrStatusEditForm.ferramenta} disabled placeholder="Código" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Número Serial</label>
+                  <input className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.numero_serial} onChange={(e)=>setFerrStatusEditForm(f=>({...f, numero_serial: e.target.value}))} placeholder="Ex: 001" />
+                </div>
+              </div>
               <div>
-                <label className="block text-sm text-gray-600">Vida útil</label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-24 border rounded px-2 py-1"
-                    value={ferrStatusEditForm.vida_valor}
-                    onChange={(e)=>setFerrStatusEditForm(f=>({...f, vida_valor: e.target.value}))}
-                  />
-                  <select
-                    className="border rounded px-2 py-1"
-                    value={ferrStatusEditForm.vida_unidade}
-                    onChange={(e)=>setFerrStatusEditForm(f=>({...f, vida_unidade: e.target.value}))}
-                  >
-                    <option value="dias">Dias</option>
-                    <option value="horas">Horas</option>
-                    <option value="semanas">Semanas</option>
+                <label className="block text-xs text-gray-600 font-medium">Corpo (mm)</label>
+                <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.corpo_mm} onChange={(e)=>setFerrStatusEditForm(f=>({...f, corpo_mm: e.target.value}))} placeholder="Ex: 12.5" step="0.1" />
+              </div>
+            </div>
+
+            {/* Seção 2: Especificações */}
+            <div className="bg-green-50 rounded p-3 border-l-4 border-green-600">
+              <h3 className="text-xs font-semibold text-green-900 mb-2">⚙️ Especificações</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Quantidade (pcs)</label>
+                  <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.quant_pcs} onChange={(e)=>setFerrStatusEditForm(f=>({...f, quant_pcs: e.target.value}))} placeholder="Ex: 10" min="1" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Responsável</label>
+                  <input className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.responsavel} onChange={(e)=>setFerrStatusEditForm(f=>({...f, responsavel: e.target.value}))} placeholder="Nome" />
+                </div>
+              </div>
+            </div>
+
+            {/* Seção 3: Vida Útil */}
+            <div className="bg-purple-50 rounded p-3 border-l-4 border-purple-600">
+              <h3 className="text-xs font-semibold text-purple-900 mb-2">⏱️ Vida Útil (Horas de Corte)</h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Horas de Corte</label>
+                  <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.vida_valor} onChange={(e)=>setFerrStatusEditForm(f=>({...f, vida_valor: e.target.value}))} placeholder="Ex: 100" min="1" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Unidade</label>
+                  <select className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.vida_unidade} onChange={(e)=>setFerrStatusEditForm(f=>({...f, vida_unidade: e.target.value}))}>
+                    <option value="horas">Horas de Corte</option>
+                    <option value="dias">Dias (aprox.)</option>
                   </select>
                 </div>
-                <div className="text-xs text-gray-500 pt-1">Convertemos para dias para calcular “Restante”.</div>
               </div>
               <div>
-                <label className="block text-sm text-gray-600">Última troca</label>
-                <input
-                  type="date"
-                  className="w-full border rounded px-2 py-1"
-                  value={ferrStatusEditForm.ultima_troca}
-                  onChange={(e)=>setFerrStatusEditForm(f=>({...f, ultima_troca: e.target.value}))}
-                />
+                <label className="block text-xs text-gray-600 font-medium">Última Troca</label>
+                <input type="date" className="w-full border rounded px-2 py-1 text-xs" value={ferrStatusEditForm.ultima_troca} onChange={(e)=>setFerrStatusEditForm(f=>({...f, ultima_troca: e.target.value}))} />
               </div>
             </div>
-            <div>
-              <label className="block text-sm text-gray-600">Responsável</label>
-              <input
-                className="w-full border rounded px-2 py-1"
-                value={ferrStatusEditForm.responsavel}
-                onChange={(e)=>setFerrStatusEditForm(f=>({...f, responsavel: e.target.value}))}
-                placeholder="Ex: João, Equipe Alúnica..."
-              />
+
+            {/* Seção 4: Status */}
+            <div className="bg-yellow-50 rounded p-3 border-l-4 border-yellow-600">
+              <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                <input type="checkbox" className="h-4 w-4 rounded border-gray-300" checked={ferrStatusEditForm.ativo} onChange={(e)=>setFerrStatusEditForm(f=>({...f, ativo: e.target.checked}))} />
+                <span className="font-medium">Ativo</span>
+              </label>
             </div>
-            <div>
-              <label className="block text-sm text-gray-600">Status</label>
-              <select
-                className="w-full border rounded px-2 py-1"
-                value={ferrStatusEditForm.status}
-                onChange={(e)=>setFerrStatusEditForm(f=>({...f, status: e.target.value}))}
-              >
-                <option value="ativa">Ativo (em uso)</option>
-                <option value="estoque">Em estoque (reserva)</option>
-              </select>
+
+            {ferrStatusEditError && <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-xs">{ferrStatusEditError}</div>}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t">
+              <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition text-sm" onClick={()=>{ if (!ferrStatusEditSaving) setFerrStatusEditOpen(false) }} disabled={ferrStatusEditSaving}>Cancelar</button>
+              <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition font-medium text-sm" disabled={ferrStatusEditSaving}>{ferrStatusEditSaving ? 'Salvando...' : 'Salvar Ferramenta'}</button>
             </div>
-            {ferrStatusEditError && <div className="text-red-600 text-sm">{ferrStatusEditError}</div>}
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button type="button" className="px-3 py-1 rounded bg-gray-100" onClick={()=>{ if (!ferrStatusEditSaving) setFerrStatusEditOpen(false) }} disabled={ferrStatusEditSaving}>Cancelar</button>
-              <button type="submit" className="px-3 py-1 rounded bg-blue-600 text-white" disabled={ferrStatusEditSaving}>{ferrStatusEditSaving ? 'Salvando...' : 'Salvar'}</button>
+          </form>
+        </div>
+      </div>
+    )}
+
+    {/* Modal Movimentação de Depósito (Itens Acabados) */}
+    {depositoMovOpen && (
+      <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+        <div className="bg-white rounded shadow-lg w-full max-w-md">
+          <div className="px-4 py-3 border-b bg-gradient-to-r from-purple-50 to-purple-100">
+            <h2 className="text-base font-semibold text-purple-900">Mover Item para Outro Depósito</h2>
+          </div>
+          <form className="p-4 space-y-3" onSubmit={async (e)=>{
+            e.preventDefault()
+            if (depositoMovSaving) return
+            setDepositoMovError('')
+            
+            const produto = String(depositoMovForm.produto || '').trim()
+            if (!produto) { setDepositoMovError('Produto não selecionado.'); return }
+            
+            try {
+              setDepositoMovSaving(true)
+              // Salvar movimentação no banco de dados
+              await supabaseService.add('movimentacoes_deposito', {
+                produto: produto,
+                deposito_origem: depositoMovForm.deposito_origem,
+                deposito_destino: depositoMovForm.deposito_destino,
+                motivo: depositoMovForm.motivo || null,
+                observacao: depositoMovForm.observacao || null,
+                movimentado_em: new Date().toISOString()
+              })
+              console.log('✅ Movimentação salva:', depositoMovForm)
+              await loadMovimentacoesDeposito()
+              setDepositoMovOpen(false)
+              setDepositoMovForm({ produto: '', deposito_origem: 'alunica', deposito_destino: 'tecnoperfil', motivo: '', observacao: '' })
+            } catch (err) {
+              console.error('Erro ao mover depósito:', err)
+              setDepositoMovError(err?.message || 'Erro ao mover item.')
+            } finally {
+              setDepositoMovSaving(false)
+            }
+          }}>
+            <div>
+              <label className="block text-xs text-gray-600 font-medium">Produto</label>
+              <input className="w-full border rounded px-2 py-1 text-sm bg-gray-100" value={depositoMovForm.produto} disabled placeholder="Produto" />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-600 font-medium">De (Origem)</label>
+                <select className="w-full border rounded px-2 py-1 text-sm" value={depositoMovForm.deposito_origem} onChange={(e)=>setDepositoMovForm(f=>({...f, deposito_origem: e.target.value}))}>
+                  <option value="alunica">Alúnica</option>
+                  <option value="tecnoperfil">Tecnoperfil</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 font-medium">Para (Destino)</label>
+                <select className="w-full border rounded px-2 py-1 text-sm" value={depositoMovForm.deposito_destino} onChange={(e)=>setDepositoMovForm(f=>({...f, deposito_destino: e.target.value}))}>
+                  <option value="tecnoperfil">Tecnoperfil</option>
+                  <option value="alunica">Alúnica</option>
+                </select>
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-xs text-gray-600 font-medium">Motivo</label>
+              <input className="w-full border rounded px-2 py-1 text-sm" value={depositoMovForm.motivo} onChange={(e)=>setDepositoMovForm(f=>({...f, motivo: e.target.value}))} placeholder="Ex: Transferência para cliente" />
+            </div>
+            
+            <div>
+              <label className="block text-xs text-gray-600 font-medium">Observação</label>
+              <textarea className="w-full border rounded px-2 py-1 text-sm" value={depositoMovForm.observacao} onChange={(e)=>setDepositoMovForm(f=>({...f, observacao: e.target.value}))} placeholder="Observações adicionais" rows="2" />
+            </div>
+            
+            {depositoMovError && <div className="bg-red-50 border border-red-200 rounded p-2 text-red-700 text-xs">{depositoMovError}</div>}
+            
+            <div className="flex items-center justify-end gap-2 pt-2 border-t">
+              <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition text-sm" onClick={()=>{ if (!depositoMovSaving) setDepositoMovOpen(false) }} disabled={depositoMovSaving}>Cancelar</button>
+              <button type="submit" className="px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700 transition font-medium text-sm" disabled={depositoMovSaving}>{depositoMovSaving ? 'Movimentando...' : 'Confirmar Movimentação'}</button>
             </div>
           </form>
         </div>
@@ -1654,34 +1854,68 @@ export default function Estoque() {
       </div>
     )}
 
-    {/* Modal Cadastro de Ferramenta */}
+    {/* Modal Cadastro Inteligente de Ferramenta CNC */}
     {cadFerrOpen && (
-      <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-        <div className="bg-white rounded shadow-lg w-full max-w-md">
-          <div className="px-4 py-2 border-b font-semibold">Cadastrar Ferramenta</div>
+      <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 overflow-y-auto p-4">
+        <div className="bg-white rounded shadow-lg w-full max-w-lg my-4">
+          <div className="px-4 py-3 border-b bg-gradient-to-r from-indigo-50 to-indigo-100">
+            <h2 className="text-base font-semibold text-indigo-900 flex items-center gap-2">
+              <FaTools className="text-indigo-600" />
+              Cadastro Inteligente de Ferramenta CNC
+            </h2>
+            <p className="text-xs text-indigo-600 mt-0.5">Cálculos automáticos de vida útil e status</p>
+          </div>
           <form className="p-4 space-y-3" onSubmit={async (e)=>{
             e.preventDefault()
             if (cadFerrSaving) return
             setCadFerrError('')
 
             const ferramenta = String(cadFerrForm.ferramenta || '').trim()
-            if (!ferramenta) { setCadFerrError('Informe o código/nome da ferramenta.'); return }
+            const numeroSerial = String(cadFerrForm.numero_serial || '').trim()
+            if (!ferramenta) { setCadFerrError('Informe o código da ferramenta.'); return }
+            if (!numeroSerial) { setCadFerrError('Informe o número serial.'); return }
 
             try {
               setCadFerrSaving(true)
 
-              const exists = (Array.isArray(ferramentasCfg) ? ferramentasCfg : []).some((f) => String(f?.ferramenta || f?.codigo || '').trim() === ferramenta)
+              const ferramentaCompleta = `${ferramenta}-${numeroSerial}`
+              const exists = (Array.isArray(ferramentasCfg) ? ferramentasCfg : []).some((f) => {
+                const fCode = String(f?.ferramenta || f?.codigo || '').trim()
+                const fSerial = String(f?.numero_serial || '').trim()
+                return fCode === ferramenta && fSerial === numeroSerial
+              })
               if (!exists) {
                 await supabaseService.add('ferramentas_cfg', {
-                  ferramenta,
-                  codigo: ferramenta,
-                  descricao: cadFerrForm.descricao || null,
-                  ativo: cadFerrForm.ativo !== false
+                  ferramenta: ferramentaCompleta,
+                  codigo: ferramentaCompleta,
+                  numero_serial: numeroSerial,
+                  corpo_mm: cadFerrForm.corpo_mm ? Number(cadFerrForm.corpo_mm) : null,
+                  quant_pcs: cadFerrForm.quant_pcs ? Number(cadFerrForm.quant_pcs) : null,
+                  vida_valor: cadFerrForm.vida_valor ? Number(cadFerrForm.vida_valor) : null,
+                  vida_unidade: cadFerrForm.vida_unidade || 'horas',
+                  ultima_troca: cadFerrForm.ultima_troca || null,
+                  responsavel: cadFerrForm.responsavel || null,
+                  ativo: cadFerrForm.ativo !== false,
+                  produtos: (cadFerrForm.produtos || []).length > 0 ? cadFerrForm.produtos : null,
+                  tempo_por_peca: cadFerrForm.tempo_por_peca ? Number(cadFerrForm.tempo_por_peca) : null
                 })
               }
 
               await loadFerramentasCfg()
               setCadFerrOpen(false)
+              setCadFerrForm({
+                ferramenta: '',
+                numero_serial: '',
+                corpo_mm: '',
+                quant_pcs: '',
+                vida_valor: '',
+                vida_unidade: 'horas',
+                ultima_troca: new Date().toISOString().split('T')[0],
+                responsavel: '',
+                ativo: true,
+                produtos: [],
+                tempo_por_peca: ''
+              })
             } catch (err) {
               console.error(err)
               setCadFerrError(err?.message || 'Falha ao cadastrar ferramenta.')
@@ -1689,24 +1923,112 @@ export default function Estoque() {
               setCadFerrSaving(false)
             }
           }}>
-            <div>
-              <label className="block text-sm text-gray-600">Ferramenta (código/nome)</label>
-              <input className="w-full border rounded px-2 py-1" value={cadFerrForm.ferramenta} onChange={(e)=>setCadFerrForm(f=>({...f, ferramenta: e.target.value}))} placeholder="Ex: TR-0018" />
+            {/* Seção 1: Identificação */}
+            <div className="bg-blue-50 rounded p-3 border-l-4 border-blue-600">
+              <h3 className="text-xs font-semibold text-blue-900 mb-2">📌 Identificação</h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Código *</label>
+                  <input className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.ferramenta} onChange={(e)=>setCadFerrForm(f=>({...f, ferramenta: e.target.value}))} placeholder="Ex: Fresa" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Número Serial *</label>
+                  <input className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.numero_serial} onChange={(e)=>setCadFerrForm(f=>({...f, numero_serial: e.target.value}))} placeholder="Ex: 001" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 font-medium">Corpo (mm)</label>
+                <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.corpo_mm} onChange={(e)=>setCadFerrForm(f=>({...f, corpo_mm: e.target.value}))} placeholder="Ex: 12.5" step="0.1" />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm text-gray-600">Descrição (opcional)</label>
-              <input className="w-full border rounded px-2 py-1" value={cadFerrForm.descricao} onChange={(e)=>setCadFerrForm(f=>({...f, descricao: e.target.value}))} />
+
+            {/* Seção 2: Especificações */}
+            <div className="bg-green-50 rounded p-3 border-l-4 border-green-600">
+              <h3 className="text-xs font-semibold text-green-900 mb-2">⚙️ Especificações</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Quantidade (pcs)</label>
+                  <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.quant_pcs} onChange={(e)=>setCadFerrForm(f=>({...f, quant_pcs: e.target.value}))} placeholder="Ex: 10" min="1" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Responsável</label>
+                  <input className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.responsavel} onChange={(e)=>setCadFerrForm(f=>({...f, responsavel: e.target.value}))} placeholder="Nome" />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" className="h-4 w-4" checked={cadFerrForm.ativo !== false} onChange={(e)=>setCadFerrForm(f=>({...f, ativo: e.target.checked}))} />
-                Ativo
+
+            {/* Seção 3: Tempo por Peça (Cálculo de Uso) */}
+            <div className="bg-purple-50 rounded p-3 border-l-4 border-purple-600">
+              <h3 className="text-xs font-semibold text-purple-900 mb-2">⏱️ Tempo por Peça (Cálculo de Uso)</h3>
+              <div className="mb-2 p-2 bg-white rounded border border-purple-200 text-xs text-purple-700">
+                <strong>💡 Dica:</strong> Informe o tempo médio por peça para calcular o uso real baseado nos apontamentos de produção.
+              </div>
+              
+              {/* Produtos que essa ferramenta fabrica */}
+              <div className="mb-2">
+                <label className="block text-xs text-gray-600 font-medium mb-1">Produtos (quais itens essa ferramenta fabrica)</label>
+                <select
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  value=""
+                  onChange={(e) => {
+                    const produto = e.target.value
+                    const produtosAtuais = cadFerrForm.produtos || []
+                    if (produto && !produtosAtuais.includes(produto)) {
+                      setCadFerrForm(f => ({ ...f, produtos: [...(f.produtos || []), produto] }))
+                    }
+                  }}
+                >
+                  <option value="">Selecione produtos...</option>
+                  {(Array.isArray(apontamentos) ? apontamentos : [])
+                    .map(a => String(a.produto || '').trim())
+                    .filter(Boolean)
+                    .filter((v, i, arr) => arr.indexOf(v) === i)
+                    .sort((a, b) => a.localeCompare(b))
+                    .map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                </select>
+                {(cadFerrForm.produtos || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(cadFerrForm.produtos || []).map(p => (
+                      <span key={p} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-xs">
+                        {p}
+                        <button type="button" className="text-purple-500 hover:text-purple-800" onClick={() => setCadFerrForm(f => ({ ...f, produtos: (f.produtos || []).filter(x => x !== p) }))}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Tempo por Peça (min)</label>
+                  <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.tempo_por_peca} onChange={(e)=>setCadFerrForm(f=>({...f, tempo_por_peca: e.target.value}))} placeholder="Ex: 4" min="0.1" step="0.1" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 font-medium">Vida Útil (horas)</label>
+                  <input type="number" className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.vida_valor} onChange={(e)=>setCadFerrForm(f=>({...f, vida_valor: e.target.value}))} placeholder="Ex: 100" min="1" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 font-medium">Última Troca</label>
+                <input type="date" className="w-full border rounded px-2 py-1 text-xs" value={cadFerrForm.ultima_troca} onChange={(e)=>setCadFerrForm(f=>({...f, ultima_troca: e.target.value}))} />
+              </div>
+            </div>
+
+            {/* Seção 4: Status */}
+            <div className="bg-yellow-50 rounded p-3 border-l-4 border-yellow-600">
+              <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                <input type="checkbox" className="h-4 w-4 rounded border-gray-300" checked={cadFerrForm.ativo !== false} onChange={(e)=>setCadFerrForm(f=>({...f, ativo: e.target.checked}))} />
+                <span className="font-medium">Ativo</span>
               </label>
             </div>
-            {cadFerrError && <div className="text-red-600 text-sm">{cadFerrError}</div>}
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button type="button" className="px-3 py-1 rounded bg-gray-100" onClick={()=>{ if (!cadFerrSaving) setCadFerrOpen(false) }} disabled={cadFerrSaving}>Cancelar</button>
-              <button type="submit" className="px-3 py-1 rounded bg-gray-700 text-white" disabled={cadFerrSaving}>{cadFerrSaving? 'Salvando...' : 'Salvar'}</button>
+
+            {cadFerrError && <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm">{cadFerrError}</div>}
+            
+            <div className="flex items-center justify-end gap-2 pt-4 border-t">
+              <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition" onClick={()=>{ if (!cadFerrSaving) setCadFerrOpen(false) }} disabled={cadFerrSaving}>Cancelar</button>
+              <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition font-medium" disabled={cadFerrSaving}>{cadFerrSaving? 'Salvando...' : 'Salvar Ferramenta'}</button>
             </div>
           </form>
         </div>
@@ -1715,138 +2037,99 @@ export default function Estoque() {
 
       {tab==='ferramentas' && (
         <div className="space-y-6">
-          <div className="flex gap-2">
-            <button className="px-3 py-2 rounded bg-green-600 text-white text-sm" onClick={()=>{ setInsumoEntradaOpen(true); setErroInsumo('') }}>Entrada (Insumo)</button>
-            <button className="px-3 py-2 rounded bg-blue-600 text-white text-sm" onClick={()=>{ setInsumoSaidaOpen(true); setErroInsumo('') }}>Saída (Insumo)</button>
-            <button className="px-3 py-2 rounded bg-indigo-600 text-white text-sm" onClick={()=>{ setFerrMovOpen(true); setErroFerr('') }}>Movimentar Ferramenta</button>
-            <button className="px-3 py-2 rounded bg-gray-700 text-white text-sm" onClick={()=>{ setCadFerrOpen(true); setCadFerrError(''); setCadFerrForm({ ferramenta: '', descricao: '', ativo: true }) }}>Cadastrar Ferramenta</button>
-            <button
-              className="px-3 py-2 rounded bg-gray-100 text-gray-700 text-sm"
-              onClick={()=>{
-                setCategoriasError('')
-                setCategoriasInsumosText((categoriasInsumos || []).join('\n'))
-                setCategoriasFerramentasText((categoriasFerramentas || []).join('\n'))
-                setCategoriasOpen(true)
-              }}
-            >
-              Gerenciar categorias
-            </button>
-            <button className="px-3 py-2 rounded bg-gray-100 text-gray-700 text-sm" onClick={()=>setInsumosVerSecundario(v=>!v)}>
-              {insumosVerSecundario ? 'Ocultar Histórico (Ferramentas e Insumos)' : 'Ver Histórico (Ferramentas e Insumos)'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white rounded shadow p-4">
-              <div className="text-gray-500 text-sm">Insumos abaixo do mínimo</div>
-              <div className="text-2xl font-bold flex items-center gap-2"><FaExclamationTriangle className="text-red-600"/> {insumosIndicadores.abaixoMin}</div>
-            </div>
-            <div className="bg-white rounded shadow p-4">
-              <div className="text-gray-500 text-sm">Consumo médio (ref.)</div>
-              <div className="text-2xl font-bold flex items-center gap-2"><FaArrowDown/> {Number(insumosIndicadores.consumoMedio||0).toLocaleString('pt-BR')}</div>
-            </div>
-            <div className="bg-white rounded shadow p-4">
-              <div className="text-gray-500 text-sm">Ferramentas monitoradas</div>
-              <div className="text-2xl font-bold flex items-center gap-2"><FaTools/> {(Array.isArray(ferramentasCfg)?ferramentasCfg:[]).length}</div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded shadow overflow-hidden">
-            <div className="px-4 py-2 border-b font-semibold flex items-center justify-between">
-              <div>Status de Ferramentas</div>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={ferrMostrarEstoque}
-                  onChange={(e)=>setFerrMostrarEstoque(e.target.checked)}
-                />
-                Mostrar também estoque (inativas)
-              </label>
-            </div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left px-4 py-2">Ferramenta</th>
-                    <th className="text-left px-4 py-2">Vida útil</th>
-                    <th className="text-left px-4 py-2">Última troca</th>
-                    <th className="text-left px-4 py-2">Restante</th>
-                    <th className="text-left px-4 py-2">Status</th>
-                    <th className="text-left px-4 py-2">Responsável</th>
-                    <th className="text-left px-4 py-2">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(Array.isArray(ferrStatusFiltrado)?ferrStatusFiltrado:[]).map((f) => {
-                    const cls = f.status === 'para trocar' ? 'bg-red-100 text-red-700' : f.status === 'atenção' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
-                    const vidaCfg = ferrVidaCfg?.[f.ferramenta]
-                    const vidaLabel = (() => {
-                      if (vidaCfg && vidaCfg.vida_valor != null && vidaCfg.vida_unidade) {
-                        return `${vidaCfg.vida_valor} ${vidaCfg.vida_unidade}`
-                      }
-                      if (f.vida_util_dias != null) return `${f.vida_util_dias} dias`
-                      return '-'
-                    })()
-                    const restanteLabel = (() => {
-                      if (f.restante_dias == null) return '-'
-                      const dias = Number(f.restante_dias || 0)
-                      if (vidaCfg && vidaCfg.vida_unidade === 'horas') return `${Math.max(0, Math.round(dias * 24))} horas`
-                      if (vidaCfg && vidaCfg.vida_unidade === 'semanas') return `${Math.max(0, Math.round(dias / 7))} semanas`
-                      return `${Math.max(0, Math.round(dias))}d`
-                    })()
-                    const cfg = cfgByFerramenta[String(f.ferramenta || '')]
-                    const statusLabel = cfg?.ativo === false ? 'estoque' : f.status
-                    return (
-                      <tr key={f.ferramenta} className="border-t">
-                        <td className="px-4 py-2 font-medium">{f.ferramenta}</td>
-                        <td className="px-4 py-2">{vidaLabel}</td>
-                        <td className="px-4 py-2">{f.ultima_troca ? new Date(f.ultima_troca).toLocaleDateString('pt-BR') : '-'}</td>
-                        <td className="px-4 py-2">{restanteLabel}</td>
-                        <td className="px-4 py-2"><span className={`px-2 py-1 rounded ${cls}`}>{statusLabel}</span></td>
-                        <td className="px-4 py-2">{f.responsavel || '-'}</td>
-                        <td className="px-4 py-2">
-                          <button
-                            type="button"
-                            className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded"
-                            onClick={() => handleOpenFerrStatusEdit(f)}
-                          >
-                            Editar
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="bg-white rounded shadow overflow-hidden">
-            <div className="px-4 py-2 border-b font-semibold flex items-center justify-between">
-              <span className="flex items-center gap-2">Insumos</span>
+          {/* Sub-abas Navigation */}
+          <div className="bg-white rounded shadow overflow-hidden border-b">
+            <div className="flex border-b">
               <button
-                onClick={() => setCorrecaoLancamentoOpen(true)}
-                className="text-xs bg-orange-600 text-white px-3 py-1 rounded hover:bg-orange-700 transition"
-                title="Corrigir lançamentos incorretos"
+                onClick={() => setSubTab('insumos')}
+                className={`flex-1 px-4 py-3 text-center font-medium transition ${
+                  subTab === 'insumos'
+                    ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
               >
-                Corrigir Lançamentos
+                <div className="flex items-center justify-center gap-2">
+                  <FaCubes className="text-lg" />
+                  <span>Insumos</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setSubTab('ferramentas_status')}
+                className={`flex-1 px-4 py-3 text-center font-medium transition ${
+                  subTab === 'ferramentas_status'
+                    ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <FaTools className="text-lg" />
+                  <span>Status de Ferramentas</span>
+                </div>
               </button>
             </div>
-            <div className="p-4 border-b bg-white">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-600">Buscar (nome ou categoria)</label>
-                  <input className="w-full border rounded px-2 py-1" value={filtroInsumo} onChange={(e)=>setFiltroInsumo(e.target.value)} placeholder="Ex: óleo, broca, lubrificante..." />
+          </div>
+
+          {/* SUB-ABA: INSUMOS */}
+          {subTab === 'insumos' && (
+            <div className="space-y-6">
+              {/* Ações Rápidas */}
+              <div className="flex gap-2 flex-wrap">
+                <button className="px-4 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition inline-flex items-center gap-2" onClick={exportarInsumosExcel}>
+                  <FaFileExcel/> Exportar Excel
+                </button>
+                <button className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition" onClick={()=>{ setInsumoEntradaOpen(true); setErroInsumo('') }}>
+                  <div className="flex items-center gap-2"><FaArrowDown/> Entrada</div>
+                </button>
+                <button className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition" onClick={()=>{ setInsumoSaidaOpen(true); setErroInsumo('') }}>
+                  <div className="flex items-center gap-2"><FaArrowDown/> Saída</div>
+                </button>
+                <button
+                  onClick={() => setCorrecaoLancamentoOpen(true)}
+                  className="px-4 py-2 rounded bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 transition"
+                  title="Corrigir lançamentos incorretos"
+                >
+                  Corrigir Lançamentos
+                </button>
+                <button className="px-4 py-2 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition" onClick={()=>setInsumosVerSecundario(v=>!v)}>
+                  {insumosVerSecundario ? 'Ocultar Histórico' : 'Ver Histórico'}
+                </button>
+              </div>
+
+              {/* Dashboard de Indicadores */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-red-50 to-red-100 rounded shadow p-4 border-l-4 border-red-600">
+                  <div className="text-gray-600 text-sm font-medium">Abaixo do Mínimo</div>
+                  <div className="text-3xl font-bold text-red-700 mt-1">{insumosIndicadores.abaixoMin}</div>
+                  <div className="text-xs text-red-600 mt-2">⚠️ Reposição necessária</div>
                 </div>
-                <div className="flex items-end">
-                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" className="h-4 w-4" checked={insumosSomenteAbaixoMin} onChange={(e)=>setInsumosSomenteAbaixoMin(e.target.checked)} />
-                    Somente abaixo do mínimo
-                  </label>
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded shadow p-4 border-l-4 border-blue-600">
+                  <div className="text-gray-600 text-sm font-medium">Consumo Médio (30d)</div>
+                  <div className="text-3xl font-bold text-blue-700 mt-1">{Number(insumosIndicadores.consumoMedio||0).toLocaleString('pt-BR')}</div>
+                  <div className="text-xs text-blue-600 mt-2">📊 Referência</div>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded shadow p-4 border-l-4 border-green-600">
+                  <div className="text-gray-600 text-sm font-medium">Total de Insumos</div>
+                  <div className="text-3xl font-bold text-green-700 mt-1">{(Array.isArray(insumosSaldo)?insumosSaldo:[]).length}</div>
+                  <div className="text-xs text-green-600 mt-2">✓ Cadastrados</div>
                 </div>
               </div>
-            </div>
+
+              {/* Tabela de Insumos */}
+              <div className="bg-white rounded shadow overflow-hidden">
+                <div className="p-4 border-b bg-white">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-600">Buscar (nome ou categoria)</label>
+                      <input className="w-full border rounded px-2 py-1" value={filtroInsumo} onChange={(e)=>setFiltroInsumo(e.target.value)} placeholder="Ex: óleo, broca, lubrificante..." />
+                    </div>
+                    <div className="flex items-end">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" className="h-4 w-4" checked={insumosSomenteAbaixoMin} onChange={(e)=>setInsumosSomenteAbaixoMin(e.target.checked)} />
+                        Somente abaixo do mínimo
+                      </label>
+                    </div>
+                  </div>
+                </div>
             <div className="overflow-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
@@ -1855,7 +2138,9 @@ export default function Estoque() {
                     <th className="text-left px-4 py-2">Categoria</th>
                     <th className="text-left px-4 py-2">Qtd. Atual</th>
                     <th className="text-left px-4 py-2">Mínimo</th>
+                    <th className="text-left px-4 py-2">Depósito</th>
                     <th className="text-left px-4 py-2">Status</th>
+                    <th className="text-left px-4 py-2">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1953,45 +2238,223 @@ export default function Estoque() {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
-
-          {insumosVerSecundario && (
-            <div className="bg-white rounded shadow overflow-hidden">
-              <div className="px-4 py-2 border-b font-semibold">Histórico (Ferramentas e Insumos)</div>
-              <div className="overflow-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="text-left px-4 py-2">Data</th>
-                      <th className="text-left px-4 py-2">Tipo</th>
-                      <th className="text-left px-4 py-2">Item</th>
-                      <th className="text-left px-4 py-2">Categoria</th>
-                      <th className="text-left px-4 py-2">Qtd</th>
-                      <th className="text-left px-4 py-2">Resp.</th>
-                      <th className="text-left px-4 py-2">Máquina</th>
-                      <th className="text-left px-4 py-2">Origem</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historicoFerrInsum.map((h, idx) => (
-                      <tr key={idx} className="border-t">
-                        <td className="px-4 py-2">{h.data ? new Date(h.data).toLocaleString('pt-BR') : '-'}</td>
-                        <td className="px-4 py-2">{h.tipo}</td>
-                        <td className="px-4 py-2">{h.item}</td>
-                        <td className="px-4 py-2">{h.categoria || '-'}</td>
-                        <td className="px-4 py-2">{Number(h.qtd||0).toLocaleString('pt-BR')} {h.unidade||''}</td>
-                        <td className="px-4 py-2">{h.resp}</td>
-                        <td className="px-4 py-2">{h.maquina || '-'}</td>
-                        <td className="px-4 py-2">{h.origem}</td>
-                      </tr>
-                    ))}
-                    {historicoFerrInsum.length === 0 && (
-                      <tr className="border-t"><td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">Sem movimentações recentes.</td></tr>
-                    )}
-                  </tbody>
-                </table>
               </div>
+              </div>
+
+              {insumosVerSecundario && (
+                <div className="bg-white rounded shadow overflow-hidden">
+                  <div className="px-4 py-2 border-b font-semibold">Histórico de Insumos</div>
+                  <div className="overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-4 py-2">Data</th>
+                          <th className="text-left px-4 py-2">Tipo</th>
+                          <th className="text-left px-4 py-2">Item</th>
+                          <th className="text-left px-4 py-2">Categoria</th>
+                          <th className="text-left px-4 py-2">Qtd</th>
+                          <th className="text-left px-4 py-2">Resp.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(Array.isArray(insumosMov) ? insumosMov : []).slice(0, 50).map((h, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-4 py-2">{h.created_at ? new Date(h.created_at).toLocaleString('pt-BR') : '-'}</td>
+                            <td className="px-4 py-2"><span className="px-2 py-1 rounded bg-blue-100 text-blue-700 text-xs font-medium">{h.tipo}</span></td>
+                            <td className="px-4 py-2 font-medium">{h.nome}</td>
+                            <td className="px-4 py-2">{h.categoria || '-'}</td>
+                            <td className="px-4 py-2">{Number(h.quantidade||0).toLocaleString('pt-BR')} {h.unidade||''}</td>
+                            <td className="px-4 py-2">{h.responsavel || '-'}</td>
+                          </tr>
+                        ))}
+                        {(Array.isArray(insumosMov) ? insumosMov : []).length === 0 && (
+                          <tr className="border-t"><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">Sem movimentações recentes.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SUB-ABA: STATUS DE FERRAMENTAS */}
+          {subTab === 'ferramentas_status' && (
+            <div className="space-y-6">
+              {/* Ações Rápidas */}
+              <div className="flex gap-2 flex-wrap">
+                <button className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition inline-flex items-center gap-2" onClick={exportarFerramentasExcel}>
+                  <FaFileExcel/> Exportar Excel
+                </button>
+                <button className="px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition" onClick={()=>{ setFerrMovOpen(true); setErroFerr('') }}>
+                  <div className="flex items-center gap-2"><FaClock/> Movimentar</div>
+                </button>
+                <button className="px-4 py-2 rounded bg-gray-700 text-white text-sm font-medium hover:bg-gray-800 transition" onClick={()=>{ setCadFerrOpen(true); setCadFerrError(''); setCadFerrForm({ ferramenta: '', numero_serial: '', descricao: '', ativo: true }) }}>
+                  <div className="flex items-center gap-2"><FaPlusCircle/> Cadastrar</div>
+                </button>
+                <button
+                  className="px-4 py-2 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition"
+                  onClick={()=>{
+                    setCategoriasError('')
+                    setCategoriasInsumosText((categoriasInsumos || []).join('\n'))
+                    setCategoriasFerramentasText((categoriasFerramentas || []).join('\n'))
+                    setCategoriasOpen(true)
+                  }}
+                >
+                  Gerenciar Categorias
+                </button>
+              </div>
+
+              {/* Dashboard de Indicadores */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded shadow p-4 border-l-4 border-indigo-600">
+                  <div className="text-gray-600 text-sm font-medium">Total Monitoradas</div>
+                  <div className="text-3xl font-bold text-indigo-700 mt-1">{(Array.isArray(ferramentasCfg)?ferramentasCfg:[]).filter(f => f.ativo !== false).length}</div>
+                  <div className="text-xs text-indigo-600 mt-2">🔧 Ativas</div>
+                </div>
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded shadow p-4 border-l-4 border-yellow-600">
+                  <div className="text-gray-600 text-sm font-medium">Atenção</div>
+                  <div className="text-3xl font-bold text-yellow-700 mt-1">{(Array.isArray(ferrStatusFiltrado)?ferrStatusFiltrado:[]).filter(f => f.status === 'atenção').length}</div>
+                  <div className="text-xs text-yellow-600 mt-2">⚠️ Próximo vencimento</div>
+                </div>
+                <div className="bg-gradient-to-br from-red-50 to-red-100 rounded shadow p-4 border-l-4 border-red-600">
+                  <div className="text-gray-600 text-sm font-medium">Para Trocar</div>
+                  <div className="text-3xl font-bold text-red-700 mt-1">{(Array.isArray(ferrStatusFiltrado)?ferrStatusFiltrado:[]).filter(f => f.status === 'para trocar').length}</div>
+                  <div className="text-xs text-red-600 mt-2">🚨 Urgente</div>
+                </div>
+              </div>
+
+              {/* Tabela de Status de Ferramentas */}
+              <div className="bg-white rounded shadow overflow-hidden">
+                <div className="px-4 py-3 border-b bg-gradient-to-r from-indigo-50 to-indigo-100">
+                  <div className="font-semibold text-indigo-900 flex items-center gap-2">
+                    <FaTools className="text-indigo-600" />
+                    Status de Ferramentas
+                  </div>
+                </div>
+                <div className="overflow-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-4 py-2">Ferramenta</th>
+                        <th className="text-left px-4 py-2">Vida útil</th>
+                        <th className="text-left px-4 py-2">Última troca</th>
+                        <th className="text-left px-4 py-2">Restante</th>
+                        <th className="text-left px-4 py-2">Status</th>
+                        <th className="text-left px-4 py-2">Responsável</th>
+                        <th className="text-left px-4 py-2">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(Array.isArray(ferrStatusFiltrado)?ferrStatusFiltrado:[]).map((f) => {
+                        const vidaCfg = ferrVidaCfg?.[f.ferramenta]
+                        const vidaLabel = (() => {
+                          if (vidaCfg && vidaCfg.vida_valor != null && vidaCfg.vida_unidade) {
+                            return `${vidaCfg.vida_valor} ${vidaCfg.vida_unidade}`
+                          }
+                          if (f.vida_util_dias != null) return `${f.vida_util_dias} dias`
+                          return '-'
+                        })()
+                        const restanteLabel = (() => {
+                          if (f.restante_dias == null) return '-'
+                          const dias = Number(f.restante_dias || 0)
+                          if (vidaCfg && vidaCfg.vida_unidade === 'horas') return `${Math.max(0, Math.round(dias * 24))} horas`
+                          if (vidaCfg && vidaCfg.vida_unidade === 'semanas') return `${Math.max(0, Math.round(dias / 7))} semanas`
+                          return `${Math.max(0, Math.round(dias))}d`
+                        })()
+                        const statusLabel = f.ativo === false ? 'estoque' : (f.ativo === true ? 'ativa' : (f.status || 'ativa'))
+                        const cls = statusLabel === 'para trocar' ? 'bg-red-100 text-red-700' : statusLabel === 'atenção' ? 'bg-yellow-100 text-yellow-800' : statusLabel === 'estoque' ? 'bg-gray-100 text-gray-700' : 'bg-green-100 text-green-800'
+                        return (
+                          <tr key={f.ferramenta} className="border-t hover:bg-gray-50 transition">
+                            <td className="px-4 py-2 font-medium">{f.ferramenta}</td>
+                            <td className="px-4 py-2">{vidaLabel}</td>
+                            <td className="px-4 py-2">{f.ultima_troca ? new Date(f.ultima_troca).toLocaleDateString('pt-BR') : '-'}</td>
+                            <td className="px-4 py-2 font-semibold">{restanteLabel}</td>
+                            <td className="px-4 py-2"><span className={`px-2 py-1 rounded text-xs font-medium ${cls}`}>{statusLabel}</span></td>
+                            <td className="px-4 py-2">{f.responsavel || '-'}</td>
+                            <td className="px-4 py-2 flex gap-2">
+                              <button
+                                type="button"
+                                className="text-xs bg-indigo-600 text-white hover:bg-indigo-700 px-3 py-1 rounded transition"
+                                onClick={() => handleOpenFerrStatusEdit(f)}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs bg-red-600 text-white hover:bg-red-700 px-3 py-1 rounded transition"
+                                onClick={async () => {
+                                  if (window.confirm(`Tem certeza que deseja excluir a ferramenta "${f.ferramenta}"?`)) {
+                                    try {
+                                      if (!f.id) {
+                                        alert('Erro: ID da ferramenta não encontrado')
+                                        return
+                                      }
+                                      await supabaseService.remove('ferramentas_cfg', f.id)
+                                      const loadFerramentasCfg = async () => {
+                                        try {
+                                          const data = await supabaseService.fetch('ferramentas_cfg')
+                                          setFerramentasCfg(Array.isArray(data) ? data : [])
+                                        } catch (e) {
+                                          console.error('Erro ao carregar ferramentas_cfg:', e)
+                                        }
+                                      }
+                                      await loadFerramentasCfg()
+                                    } catch (err) {
+                                      console.error('Erro ao excluir ferramenta:', err)
+                                      alert('Erro ao excluir ferramenta: ' + (err?.message || 'Desconhecido'))
+                                    }
+                                  }
+                                }}
+                              >
+                                Excluir
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {(Array.isArray(ferrStatusFiltrado)?ferrStatusFiltrado:[]).length === 0 && (
+                        <tr className="border-t"><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">Nenhuma ferramenta encontrada.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {insumosVerSecundario && (
+                <div className="bg-white rounded shadow overflow-hidden">
+                  <div className="px-4 py-2 border-b font-semibold">Histórico de Ferramentas</div>
+                  <div className="overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-4 py-2">Data</th>
+                          <th className="text-left px-4 py-2">Tipo</th>
+                          <th className="text-left px-4 py-2">Ferramenta</th>
+                          <th className="text-left px-4 py-2">Qtd</th>
+                          <th className="text-left px-4 py-2">Resp.</th>
+                          <th className="text-left px-4 py-2">Máquina</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(Array.isArray(ferrMov) ? ferrMov : []).slice(0, 50).map((h, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-4 py-2">{h.created_at ? new Date(h.created_at).toLocaleString('pt-BR') : '-'}</td>
+                            <td className="px-4 py-2"><span className="px-2 py-1 rounded bg-indigo-100 text-indigo-700 text-xs font-medium">{h.tipo}</span></td>
+                            <td className="px-4 py-2 font-medium">{h.ferramenta}</td>
+                            <td className="px-4 py-2">{Number(h.quantidade||0).toLocaleString('pt-BR')} {h.unidade||''}</td>
+                            <td className="px-4 py-2">{h.responsavel || '-'}</td>
+                            <td className="px-4 py-2">{h.maquina || '-'}</td>
+                          </tr>
+                        ))}
+                        {(Array.isArray(ferrMov) ? ferrMov : []).length === 0 && (
+                          <tr className="border-t"><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">Sem movimentações recentes.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
