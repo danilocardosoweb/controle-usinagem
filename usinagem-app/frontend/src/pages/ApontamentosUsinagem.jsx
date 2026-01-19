@@ -1194,35 +1194,46 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }
 
-  // Lista filtrada para modal de busca
-  const ordensFiltradas = ordensTrabalho.filter(o => {
-    if (!buscaTexto) return true
-    const t = buscaTexto.toString().trim().toLowerCase()
-    const tDigits = t.replace(/\D/g, '')
-    const comprimentoNum = (o.comprimentoAcabado || '').replace(/\D/g, '')
-    const comprimentoLongoNum = extrairComprimentoPerfilLongo(o.perfilLongo || '').replace(/\D/g, '')
-    const idStr = String(o.id || '').toLowerCase()
-    const idDigits = idStr.replace(/\D/g, '')
-    const pedCliStr = String(o.pedidoCliente || '').toLowerCase()
-    const pedCliDigits = pedCliStr.replace(/\D/g, '')
+  // Lista filtrada para modal de busca, ordenada por Data Entrega (mais antigas no topo)
+  const ordensFiltradas = useMemo(() => {
+    const filtradas = ordensTrabalho.filter(o => {
+      if (!buscaTexto) return true
+      const t = buscaTexto.toString().trim().toLowerCase()
+      const tDigits = t.replace(/\D/g, '')
+      const comprimentoNum = (o.comprimentoAcabado || '').replace(/\D/g, '')
+      const comprimentoLongoNum = extrairComprimentoPerfilLongo(o.perfilLongo || '').replace(/\D/g, '')
+      const idStr = String(o.id || '').toLowerCase()
+      const idDigits = idStr.replace(/\D/g, '')
+      const pedCliStr = String(o.pedidoCliente || '').toLowerCase()
+      const pedCliDigits = pedCliStr.replace(/\D/g, '')
 
-    // 1) Busca numérica: tenta comprimento (prefixo), comprimento longo e Pedido/Seq por dígitos
-    if (tDigits) {
-      if (comprimentoNum.startsWith(tDigits)) return true
-      if (comprimentoLongoNum.startsWith(tDigits)) return true
-      if (idDigits.includes(tDigits)) return true
-      if (pedCliDigits && pedCliDigits.includes(tDigits)) return true
-    }
+      // 1) Busca numérica: tenta comprimento (prefixo), comprimento longo e Pedido/Seq por dígitos
+      if (tDigits) {
+        if (comprimentoNum.startsWith(tDigits)) return true
+        if (comprimentoLongoNum.startsWith(tDigits)) return true
+        if (idDigits.includes(tDigits)) return true
+        if (pedCliDigits && pedCliDigits.includes(tDigits)) return true
+      }
 
-    // 2) Busca textual (case-insensitive)
-    if (idStr.includes(t)) return true
-    if ((o.ferramenta || '').toLowerCase().includes(t)) return true
-    if ((o.codigoPerfil || '').toLowerCase().includes(t)) return true
-    if (pedCliStr.includes(t)) return true
-    if ((o.cliente || '').toLowerCase().includes(t)) return true
+      // 2) Busca textual (case-insensitive)
+      if (idStr.includes(t)) return true
+      if ((o.ferramenta || '').toLowerCase().includes(t)) return true
+      if ((o.codigoPerfil || '').toLowerCase().includes(t)) return true
+      if (pedCliStr.includes(t)) return true
+      if ((o.cliente || '').toLowerCase().includes(t)) return true
 
-    return false
-  })
+      return false
+    })
+    
+    // Ordenar por Data Entrega (mais antigas no topo)
+    filtradas.sort((a, b) => {
+      const dataA = a.dtFatura ? new Date(a.dtFatura).getTime() : Infinity
+      const dataB = b.dtFatura ? new Date(b.dtFatura).getTime() : Infinity
+      return dataA - dataB
+    })
+    
+    return filtradas
+  }, [ordensTrabalho, buscaTexto])
   
   // Atualizar o operador quando o usuário for carregado
   useEffect(() => {
@@ -2599,7 +2610,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-3 form-compact">
-          <div className={`grid grid-cols-1 ${modo === 'embalagem' ? 'md:grid-cols-6' : 'md:grid-cols-5'} grid-compact`}>
+          <div className={`grid grid-cols-1 ${modo === 'embalagem' ? 'lg:grid-cols-6 md:grid-cols-3' : 'lg:grid-cols-5 md:grid-cols-3'} grid-compact gap-2`}>
             <div>
               <label className="block label-sm font-medium text-gray-700 mb-1">
                 Operador
@@ -3263,7 +3274,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       {buscaAberta && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black bg-opacity-30" onClick={() => setBuscaAberta(false)}></div>
-          <div className="relative bg-white rounded-lg shadow-lg w-full max-w-5xl p-4 form-compact">
+          <div className="relative bg-white rounded-lg shadow-lg w-full max-w-7xl p-4 form-compact mx-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-gray-800">Buscar Pedido</h3>
               <button className="text-sm text-gray-600 hover:text-gray-900" onClick={() => setBuscaAberta(false)}>Fechar</button>
@@ -3289,6 +3300,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2">Comprimento Longo</th>
                     <th className="text-left px-3 py-2">Cliente</th>
                     <th className="text-left px-3 py-2">Pedido.Cliente</th>
+                    <th className="text-left px-3 py-2">Data Entrega</th>
                     <th className="text-left px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -3302,6 +3314,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2">{extrairComprimentoPerfilLongo(o.perfilLongo || '')}</td>
                       <td className="px-3 py-2">{o.cliente}</td>
                       <td className="px-3 py-2">{o.pedidoCliente}</td>
+                      <td className="px-3 py-2">{o.dtFatura ? new Date(o.dtFatura).toLocaleDateString('pt-BR') : '-'}</td>
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"

@@ -1131,6 +1131,17 @@ const Pedidos = () => {
       return 0
     }
   }, [pedidosFiltrados])
+
+  const totalApontadoFiltrados = useMemo(() => {
+    try {
+      return pedidosFiltrados.reduce((acc, p) => {
+        const apontamentos = obterApontamentosDoPedido(p)
+        return acc + apontamentos.total
+      }, 0)
+    } catch {
+      return 0
+    }
+  }, [pedidosFiltrados, apontamentosDB])
   
   // Exibe mensagem de carregamento quando estiver buscando dados do IndexedDB
   if (carregandoDB) {
@@ -1267,6 +1278,12 @@ const Pedidos = () => {
             Saldo a produzir (itens filtrados):{' '}
             <span className="font-semibold">
               {totalSaldoAProdFiltrados.toLocaleString('pt-BR')}
+            </span>
+          </span>
+          <span className="px-2 py-1 bg-white rounded border border-gray-200 shadow-sm">
+            Valor Apontado (itens filtrados):{' '}
+            <span className="font-semibold text-blue-600">
+              {totalApontadoFiltrados.toLocaleString('pt-BR')}
             </span>
           </span>
         </div>

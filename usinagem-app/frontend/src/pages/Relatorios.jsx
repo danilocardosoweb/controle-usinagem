@@ -71,7 +71,7 @@ const get7BusinessDaysAgoDateInput = () => {
 const Relatorios = () => {
   const [filtros, setFiltros] = useState(() => ({
     tipoRelatorio: 'producao',
-    dataInicio: get7BusinessDaysAgoDateInput(),
+    dataInicio: getTodayDateInput(),
     dataFim: '',
     maquina: '',
     operador: '',
@@ -711,7 +711,12 @@ const Relatorios = () => {
   // Utilidades
   const toISODate = (val) => {
     if (!val) return null
-    try { return new Date(val).toISOString().slice(0,10) } catch { return null }
+    try { 
+      // Se já está em formato YYYY-MM-DD, retorna direto
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(val))) return val
+      // Caso contrário, converte
+      return new Date(val).toISOString().slice(0,10) 
+    } catch { return null }
   }
   const brDate = (val) => {
     if (!val) return ''
@@ -774,10 +779,17 @@ const Relatorios = () => {
     const area = areaPorTipoRelatorio(filtros.tipoRelatorio)
     const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
     const df = filtros.dataFim ? toISODate(filtros.dataFim) : null
+    console.log('🔍 Filtros aplicados - dataInicio:', filtros.dataInicio, 'di:', di, 'dataFim:', filtros.dataFim, 'df:', df)
     return (apontamentos || []).filter(a => {
       const dd = toISODate(a.inicio)
-      if (di && (!dd || dd < di)) return false
-      if (df && (!dd || dd > df)) return false
+      if (di && (!dd || dd < di)) {
+        console.log('❌ Filtrado por data início:', a.inicio, 'dd:', dd, 'di:', di)
+        return false
+      }
+      if (df && (!dd || dd > df)) {
+        console.log('❌ Filtrado por data fim:', a.inicio, 'dd:', dd, 'df:', df)
+        return false
+      }
       if (filtros.maquina) {
         const sel = normTxt(filtros.maquina)
         const nome = normTxt(resolveMaquinaNome(a))
@@ -1684,7 +1696,7 @@ const Relatorios = () => {
               >
                 <option value="">Todos os operadores</option>
                 {operadores.map(op => (
-                  <option key={op.id} value={op.id}>{op.nome}</option>
+                  <option key={op.id} value={op.nome}>{op.nome}</option>
                 ))}
               </select>
             </div>
