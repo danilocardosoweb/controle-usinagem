@@ -372,3 +372,32 @@ Auditoria de correções realizadas em apontamentos (apenas admin).
 
 **Propósito:**
 Manter rastreabilidade completa de todas as correções de apontamentos, incluindo dados anteriores, novos, quem corrigiu, quando e por quê. Suporta reversão de correções com justificativa.
+
+## Tabela: `estoque_acabados_mov`
+Histórico completo de movimentações de itens acabados (entradas, saídas, ajustes, transferências).
+- `id`: UUID com `DEFAULT gen_random_uuid()`.
+- `produto`: Código do produto (TEXT, obrigatório).
+- `tipo`: Tipo de movimentação (TEXT, obrigatório). Valores permitidos: `entrada`, `saida`, `ajuste`, `transferencia`.
+- `quantidade`: Quantidade movimentada (NUMERIC, obrigatório).
+- `saldo_anterior`: Saldo antes da movimentação (NUMERIC, opcional).
+- `saldo_posterior`: Saldo após a movimentação (NUMERIC, opcional).
+- `motivo`: Motivo da movimentação (TEXT, opcional).
+- `pedido_seq`: Número do pedido/seq relacionado (TEXT, opcional).
+- `cliente`: Nome do cliente (TEXT, opcional).
+- `deposito`: Depósito onde ocorreu a movimentação (TEXT, opcional).
+- `responsavel`: Nome do responsável pela movimentação (TEXT, obrigatório).
+- `observacao`: Observações adicionais (TEXT, opcional).
+- `referencia_id`: UUID de referência para outra tabela (opcional).
+- `created_at`: Data/hora de criação (TIMESTAMPTZ UTC).
+
+**Índices:**
+- `idx_estoque_acabados_mov_produto` em `produto`
+- `idx_estoque_acabados_mov_tipo` em `tipo`
+- `idx_estoque_acabados_mov_created_at` em `created_at DESC`
+- `idx_estoque_acabados_mov_responsavel` em `responsavel`
+
+**RLS Policies:**
+- `Permitir acesso total a estoque_acabados_mov`: Permite todas as operações.
+
+**Propósito:**
+Rastrear todas as movimentações de itens acabados no estoque, incluindo quem fez, quando, quantidade e motivo. Permite auditorias e relatórios de controle de estoque.

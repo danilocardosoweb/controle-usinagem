@@ -55,6 +55,7 @@ export default function Estoque() {
   const { items: ferrMov } = useSupabase('exp_ferramentas_mov')
   const { items: inventariosAcabados, loadItems: loadInventariosAcabados } = useSupabase('estoque_acabados_inventarios')
   const { items: movimentacoesDeposito, loadItems: loadMovimentacoesDeposito } = useSupabase('movimentacoes_deposito')
+  const { items: acabadosMov, loadItems: loadAcabadosMov } = useSupabase('estoque_acabados_mov')
 
   // Função para obter o depósito atual de um produto
   const getDepositoAtual = (produto) => {
@@ -157,6 +158,15 @@ export default function Estoque() {
   const [imageModalOpen, setImageModalOpen] = useState(false)
   const [imageModalData, setImageModalData] = useState({ url: '', name: '' })
   const [correcaoLancamentoOpen, setCorrecaoLancamentoOpen] = useState(false)
+
+  // Estados para Histórico de Movimentações
+  const [historicoOpen, setHistoricoOpen] = useState(false)
+  const [historicoTipo, setHistoricoTipo] = useState('todos') // todos | acabados | insumos | ferramentas
+  const [historicoFiltroDataInicio, setHistoricoFiltroDataInicio] = useState('')
+  const [historicoFiltroDataFim, setHistoricoFiltroDataFim] = useState('')
+  const [historicoFiltroProduto, setHistoricoFiltroProduto] = useState('')
+  const [historicoFiltroResponsavel, setHistoricoFiltroResponsavel] = useState('')
+  const [historicoFiltroTipoMov, setHistoricoFiltroTipoMov] = useState('') // entrada | saida | ajuste | transferencia
 
   const insumoFotoInputRef = useRef(null)
 
@@ -622,6 +632,160 @@ export default function Estoque() {
       .slice(0, 50)
   }, [insumosMov, ferrMov])
 
+  // Histórico unificado completo (Acabados + Insumos + Ferramentas) com filtros
+  const historicoUnificado = useMemo(() => {
+    // Itens acabados
+    const acabados = (Array.isArray(acabadosMov) ? acabadosMov : []).map((m) => ({
+      data: m.created_at,
+      tipo: m.tipo,
+      item: m.produto,
+      categoria: 'Acabado',
+      qtd: Number(m.quantidade || 0),
+      unidade: 'pcs',
+      resp: m.responsavel || '-',
+      maquina: '',
+      origem: 'acabado',
+      motivo: m.motivo || '',
+      pedido: m.pedido_seq || '',
+      cliente: m.cliente || '',
+      deposito: m.deposito || '',
+      observacao: m.observacao || ''
+    }))
+    
+    // Insumos
+    const insumosHist = (Array.isArray(insumosMov) ? insumosMov : []).map((m) => ({
+      data: m.created_at,
+      tipo: m.tipo,
+      item: m.nome,
+      categoria: m.categoria || 'Insumo',
+      qtd: Number(m.quantidade || 0),
+      unidade: m.unidade || '',
+      resp: m.responsavel || '-',
+      maquina: m.maquina || '',
+      origem: 'insumo',
+      motivo: m.motivo || '',
+      pedido: '',
+      cliente: '',
+      deposito: '',
+      observacao: m.observacao || ''
+    }))
+    
+    // Ferramentas
+    const ferramentasHist = (Array.isArray(ferrMov) ? ferrMov : []).map((m) => ({
+      data: m.created_at,
+      tipo: m.tipo,
+      item: m.ferramenta,
+      categoria: m.categoria || 'Ferramenta',
+      qtd: Number(m.quantidade || 0),
+      unidade: m.unidade || '',
+      resp: m.responsavel || '-',
+      maquina: m.maquina || '',
+      origem: 'ferramenta',
+      motivo: m.motivo || '',
+      pedido: '',
+      cliente: '',
+      deposito: '',
+      observacao: m.observacao || ''
+    }))
+    
+    let todos = [...acabados, ...insumosHist, ...ferramentasHist]
+    
+    // Aplicar filtros
+    if (historicoTipo !== 'todos') {
+      todos = todos.filter(h => h.origem === historicoTipo)
+    }
+    if (historicoFiltroTipoMov) {
+      todos = todos.filter(h => h.tipo === historicoFiltroTipoMov)
+    }
+    if (historicoFiltroProduto) {
+      const termo = historicoFiltroProduto.toLowerCase()
+      todos = todos.filter(h => (h.item || '').toLowerCase().includes(termo))
+    }
+    if (historicoFiltroResponsavel) {
+      const termo = historicoFiltroResponsavel.toLowerCase()
+      todos = todos.filter(h => (h.resp || '').toLowerCase().includes(termo))
+    }
+    if (historicoFiltroDataInicio) {
+      const dataInicio = new Date(historicoFiltroDataInicio)
+      todos = todos.filter(h => new Date(h.data) >= dataInicio)
+    }
+    if (historicoFiltroDataFim) {
+      const dataFim = new Date(historicoFiltroDataFim + 'T23:59:59')
+      todos = todos.filter(h => new Date(h.data) <= dataFim)
+    }
+    
+    return todos.sort((x, y) => new Date(y.data || 0) - new Date(x.data || 0))
+  }, [acabadosMov, insumosMov, ferrMov, historicoTipo, historicoFiltroTipoMov, historicoFiltroProduto, historicoFiltroResponsavel, historicoFiltroDataInicio, historicoFiltroDataFim])
+
+  // Função para registrar movimentação de item acabado
+  const registrarMovimentacaoAcabado = async (dados) => {
+    try {
+      await supabaseService.create('estoque_acabados_mov', {
+        produto: dados.produto,
+        tipo: dados.tipo,
+        quantidade: dados.quantidade,
+        saldo_anterior: dados.saldo_anterior || null,
+        saldo_posterior: dados.saldo_posterior || null,
+        motivo: dados.motivo || null,
+        pedido_seq: dados.pedido_seq || null,
+        cliente: dados.cliente || null,
+        deposito: dados.deposito || null,
+        responsavel: dados.responsavel || user?.nome || 'Sistema',
+        observacao: dados.observacao || null,
+        referencia_id: dados.referencia_id || null
+      })
+      await loadAcabadosMov()
+    } catch (error) {
+      console.error('Erro ao registrar movimentação:', error)
+    }
+  }
+
+  // Função para exportar histórico para Excel
+  const exportarHistoricoExcel = () => {
+    const dados = historicoUnificado.map(h => ({
+      'Data/Hora': h.data ? new Date(h.data).toLocaleString('pt-BR') : '-',
+      'Tipo': h.tipo,
+      'Origem': h.origem === 'acabado' ? 'Item Acabado' : h.origem === 'insumo' ? 'Insumo' : 'Ferramenta',
+      'Item/Produto': h.item,
+      'Categoria': h.categoria,
+      'Quantidade': h.qtd,
+      'Unidade': h.unidade,
+      'Responsável': h.resp,
+      'Máquina': h.maquina,
+      'Motivo': h.motivo,
+      'Pedido': h.pedido,
+      'Cliente': h.cliente,
+      'Depósito': h.deposito,
+      'Observação': h.observacao
+    }))
+    
+    const ws = XLSX.utils.json_to_sheet(dados)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Histórico Movimentações')
+    
+    // Ajustar largura das colunas
+    const colWidths = [
+      { wch: 18 }, // Data/Hora
+      { wch: 12 }, // Tipo
+      { wch: 14 }, // Origem
+      { wch: 25 }, // Item/Produto
+      { wch: 18 }, // Categoria
+      { wch: 10 }, // Quantidade
+      { wch: 8 },  // Unidade
+      { wch: 20 }, // Responsável
+      { wch: 15 }, // Máquina
+      { wch: 15 }, // Motivo
+      { wch: 12 }, // Pedido
+      { wch: 20 }, // Cliente
+      { wch: 12 }, // Depósito
+      { wch: 30 }, // Observação
+    ]
+    ws['!cols'] = colWidths
+    
+    const dataAtual = new Date().toISOString().split('T')[0]
+    XLSX.writeFile(wb, `historico_movimentacoes_${dataAtual}.xlsx`)
+  }
+
   const insumosIndicadores = useMemo(() => {
     // Saldo real por nome via view
     const saldoMap = {}
@@ -746,10 +910,25 @@ export default function Estoque() {
         lote_codigo: loteCodigo,
         tipo_baixa: motivo,
         quantidade_pc: quantidade,
-        baixado_por: 'Sistema',
+        baixado_por: user?.nome || 'Sistema',
         baixado_em: new Date().toISOString(),
         estornado: false,
       })
+      
+      // Registrar movimentação no histórico
+      await registrarMovimentacaoAcabado({
+        produto,
+        tipo: 'saida',
+        quantidade,
+        saldo_anterior: saldoAtual,
+        saldo_posterior: saldoAtual - quantidade,
+        motivo,
+        pedido_seq: baixaForm.numero_pedido || null,
+        cliente: baixaForm.cliente || null,
+        responsavel: user?.nome || 'Sistema',
+        observacao: `Baixa automática - ${motivo}`
+      })
+      
       await loadBaixas()
     } catch (err) {
       console.error('Erro ao dar baixa:', err)
@@ -766,13 +945,21 @@ export default function Estoque() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">Estoque</h1>
-        <div className="flex items-center gap-2 text-sm">
-          <label className="text-gray-600">Giro nos últimos</label>
-          <select className="border rounded px-2 py-1" value={periodo} onChange={(e)=>setPeriodo(e.target.value)}>
-            <option value="7">7 dias</option>
-            <option value="30">30 dias</option>
-            <option value="90">90 dias</option>
-          </select>
+        <div className="flex items-center gap-4 text-sm">
+          <button
+            onClick={() => setHistoricoOpen(true)}
+            className="px-4 py-2 rounded bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition flex items-center gap-2"
+          >
+            <FaHistory /> Histórico de Movimentações
+          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-gray-600">Giro nos últimos</label>
+            <select className="border rounded px-2 py-1" value={periodo} onChange={(e)=>setPeriodo(e.target.value)}>
+              <option value="7">7 dias</option>
+              <option value="30">30 dias</option>
+              <option value="90">90 dias</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -993,8 +1180,22 @@ export default function Estoque() {
                   observacao: inventarioForm?.observacao || null,
                   lote: inventarioForm?.lote || null,
                   numero_pedido: inventarioForm?.numero_pedido || null,
-                  criado_por: null
+                  criado_por: user?.id || null
                 })
+                
+                // Registrar movimentação no histórico
+                await registrarMovimentacaoAcabado({
+                  produto,
+                  tipo: 'ajuste',
+                  quantidade: Math.abs(delta),
+                  saldo_anterior: saldoAntes,
+                  saldo_posterior: saldoFinal,
+                  motivo,
+                  pedido_seq: inventarioForm?.numero_pedido || null,
+                  responsavel: user?.nome || 'Sistema',
+                  observacao: inventarioForm?.observacao || `Ajuste de inventário: ${delta > 0 ? '+' : ''}${delta} pcs`
+                })
+                
                 await loadInventariosAcabados()
                 setInventarioOpen(false)
                 setInventarioForm({ produto: '', saldoAtual: 0, saldoFinal: '', motivo: 'inventario', observacao: '', lote: '', numero_pedido: '' })
@@ -2550,6 +2751,180 @@ export default function Estoque() {
           loadInsumosSaldo()
         }}
       />
+
+      {/* Modal de Histórico de Movimentações */}
+      {historicoOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col mx-4">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <FaHistory className="text-blue-600" />
+                Histórico de Movimentações
+              </h2>
+              <button onClick={() => setHistoricoOpen(false)} className="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
+            </div>
+            
+            {/* Filtros */}
+            <div className="px-6 py-4 border-b bg-gray-50">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Origem</label>
+                  <select
+                    value={historicoTipo}
+                    onChange={(e) => setHistoricoTipo(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="acabado">Itens Acabados</option>
+                    <option value="insumo">Insumos</option>
+                    <option value="ferramenta">Ferramentas</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Tipo Mov.</label>
+                  <select
+                    value={historicoFiltroTipoMov}
+                    onChange={(e) => setHistoricoFiltroTipoMov(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Todos</option>
+                    <option value="entrada">Entrada</option>
+                    <option value="saida">Saída</option>
+                    <option value="ajuste">Ajuste</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Data Início</label>
+                  <input
+                    type="date"
+                    value={historicoFiltroDataInicio}
+                    onChange={(e) => setHistoricoFiltroDataInicio(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Data Fim</label>
+                  <input
+                    type="date"
+                    value={historicoFiltroDataFim}
+                    onChange={(e) => setHistoricoFiltroDataFim(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Produto/Item</label>
+                  <input
+                    type="text"
+                    placeholder="Buscar..."
+                    value={historicoFiltroProduto}
+                    onChange={(e) => setHistoricoFiltroProduto(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Responsável</label>
+                  <input
+                    type="text"
+                    placeholder="Buscar..."
+                    value={historicoFiltroResponsavel}
+                    onChange={(e) => setHistoricoFiltroResponsavel(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-sm text-gray-600">
+                  {historicoUnificado.length} registro(s) encontrado(s)
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setHistoricoTipo('todos')
+                      setHistoricoFiltroTipoMov('')
+                      setHistoricoFiltroDataInicio('')
+                      setHistoricoFiltroDataFim('')
+                      setHistoricoFiltroProduto('')
+                      setHistoricoFiltroResponsavel('')
+                    }}
+                    className="px-3 py-1.5 text-sm rounded bg-gray-200 hover:bg-gray-300 text-gray-700"
+                  >
+                    Limpar Filtros
+                  </button>
+                  <button
+                    onClick={exportarHistoricoExcel}
+                    className="px-3 py-1.5 text-sm rounded bg-green-600 hover:bg-green-700 text-white flex items-center gap-1"
+                  >
+                    <FaFileExcel /> Exportar Excel
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Tabela */}
+            <div className="flex-1 overflow-auto px-6 py-4">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Data/Hora</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Tipo</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Origem</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Item/Produto</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-700">Qtd</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Responsável</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Motivo</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-700">Obs.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historicoUnificado.slice(0, 200).map((h, idx) => (
+                    <tr key={idx} className="border-t hover:bg-gray-50">
+                      <td className="px-3 py-2 whitespace-nowrap">{h.data ? new Date(h.data).toLocaleString('pt-BR') : '-'}</td>
+                      <td className="px-3 py-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          h.tipo === 'entrada' ? 'bg-green-100 text-green-700' :
+                          h.tipo === 'saida' ? 'bg-red-100 text-red-700' :
+                          h.tipo === 'ajuste' ? 'bg-yellow-100 text-yellow-700' :
+                          h.tipo === 'transferencia' ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {h.tipo}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          h.origem === 'acabado' ? 'bg-purple-100 text-purple-700' :
+                          h.origem === 'insumo' ? 'bg-indigo-100 text-indigo-700' :
+                          'bg-orange-100 text-orange-700'
+                        }`}>
+                          {h.origem === 'acabado' ? 'Acabado' : h.origem === 'insumo' ? 'Insumo' : 'Ferramenta'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 font-medium">{h.item}</td>
+                      <td className="px-3 py-2 text-right">{Number(h.qtd).toLocaleString('pt-BR')} {h.unidade}</td>
+                      <td className="px-3 py-2">{h.resp}</td>
+                      <td className="px-3 py-2">{h.motivo || '-'}</td>
+                      <td className="px-3 py-2 text-gray-500 max-w-[150px] truncate" title={h.observacao}>{h.observacao || '-'}</td>
+                    </tr>
+                  ))}
+                  {historicoUnificado.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-500">
+                        Nenhuma movimentação encontrada com os filtros selecionados.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {historicoUnificado.length > 200 && (
+                <div className="text-center text-sm text-gray-500 py-3">
+                  Exibindo os primeiros 200 registros. Use os filtros para refinar a busca ou exporte para Excel para ver todos.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
