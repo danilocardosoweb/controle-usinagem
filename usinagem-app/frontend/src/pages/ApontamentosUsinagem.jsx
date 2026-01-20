@@ -3275,7 +3275,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     {modo === 'embalagem' && <th className="text-left px-3 py-2">Etapa</th>}
                     <th className="text-left px-3 py-2">Quantidade</th>
                     <th className="text-left px-3 py-2">Comprimento</th>
-                    <th className="text-left px-3 py-2">Comprimento Longo</th>
+                    <th className="text-left px-3 py-2">Comp. Longo</th>
                     <th className="text-left px-3 py-2">Operador</th>
                     <th className="text-left px-3 py-2">Rack/Pallet</th>
                     <th className="text-left px-3 py-2">Obs.</th>
@@ -3385,10 +3385,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2">Ferramenta</th>
                     <th className="text-left px-3 py-2">Produto</th>
                     <th className="text-left px-3 py-2">Comprimento</th>
-                    <th className="text-left px-3 py-2">Comprimento Longo</th>
+                    <th className="text-left px-3 py-2">Comp. Longo</th>
                     <th className="text-left px-3 py-2">Cliente</th>
                     <th className="text-left px-3 py-2">Pedido.Cliente</th>
                     <th className="text-left px-3 py-2">Data Entrega</th>
+                    <th className="text-right px-3 py-2">Saldo</th>
                     <th className="text-left px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -3403,6 +3404,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2">{o.cliente}</td>
                       <td className="px-3 py-2">{o.pedidoCliente}</td>
                       <td className="px-3 py-2">{o.dtFatura ? new Date(o.dtFatura).toLocaleDateString('pt-BR') : '-'}</td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        <span className={Number(o.qtdPedido || 0) - (totalApontado || 0) <= 0 ? 'text-green-600' : 'text-orange-600'}>
+                          {Number(o.qtdPedido || 0) - (totalApontado || 0)}
+                        </span>
+                      </td>
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
