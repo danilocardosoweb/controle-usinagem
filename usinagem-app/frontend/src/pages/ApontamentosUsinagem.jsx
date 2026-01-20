@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones } from 'react-icons/fa'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox } from 'react-icons/fa'
 import { isVisualizador } from '../utils/auth'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
 import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
@@ -559,6 +559,140 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [buscarAmarradoAberto, setBuscarAmarradoAberto] = useState(false)
   const [numeroAmarrado, setNumeroAmarrado] = useState('')
   const [resultadosAmarrado, setResultadosAmarrado] = useState([]) // [{rack, lote, produto, pedido_seq, romaneio, codigo, qt_kg, qtd_pc}]
+  // Buscar Rack por Código do Produto
+  const [buscarRackProdutoAberto, setBuscarRackProdutoAberto] = useState(false)
+  const [codigoProdutoBusca, setCodigoProdutoBusca] = useState('')
+  const [filtroFerramentaBusca, setFiltroFerramentaBusca] = useState('')
+  const [filtroComprimentoBusca, setFiltroComprimentoBusca] = useState('')
+  
+  // Extrai ferramenta do código do produto (ex: TG2012565508NANV -> TG-2012)
+  const extrairFerramenta = (produto) => {
+    if (!produto) return ''
+    const s = String(produto).toUpperCase()
+    const re3 = /^([A-Z]{3})([A-Z0-9]+)/
+    const re2 = /^([A-Z]{2})([A-Z0-9]+)/
+    let letras = ''
+    let resto = ''
+    let qtdDigitos = 0
+    let m = s.match(re3)
+    if (m) {
+      letras = m[1]
+      resto = m[2]
+      qtdDigitos = 3
+    } else {
+      m = s.match(re2)
+      if (m) {
+        letras = m[1]
+        resto = m[2]
+        qtdDigitos = 4
+      } else {
+        return ''
+      }
+    }
+    let nums = ''
+    for (const ch of resto) {
+      if (/[0-9]/.test(ch)) {
+        nums += ch
+      } else if (ch === 'O') {
+        nums += '0'
+      }
+      if (nums.length === qtdDigitos) break
+    }
+    if (nums.length < qtdDigitos) {
+      nums = nums.padEnd(qtdDigitos, '0')
+    }
+    return `${letras}-${nums}`
+  }
+  
+  // Extrai o comprimento do acabado a partir do código do produto
+  const extrairComprimentoAcabado = (produto) => {
+    if (!produto) return ''
+    const produtoStr = String(produto)
+    const match = produtoStr.match(/(\d{3,4})([A-Z]{2,4})$/)
+    return match ? match[1] : ''
+  }
+  
+  // Busca em tempo real por código do Produto, Ferramenta e Comprimento
+  const resultadosRackProduto = useMemo(() => {
+    const codigoProd = String(codigoProdutoBusca || '').trim().toUpperCase()
+    const ferramBusca = String(filtroFerramentaBusca || '').trim().toUpperCase()
+    const compBusca = String(filtroComprimentoBusca || '').trim().toUpperCase()
+    
+    // Se nenhum filtro foi preenchido, retorna vazio
+    if (!codigoProd && !ferramBusca && !compBusca) return []
+    
+    // Mínimo 2 caracteres em pelo menos um filtro
+    const temFiltro = (codigoProd.length >= 2) || (ferramBusca.length >= 2) || (compBusca.length >= 1)
+    if (!temFiltro) return []
+    
+    // Buscar todos os lotes que atendam aos critérios
+    const lotesProduto = (lotesDB || []).filter(l => {
+      const produto = String(l.produto || '').toUpperCase().trim()
+      const ferramenta = extrairFerramenta(produto).toUpperCase()
+      const comprimento = extrairComprimentoAcabado(produto).toUpperCase()
+      
+      // Aplicar filtros (AND lógico)
+      if (codigoProd && !produto.includes(codigoProd)) return false
+      if (ferramBusca && !ferramenta.includes(ferramBusca)) return false
+      if (compBusca && !comprimento.includes(compBusca)) return false
+      
+      return produto.length > 0
+    })
+    
+    // Agrupar por Rack/Embalagem
+    const rackMap = new Map()
+    for (const l of lotesProduto) {
+      const rack = String(l.rack_embalagem || '').trim()
+      if (!rack) continue
+      
+      if (!rackMap.has(rack)) {
+        rackMap.set(rack, {
+          rack,
+          amarrados: [],
+          romaneios: new Set(),
+          produtos: new Set(),
+          pedidos: new Set(),
+          totalKg: 0,
+          totalPc: 0
+        })
+      }
+      
+      const entry = rackMap.get(rack)
+      entry.amarrados.push({
+        codigo: String(l.codigo || '').trim(),
+        lote: String(l.lote || '').trim(),
+        produto: String(l.produto || '').trim(),
+        pedido_seq: String(l.pedido_seq || '').trim(),
+        romaneio: String(l.romaneio || '').trim()
+      })
+      
+      // Somar Qt Kg e Qtd PC
+      entry.totalKg += Number(l.qt_kg || 0)
+      entry.totalPc += Number(l.qtd_pc || 0)
+      
+      const romaneio = String(l.romaneio || '').trim()
+      if (romaneio) entry.romaneios.add(romaneio)
+      
+      const produto = String(l.produto || '').trim()
+      if (produto) entry.produtos.add(produto)
+      
+      const pedidoSeq = String(l.pedido_seq || '').trim()
+      if (pedidoSeq) entry.pedidos.add(pedidoSeq)
+    }
+    
+    // Converter para array
+    return Array.from(rackMap.values()).map(e => ({
+      rack: e.rack,
+      qtdAmarrados: e.amarrados.length,
+      amarrados: e.amarrados,
+      romaneios: Array.from(e.romaneios).join(', ') || '-',
+      produtos: Array.from(e.produtos).slice(0, 3).join(', ') + (e.produtos.size > 3 ? '...' : ''),
+      pedidos: Array.from(e.pedidos).slice(0, 3).join(', ') + (e.pedidos.size > 3 ? '...' : ''),
+      totalKg: e.totalKg,
+      totalPc: e.totalPc
+    })).sort((a, b) => b.qtdAmarrados - a.qtdAmarrados)
+  }, [codigoProdutoBusca, filtroFerramentaBusca, filtroComprimentoBusca, lotesDB])
+
   const [amarradosSelecionadosBusca, setAmarradosSelecionadosBusca] = useState([]) // indices dos amarrados selecionados na busca
   const [amarradosAcumulados, setAmarradosAcumulados] = useState([]) // todos os amarrados já selecionados nas buscas anteriores
   const amarradosFiltrados = useMemo(() => {
@@ -889,21 +1023,6 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Máquinas reais cadastradas em Configurações (IndexedDB)
   const { items: maquinas } = useSupabase('maquinas')
   
-  // Extrai o comprimento do acabado a partir do código do produto
-  const extrairComprimentoAcabado = (produto) => {
-    if (!produto) return ''
-
-    const produtoStr = String(produto)
-    if (produtoStr.length >= 12) {
-      const comprimento = produtoStr.slice(8, 12)
-      if (/^\d{4}$/.test(comprimento)) {
-        return `${comprimento}mm`
-      }
-    }
-
-    return ''
-  }
-
   // Extrai o comprimento do perfil longo (material longo)
   const extrairComprimentoPerfilLongo = (perfilLongo) => {
     if (!perfilLongo) return ''
@@ -967,50 +1086,6 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       lotesExternos: [],
       codigoProdutoCliente: ''
     })
-  }
-
-  // - Se iniciar com 3 letras: 3 letras + '-' + 3 dígitos seguintes
-  // - Se iniciar com 2 letras: 2 letras + '-' + 4 dígitos seguintes
-  // Observação: tratar a letra 'O' como dígito '0' nos blocos numéricos
-  const extrairFerramenta = (produto) => {
-    if (!produto) return ''
-    const s = String(produto).toUpperCase()
-    // Verificar 3 ou 2 letras no início (aceita vogais)
-    const re3 = /^([A-Z]{3})([A-Z0-9]+)/
-    const re2 = /^([A-Z]{2})([A-Z0-9]+)/
-    let letras = ''
-    let resto = ''
-    let qtdDigitos = 0
-    let m = s.match(re3)
-    if (m) {
-      letras = m[1]
-      resto = m[2]
-      qtdDigitos = 3
-    } else {
-      m = s.match(re2)
-      if (m) {
-        letras = m[1]
-        resto = m[2]
-        qtdDigitos = 4
-      } else {
-        return ''
-      }
-    }
-    // Extrair dígitos do resto, convertendo 'O' -> '0'
-    let nums = ''
-    for (const ch of resto) {
-      if (/[0-9]/.test(ch)) {
-        nums += ch
-      } else if (ch === 'O') {
-        nums += '0'
-      }
-      if (nums.length === qtdDigitos) break
-    }
-    // Se ainda faltaram dígitos, completa com zeros à direita
-    if (nums.length < qtdDigitos) {
-      nums = nums.padEnd(qtdDigitos, '0')
-    }
-    return `${letras}-${nums}`
   }
 
   // Obtém um campo de dados_originais com busca case-insensitive e ignorando pontuação
@@ -1693,7 +1768,20 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">{tituloPagina}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-800">{tituloPagina}</h1>
+        <button
+          type="button"
+          className="px-4 py-2 rounded bg-orange-500 text-white font-medium hover:bg-orange-600 transition flex items-center gap-2 text-sm"
+          title="Buscar Rack/Embalagem por código do Produto"
+          onClick={() => {
+            setBuscarRackProdutoAberto(true)
+            setCodigoProdutoBusca('')
+          }}
+        >
+          <FaBox /> Rack!Embalagem
+        </button>
+      </div>
       
       <div className="bg-white rounded-lg shadow p-4 form-compact">
         <div className="flex items-center justify-between mb-4">
@@ -3376,6 +3464,151 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             setApontamentoParaCorrigir(null)
           }}
         />
+      )}
+
+      {/* Modal: Buscar Rack/Embalagem por Código do Produto */}
+      {buscarRackProdutoAberto && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black bg-opacity-40" onClick={() => setBuscarRackProdutoAberto(false)}></div>
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col mx-4">
+            <div className="px-6 py-4 border-b flex items-center justify-between bg-orange-50">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <FaBox className="text-orange-500" />
+                Buscar Rack!Embalagem por Produto
+              </h3>
+              <button 
+                className="text-gray-500 hover:text-gray-700 text-xl" 
+                onClick={() => setBuscarRackProdutoAberto(false)}
+              >
+                &times;
+              </button>
+            </div>
+            
+            {/* Campos de filtro */}
+            <div className="px-6 py-4 border-b bg-gray-50 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Código do Produto</label>
+                <input
+                  type="text"
+                  className="w-full border rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  placeholder="Ex: TG2012565508NANV"
+                  value={codigoProdutoBusca}
+                  onChange={(e) => setCodigoProdutoBusca(e.target.value.toUpperCase())}
+                  autoFocus
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ferramenta</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="Ex: TR, TG, TP"
+                    value={filtroFerramentaBusca}
+                    onChange={(e) => setFiltroFerramentaBusca(e.target.value.toUpperCase())}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Comprimento</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="Ex: 100, 200, 500"
+                    value={filtroComprimentoBusca}
+                    onChange={(e) => setFiltroComprimentoBusca(e.target.value.toUpperCase())}
+                  />
+                </div>
+              </div>
+              
+              <p className="text-xs text-gray-500">
+                {resultadosRackProduto.length === 0 ? (
+                  codigoProdutoBusca.length >= 2 || filtroFerramentaBusca.length >= 2 || filtroComprimentoBusca.length >= 1
+                    ? 'Nenhum resultado encontrado'
+                    : 'Preencha pelo menos um filtro'
+                ) : (
+                  `${resultadosRackProduto.length} rack(s) encontrado(s)`
+                )}
+              </p>
+            </div>
+            
+            {/* Resultados */}
+            <div className="flex-1 overflow-auto px-6 py-4">
+              {resultadosRackProduto.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="text-sm text-gray-600 mb-2">
+                    Encontrado(s) <strong>{resultadosRackProduto.length}</strong> Rack(s)
+                    {codigoProdutoBusca && ` - Produto: ${codigoProdutoBusca}`}
+                    {filtroFerramentaBusca && ` - Ferramenta: ${filtroFerramentaBusca}`}
+                    {filtroComprimentoBusca && ` - Comprimento: ${filtroComprimentoBusca}`}
+                  </div>
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-700">Rack!Embalagem</th>
+                        <th className="text-center px-4 py-3 font-semibold text-gray-700">Qtd Amarrados</th>
+                        <th className="text-right px-4 py-3 font-semibold text-gray-700">Qt Kg</th>
+                        <th className="text-right px-4 py-3 font-semibold text-gray-700">Qtd PC</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-700">Romaneio(s)</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-700">Produto(s)</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-700">Pedido(s)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resultadosRackProduto.map((r, idx) => (
+                        <tr key={idx} className="border-t hover:bg-orange-50">
+                          <td className="px-4 py-3">
+                            <span className="px-3 py-1 rounded bg-orange-100 text-orange-800 font-bold text-base">
+                              {r.rack}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="px-3 py-1 rounded bg-blue-100 text-blue-800 font-semibold">
+                              {r.qtdAmarrados}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-700">
+                            {Number(r.totalKg || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-700">
+                            {Number(r.totalPc || 0).toLocaleString('pt-BR')}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700">{r.romaneios}</td>
+                          <td className="px-4 py-3 text-gray-600 text-xs max-w-[200px] truncate" title={r.produtos}>{r.produtos}</td>
+                          <td className="px-4 py-3 text-gray-600 text-xs max-w-[150px] truncate" title={r.pedidos}>{r.pedidos}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : codigoProdutoBusca.length >= 2 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                  <FaBox className="text-5xl text-gray-300 mb-4" />
+                  <p className="text-lg">Nenhum Rack encontrado para "{codigoProdutoBusca}"</p>
+                  <p className="text-sm mt-1">Verifique se o código está correto ou tente outro termo</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <FaSearch className="text-5xl text-gray-200 mb-4" />
+                  <p className="text-lg">Digite o código do produto para buscar</p>
+                  <p className="text-sm mt-1">Ex: TG2012565508NANV, TP8329, TG201</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Rodapé */}
+            <div className="px-6 py-3 border-t bg-gray-50 flex justify-end">
+              <button
+                type="button"
+                className="px-4 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                onClick={() => setBuscarRackProdutoAberto(false)}
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
