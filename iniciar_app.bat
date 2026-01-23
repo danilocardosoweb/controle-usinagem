@@ -23,9 +23,57 @@ if not exist "usinagem-app" (
 REM Instalar dependências do backend se necessário
 echo [1/4] Verificando dependências do backend...
 cd usinagem-app\backend
+
+REM Procurar Python em locais comuns
+set "PYTHON_CMD="
+for %%P in (python python3 py) do (
+    %%P --version >nul 2>&1
+    if errorlevel 0 (
+        set "PYTHON_CMD=%%P"
+        goto :python_found
+    )
+)
+
+REM Se não encontrou, procurar em caminhos específicos
+if "!PYTHON_CMD!"=="" (
+    if exist "C:\Python311\python.exe" (
+        set "PYTHON_CMD=C:\Python311\python.exe"
+    ) else if exist "C:\Python310\python.exe" (
+        set "PYTHON_CMD=C:\Python310\python.exe"
+    ) else if exist "C:\Python39\python.exe" (
+        set "PYTHON_CMD=C:\Python39\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+        set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" (
+        set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+    )
+)
+
+:python_found
+if "!PYTHON_CMD!"=="" (
+    echo.
+    echo ❌ ERRO: Python não foi encontrado!
+    echo.
+    echo Soluções:
+    echo 1. Reinstale Python de: https://www.python.org/downloads/
+    echo 2. Marque "Add Python to PATH" durante a instalação
+    echo 3. Reinicie o computador após instalar
+    echo 4. Tente executar este script novamente
+    echo.
+    pause
+    exit /b 1
+)
+
+echo Python encontrado: !PYTHON_CMD!
+
 if not exist "venv" (
     echo Criando ambiente virtual do backend...
-    python -m venv venv
+    "!PYTHON_CMD!" -m venv venv
+    if errorlevel 1 (
+        echo Erro ao criar ambiente virtual!
+        pause
+        exit /b 1
+    )
 )
 
 echo Instalando pacotes do backend...
