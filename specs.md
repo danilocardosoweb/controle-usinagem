@@ -269,3 +269,15 @@ O Sistema de Controle e Apontamentos da Usinagem é uma aplicação web desenvol
 4. Informa o horário de início
 5. Ao finalizar a parada, registra o horário de fim
 6. Sistema atualiza os indicadores de disponibilidade
+
+### Fluxo de Sequenciamento (Fila de Produção)
+
+1. Usuário acessa "Previsão de Trabalho" e abre a subaba "Fila de Produção"
+2. Sistema carrega a fila atual a partir da carteira de pedidos (fila única)
+3. Usuário escolhe o agrupamento de visualização: Cliente, Pedido Cliente ou Pedido/Seq
+4. Usuário rearranja a sequência dos itens com arrastar-e-soltar
+5. Usuário recolhe/expande grupos (Cliente ou Pedido Cliente) para focar na programação
+6. Usuário pode ordenar a sequência por Dt.Fatura (mais cedo primeiro) no cenário selecionado
+7. Usuário cria uma simulação para testar uma nova sequência sem alterar o cenário atual
+8. Usuário aplica a simulação para tornar a sequência oficial (cenário atual) ou descarta a simulação
+9. Usuário exporta a fila do cenário selecionado para Excel e entrega ao operador como sequenciamento de trabalho

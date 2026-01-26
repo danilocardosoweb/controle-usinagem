@@ -534,8 +534,15 @@
 [14/10/2025 08:28] - [Frontend] - [Correção de duplicação de funções helper] - [Windsurf]
 - Removidas declarações duplicadas de extrairFerramenta e extrairComprimentoAcabado
 - Funções agora definidas apenas no topo do arquivo (fora do componente)
-- Corrigido erro: "can't access lexical declaration 'extrairFerramenta' before initialization"
-- Sistema de filtros por Ferramenta e Comprimento funcionando corretamente
+
+[26/01/2026 14:42] - [Frontend] - [Nova subaba Fila de Produção (fila única) com drag-and-drop e simulações] - [Cascade]
+- Adicionada subaba "Fila de Produção" na tela Previsão de Trabalho (fila única)
+- Drag-and-drop para reordenar sequência
+- Cenários: Atual e Simulação 1 (criar/aplicar/descartar)
+- Persistência em configuracoes (Supabase) com fallback localStorage
+- Recolher/expandir por grupo (Cliente/Pedido Cliente)
+- Botão para ordenar por Dt.Fatura (mais cedo primeiro) no cenário selecionado
+- Exportação do cenário selecionado para Excel
 
 [14/10/2025 08:26] - [Frontend] - [Adição de filtros por Ferramenta e Comprimento] - [Windsurf]
 - Novos filtros: Ferramenta e Comprimento nos relatórios

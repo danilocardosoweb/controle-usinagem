@@ -1,5 +1,5 @@
-import { useMemo, useState, useEffect } from 'react'
-import { FaClock, FaCalculator, FaChartLine, FaPlus, FaTrash, FaBusinessTime, FaSave, FaFileImport, FaProjectDiagram } from 'react-icons/fa'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { FaClock, FaCalculator, FaChartLine, FaPlus, FaTrash, FaBusinessTime, FaSave, FaFileImport, FaProjectDiagram, FaList } from 'react-icons/fa'
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 
@@ -40,7 +40,7 @@ const PrevisaoTrabalho = () => {
   const [ganttOrdenacao, setGanttOrdenacao] = useState('prazo') // 'prazo' | 'estimativa' | 'sequencia'
   const [ganttSombrarFds, setGanttSombrarFds] = useState(true)
   const [filtrosExpandidos, setFiltrosExpandidos] = useState(true)
-  const [apenasSaldoPositivo, setApenasSaldoPositivo] = useState(false)
+  const [apenasSaldoPositivo, setApenasSaldoPositivo] = useState(true)
   const [mostrarFormManual, setMostrarFormManual] = useState(false)
   const [mostrarEstimativaImportados, setMostrarEstimativaImportados] = useState(false)
   const [estimativaPcsDiaImportados, setEstimativaPcsDiaImportados] = useState(15000)
@@ -54,6 +54,12 @@ const PrevisaoTrabalho = () => {
   // Filtros e seleção de pedidos da carteira
   const [filtroPedidoCliente, setFiltroPedidoCliente] = useState('')
   const [pedidosSelecionados, setPedidosSelecionados] = useState([]) // array de pedido_seq
+
+  const [filaAgruparPor, setFilaAgruparPor] = useState('cliente') // 'cliente' | 'pedido_cliente' | 'pedido_seq'
+  const [filaCenario, setFilaCenario] = useState('atual') // 'atual' | 'sim1'
+  const [filaAtualIds, setFilaAtualIds] = useState([])
+  const [filaSim1Ids, setFilaSim1Ids] = useState([])
+  const [filaGruposRecolhidos, setFilaGruposRecolhidos] = useState({ cliente: [], pedido_cliente: [] })
 
   // Turnos de trabalho
   const [turnos, setTurnos] = useState([
@@ -71,6 +77,7 @@ const PrevisaoTrabalho = () => {
   const { items: apontamentos } = useSupabase('apontamentos')
   const { items: pedidos } = useSupabase('pedidos')
   const { items: maquinas } = useSupabase('maquinas')
+  const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
   
   // Importar planilha de cotação
   // Formato específico informado:
@@ -208,60 +215,114 @@ const PrevisaoTrabalho = () => {
   // Carregar turnos, extras e configurações a partir do Supabase (fallback: localStorage)
   useEffect(() => {
     ;(async () => {
+      // Turnos
       try {
-        // Tenta carregar do Supabase primeiro
         const turnosCfg = await supabaseService.obterConfiguracao('previsao_turnos')
-        if (Array.isArray(turnosCfg) && turnosCfg.length) {
-          setTurnos(turnosCfg)
-        }
-
-        const extrasCfg = await supabaseService.obterConfiguracao('previsao_extras')
-        if (extrasCfg && typeof extrasCfg === 'object') {
-          if (typeof extrasCfg.extrasDiaUtil === 'number') setExtrasDiaUtil(extrasCfg.extrasDiaUtil)
-          if (typeof extrasCfg.extrasSabado === 'number') setExtrasSabado(extrasCfg.extrasSabado)
-        }
-
-        const prodCfg = await supabaseService.obterConfiguracao('previsao_produtividade')
-        if (prodCfg && typeof prodCfg === 'object') {
-          if (prodCfg.modo) setModoProdutividade(prodCfg.modo)
-          if (typeof prodCfg.estimativaPcsPorDia === 'number' && prodCfg.estimativaPcsPorDia > 0) {
-            setEstimativaPcsPorDia(prodCfg.estimativaPcsPorDia)
-          } else {
-            setEstimativaPcsPorDia(15000)
-            await supabaseService.salvarConfiguracao('previsao_produtividade', { modo: 'estimativa', estimativaPcsPorDia: 15000 })
+        if (turnosCfg) {
+          const parsed = Array.isArray(turnosCfg)
+            ? turnosCfg
+            : (typeof turnosCfg === 'string' ? JSON.parse(turnosCfg) : null)
+          if (Array.isArray(parsed) && parsed.length) {
+            setTurnos(parsed)
+          }
+        } else {
+          const turnosSalvos = localStorage.getItem('previsao_turnos')
+          if (turnosSalvos) {
+            const parsed = JSON.parse(turnosSalvos)
+            if (Array.isArray(parsed) && parsed.length) setTurnos(parsed)
           }
         }
       } catch {}
-    })()
 
-    const turnosSalvos = localStorage.getItem('previsao_turnos')
-    if (turnosSalvos) {
-      setTurnos(JSON.parse(turnosSalvos))
-    }
-    const extras = localStorage.getItem('previsao_extras')
-    if (extras) {
+      // Extras
       try {
-        const obj = JSON.parse(extras)
-        if (typeof obj.extrasDiaUtil === 'number') setExtrasDiaUtil(obj.extrasDiaUtil)
-        if (typeof obj.extrasSabado === 'number') setExtrasSabado(obj.extrasSabado)
-      } catch {}
-    }
-    const configProd = localStorage.getItem('previsao_produtividade')
-    if (configProd) {
-      try {
-        const obj = JSON.parse(configProd)
-        if (obj.modo) setModoProdutividade(obj.modo)
-        if (typeof obj.estimativaPcsPorDia === 'number' && obj.estimativaPcsPorDia > 0) {
-          setEstimativaPcsPorDia(obj.estimativaPcsPorDia)
-        } else {
-          // Fallback padrão
-          setEstimativaPcsPorDia(15000)
+        const extrasCfg = await supabaseService.obterConfiguracao('previsao_extras')
+        const obj = extrasCfg
+          ? (typeof extrasCfg === 'string' ? JSON.parse(extrasCfg) : extrasCfg)
+          : (() => {
+            const extras = localStorage.getItem('previsao_extras')
+            return extras ? JSON.parse(extras) : null
+          })()
+        if (obj && typeof obj === 'object') {
+          if (typeof obj.extrasDiaUtil === 'number') setExtrasDiaUtil(obj.extrasDiaUtil)
+          if (typeof obj.extrasSabado === 'number') setExtrasSabado(obj.extrasSabado)
         }
       } catch {}
-    } else {
-      // Sem configuração prévia, aplica padrão
-      setEstimativaPcsPorDia(15000)
-    }
+
+      // Produtividade
+      try {
+        const prodCfg = await supabaseService.obterConfiguracao('previsao_produtividade')
+        const obj = prodCfg
+          ? (typeof prodCfg === 'string' ? JSON.parse(prodCfg) : prodCfg)
+          : (() => {
+            const configProd = localStorage.getItem('previsao_produtividade')
+            return configProd ? JSON.parse(configProd) : null
+          })()
+        if (obj && typeof obj === 'object') {
+          if (obj.modo) setModoProdutividade(obj.modo)
+          if (typeof obj.estimativaPcsPorDia === 'number' && obj.estimativaPcsPorDia > 0) {
+            setEstimativaPcsPorDia(obj.estimativaPcsPorDia)
+          }
+        } else {
+          setEstimativaPcsPorDia(15000)
+        }
+      } catch {
+        setEstimativaPcsPorDia(15000)
+      }
+
+      // Fila de Produção
+      try {
+        const filaAtualCfg = await supabaseService.obterConfiguracao('previsao_fila_atual')
+        if (filaAtualCfg) {
+          const parsed = typeof filaAtualCfg === 'string' ? JSON.parse(filaAtualCfg) : filaAtualCfg
+          if (Array.isArray(parsed)) setFilaAtualIds(parsed)
+        } else {
+          const ls = localStorage.getItem('previsao_fila_atual')
+          if (ls) {
+            const parsed = JSON.parse(ls)
+            if (Array.isArray(parsed)) setFilaAtualIds(parsed)
+          }
+        }
+      } catch {}
+      try {
+        const filaSimCfg = await supabaseService.obterConfiguracao('previsao_fila_sim1')
+        if (filaSimCfg) {
+          const parsed = typeof filaSimCfg === 'string' ? JSON.parse(filaSimCfg) : filaSimCfg
+          if (Array.isArray(parsed)) setFilaSim1Ids(parsed)
+        } else {
+          const ls = localStorage.getItem('previsao_fila_sim1')
+          if (ls) {
+            const parsed = JSON.parse(ls)
+            if (Array.isArray(parsed)) setFilaSim1Ids(parsed)
+          }
+        }
+      } catch {}
+      try {
+        const filaAgruparCfg = await supabaseService.obterConfiguracao('previsao_fila_agrupar_por')
+        const v = filaAgruparCfg
+          ? (typeof filaAgruparCfg === 'string' ? JSON.parse(filaAgruparCfg) : filaAgruparCfg)
+          : (() => {
+            const ls = localStorage.getItem('previsao_fila_agrupar_por')
+            return ls ? JSON.parse(ls) : null
+          })()
+        if (v === 'cliente' || v === 'pedido_cliente' || v === 'pedido_seq') setFilaAgruparPor(v)
+      } catch {}
+
+      try {
+        const filaGrpCfg = await supabaseService.obterConfiguracao('previsao_fila_grupos_recolhidos')
+        const v = filaGrpCfg
+          ? (typeof filaGrpCfg === 'string' ? JSON.parse(filaGrpCfg) : filaGrpCfg)
+          : (() => {
+            const ls = localStorage.getItem('previsao_fila_grupos_recolhidos')
+            return ls ? JSON.parse(ls) : null
+          })()
+        if (v && typeof v === 'object') {
+          const cliente = Array.isArray(v.cliente) ? v.cliente.map(String) : []
+          const pedido_cliente = Array.isArray(v.pedido_cliente) ? v.pedido_cliente.map(String) : []
+          setFilaGruposRecolhidos({ cliente, pedido_cliente })
+        }
+      } catch {}
+    })()
   }, [])
 
   // Garantir 15.000 pcs/dia quando o modo for 'estimativa'
@@ -274,9 +335,10 @@ const PrevisaoTrabalho = () => {
   }, [modoProdutividade])
 
   // Salvar turnos no localStorage
-  const salvarTurnos = async () => {
-    try { await supabaseService.salvarConfiguracao('previsao_turnos', turnos) } catch {}
-    try { localStorage.setItem('previsao_turnos', JSON.stringify(turnos)) } catch {}
+  const salvarTurnos = async (turnosPayload = null) => {
+    const payload = Array.isArray(turnosPayload) ? turnosPayload : turnos
+    try { await supabaseService.salvarConfiguracao('previsao_turnos', payload) } catch {}
+    try { localStorage.setItem('previsao_turnos', JSON.stringify(payload)) } catch {}
   }
   const salvarExtras = async () => {
     const payload = { extrasDiaUtil, extrasSabado }
@@ -287,6 +349,23 @@ const PrevisaoTrabalho = () => {
     const payload = { modo: modoProdutividade, estimativaPcsPorDia }
     try { await supabaseService.salvarConfiguracao('previsao_produtividade', payload) } catch {}
     try { localStorage.setItem('previsao_produtividade', JSON.stringify(payload)) } catch {}
+  }
+
+  const salvarFilaAtual = async (ids) => {
+    try { await supabaseService.salvarConfiguracao('previsao_fila_atual', ids) } catch {}
+    try { localStorage.setItem('previsao_fila_atual', JSON.stringify(ids)) } catch {}
+  }
+  const salvarFilaSim1 = async (ids) => {
+    try { await supabaseService.salvarConfiguracao('previsao_fila_sim1', ids) } catch {}
+    try { localStorage.setItem('previsao_fila_sim1', JSON.stringify(ids)) } catch {}
+  }
+  const salvarFilaAgruparPor = async (v) => {
+    try { await supabaseService.salvarConfiguracao('previsao_fila_agrupar_por', v) } catch {}
+    try { localStorage.setItem('previsao_fila_agrupar_por', JSON.stringify(v)) } catch {}
+  }
+  const salvarFilaGruposRecolhidos = async (obj) => {
+    try { await supabaseService.salvarConfiguracao('previsao_fila_grupos_recolhidos', obj) } catch {}
+    try { localStorage.setItem('previsao_fila_grupos_recolhidos', JSON.stringify(obj)) } catch {}
   }
 
   // Calcular horas base e horas úteis por dia considerando extras e tipo de dia
@@ -409,6 +488,20 @@ const PrevisaoTrabalho = () => {
     return stats
   }, [apontamentos, horasUteisSelecionadas, maquinasMap])
 
+  // Mapa de produtividade teórica (pcs/h) por ferramenta
+  const teoricoPorFerramenta = useMemo(() => {
+    const map = {}
+    if (!ferramentasCfg || ferramentasCfg.length === 0) return map
+    for (const cfg of ferramentasCfg) {
+      const key = String(cfg.ferramenta || '').trim().toUpperCase()
+      if (!key) continue
+      const val = parseFloat(cfg.teorico_produtividade_pcs_hora)
+      if (!Number.isFinite(val) || val <= 0) continue
+      map[key] = val
+    }
+    return map
+  }, [ferramentasCfg])
+
   // Contadores para estatísticas
   const estatisticasPedidos = useMemo(() => {
     if (!pedidos || pedidos.length === 0) return { total: 0, concluidos: 0, saldoNegativo: 0, validos: 0 }
@@ -431,7 +524,22 @@ const PrevisaoTrabalho = () => {
     return base
       .map(pedido => {
         const produtividade = produtividadePorProduto[pedido.produto]
-        const saldoProduzir = Math.max(0, parseFloat(pedido.saldo_a_prod) || 0) // Ignora valores negativos
+        const qtSaldoOp = parseFloat(pedido.qt_saldo_op) || 0
+        const saldoAProd = parseFloat(pedido.saldo_a_prod) || 0
+        const qtdPedido = parseFloat(pedido.qtd_pedido) || 0
+
+        const saldoBaseRaw = qtSaldoOp > 0
+          ? qtSaldoOp
+          : (saldoAProd > 0
+            ? saldoAProd
+            : (saldoAProd === 0 && qtdPedido > 0 ? qtdPedido : saldoAProd))
+
+        const saldoProduzir = Math.max(0, saldoBaseRaw)
+
+        const ferramentaDoProduto = extrairFerramenta(pedido.produto)
+        const teoricoPcsHora = ferramentaDoProduto
+          ? (teoricoPorFerramenta[String(ferramentaDoProduto).toUpperCase()] ?? null)
+          : null
         
         let estimativaHoras = 0
         let estimativaDias = 0
@@ -447,51 +555,332 @@ const PrevisaoTrabalho = () => {
             confiabilidade = 'Estimativa'
           }
         } else {
-          // Usar produtividade histórica (peças por hora)
-          if (saldoProduzir > 0 && produtividade && produtividade.pcsPorHora > 0) {
-            // Cálculo: Horas = Peças / (Peças por hora)
-            estimativaHoras = saldoProduzir / produtividade.pcsPorHora
-            // Dias = Horas / Horas úteis por dia
-            estimativaDias = estimativaHoras / (horasUteisSelecionadas || 24)
-            confiabilidade = produtividade.registros >= 5 ? 'Alta' : 
-                            produtividade.registros >= 2 ? 'Média' : 'Baixa'
+          // Usar produtividade histórica (peças por hora), com fallback para Teórico (pcs/h)
+          if (saldoProduzir > 0) {
+            const histOk = produtividade && produtividade.pcsPorHora > 0 && (produtividade.registros || 0) >= 2
+            const taxaPcsHora = histOk
+              ? produtividade.pcsPorHora
+              : (teoricoPcsHora && teoricoPcsHora > 0 ? teoricoPcsHora : 0)
+
+            if (taxaPcsHora > 0) {
+              // Cálculo: Horas = Peças / (Peças por hora)
+              estimativaHoras = saldoProduzir / taxaPcsHora
+              // Dias = Horas / Horas úteis por dia
+              estimativaDias = estimativaHoras / (horasUteisSelecionadas || 24)
+              confiabilidade = histOk
+                ? (produtividade.registros >= 5 ? 'Alta' : 'Média')
+                : 'Teórica'
+            }
           }
         }
         
         return {
           ...pedido,
           produtividade,
+          teoricoPcsHora,
           estimativaHoras: estimativaHoras.toFixed(2),
           estimativaDias: estimativaDias.toFixed(2),
           confiabilidade,
+          qtSaldoOp,
+          saldoAProd,
+          qtdPedido,
+          saldoBaseRaw,
           saldoProduzir
         }
       })
       .sort((a, b) => new Date(a.dt_fatura) - new Date(b.dt_fatura))
-  }, [pedidos, produtividadePorProduto, filtroPedidoCliente, horasUteisSelecionadas, modoProdutividade, estimativaPcsPorDia])
+  }, [pedidos, produtividadePorProduto, filtroPedidoCliente, horasUteisSelecionadas, modoProdutividade, estimativaPcsPorDia, teoricoPorFerramenta])
+
+  const estimativaCarteiraExibicao = useMemo(() => {
+    if (!apenasSaldoPositivo) return estimativaCarteira
+    return estimativaCarteira.filter(p => {
+      const v = Number(p.saldoBaseRaw ?? p.saldoAProd ?? p.saldo_a_prod ?? 0)
+      return Number.isFinite(v) && v >= 0
+    })
+  }, [estimativaCarteira, apenasSaldoPositivo])
+
+  const resumoCarteiraSaldo = useMemo(() => {
+    const total = estimativaCarteira.length
+    const saldoPos = estimativaCarteira.reduce((acc, p) => {
+      const v = Number(p.saldoBaseRaw ?? p.saldoAProd ?? p.saldo_a_prod ?? 0)
+      return acc + (Number.isFinite(v) && v >= 0 ? 1 : 0)
+    }, 0)
+    return { total, saldoPos }
+  }, [estimativaCarteira])
 
   // Itens efetivamente considerados no cálculo (quando há seleção, usa apenas selecionados)
   const itensParaCalculo = useMemo(() => {
-    if (pedidosSelecionados.length === 0) return estimativaCarteira
+    if (pedidosSelecionados.length === 0) return estimativaCarteiraExibicao
     const setSel = new Set(pedidosSelecionados)
-    return estimativaCarteira.filter(p => setSel.has(p.pedido_seq))
-  }, [estimativaCarteira, pedidosSelecionados])
+    return estimativaCarteiraExibicao.filter(p => setSel.has(p.pedido_seq))
+  }, [estimativaCarteiraExibicao, pedidosSelecionados])
 
   // Filtrar dados
   const dadosFiltrados = useMemo(() => {
-    let dados = abaSelecionada === 'carteira' ? estimativaCarteira : novosPedidos
+    let dados = abaSelecionada === 'carteira' ? estimativaCarteiraExibicao : novosPedidos
     
     if (filtros.produto) {
       dados = dados.filter(item => 
         item.produto?.toLowerCase().includes(filtros.produto.toLowerCase())
       )
     }
-    if (abaSelecionada === 'carteira' && apenasSaldoPositivo) {
-      dados = dados.filter(item => parseFloat(item.saldoProduzir ?? item.saldo_a_prod ?? 0) > 0)
-    }
     
     return dados
-  }, [estimativaCarteira, novosPedidos, filtros, abaSelecionada, apenasSaldoPositivo])
+  }, [estimativaCarteiraExibicao, novosPedidos, filtros, abaSelecionada])
+
+  const filaBaseItens = useMemo(() => {
+    return (estimativaCarteiraExibicao || []).filter(p => {
+      const id = p.pedido_seq
+      return id !== null && id !== undefined && String(id).trim() !== ''
+    })
+  }, [estimativaCarteiraExibicao])
+
+  const filaBasePorId = useMemo(() => {
+    const map = new Map()
+    for (const p of filaBaseItens) {
+      map.set(String(p.pedido_seq), p)
+    }
+    return map
+  }, [filaBaseItens])
+
+  const filaBaseIdsDefault = useMemo(() => filaBaseItens.map(p => String(p.pedido_seq)), [filaBaseItens])
+
+  useEffect(() => {
+    if (!filaBaseIdsDefault.length) return
+    setFilaAtualIds(prev => {
+      if (Array.isArray(prev) && prev.length) return prev
+      return filaBaseIdsDefault
+    })
+  }, [filaBaseIdsDefault])
+
+  const filaIdsAtivas = useMemo(() => {
+    const idsRaw = filaCenario === 'sim1' ? filaSim1Ids : filaAtualIds
+    const ids = Array.isArray(idsRaw) ? idsRaw.map(String) : []
+    const setBase = new Set(filaBaseIdsDefault)
+    const filtered = ids.filter(id => setBase.has(id))
+    const missing = filaBaseIdsDefault.filter(id => !filtered.includes(id))
+    return [...filtered, ...missing]
+  }, [filaCenario, filaSim1Ids, filaAtualIds, filaBaseIdsDefault])
+
+  const filaItensOrdenados = useMemo(() => {
+    const itens = []
+    for (const id of filaIdsAtivas) {
+      const p = filaBasePorId.get(String(id))
+      if (p) itens.push(p)
+    }
+    return itens
+  }, [filaIdsAtivas, filaBasePorId])
+
+  const filaGrupos = useMemo(() => {
+    const getKey = (p) => {
+      if (filaAgruparPor === 'pedido_seq') return String(p.pedido_seq || '')
+      if (filaAgruparPor === 'pedido_cliente') return String(p.pedido_cliente || 'Sem Pedido Cliente')
+      return String(p.cliente || p.nome_cliente || 'Sem Cliente')
+    }
+
+    const map = new Map()
+    const ordem = []
+    for (const p of filaItensOrdenados) {
+      const k = getKey(p)
+      if (!map.has(k)) {
+        map.set(k, [])
+        ordem.push(k)
+      }
+      map.get(k).push(p)
+    }
+
+    return ordem.map(k => ({ key: k, items: map.get(k) || [] }))
+  }, [filaItensOrdenados, filaAgruparPor])
+
+  useEffect(() => {
+    if (filaAgruparPor !== 'cliente' && filaAgruparPor !== 'pedido_cliente') return
+    const keys = filaGrupos.map(g => String(g.key))
+    if (!keys.length) return
+    setFilaGruposRecolhidos(prev => {
+      const atual = Array.isArray(prev[filaAgruparPor]) ? prev[filaAgruparPor].map(String) : []
+      if (atual.length) return prev
+      const next = { ...prev, [filaAgruparPor]: keys }
+      salvarFilaGruposRecolhidos(next)
+      return next
+    })
+  }, [filaAgruparPor, filaGrupos])
+
+  const filaToggleGrupo = (key) => {
+    if (filaAgruparPor !== 'cliente' && filaAgruparPor !== 'pedido_cliente') return
+    const k = String(key)
+    setFilaGruposRecolhidos(prev => {
+      const atual = new Set((prev[filaAgruparPor] || []).map(String))
+      if (atual.has(k)) atual.delete(k)
+      else atual.add(k)
+      const next = { ...prev, [filaAgruparPor]: Array.from(atual) }
+      salvarFilaGruposRecolhidos(next)
+      return next
+    })
+  }
+
+  const filaExportarExcel = async () => {
+    try {
+      const XLSX = await import('xlsx')
+      const rows = filaItensOrdenados.map((p, idx) => {
+        const grupo = filaAgruparPor === 'pedido_seq'
+          ? String(p.pedido_seq || '')
+          : (filaAgruparPor === 'pedido_cliente'
+            ? String(p.pedido_cliente || 'Sem Pedido Cliente')
+            : String(p.cliente || p.nome_cliente || 'Sem Cliente'))
+        return {
+          Ordem: idx + 1,
+          Grupo: grupo,
+          PedidoSeq: p.pedido_seq || '',
+          Cliente: p.cliente || p.nome_cliente || '',
+          PedidoCliente: p.pedido_cliente || '',
+          Produto: p.produto || '',
+          SaldoProduzir: Number(p.saldoProduzir || 0),
+          EstimativaHoras: Number(p.estimativaHoras || 0),
+          Confiabilidade: p.confiabilidade || '',
+          Prazo: p.dt_fatura ? new Date(p.dt_fatura).toLocaleDateString('pt-BR') : ''
+        }
+      })
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Fila')
+      const nome = `fila_producao_${filaCenario}_${new Date().toISOString().slice(0,10)}.xlsx`
+      XLSX.writeFile(wb, nome)
+    } catch (e) {
+      console.error('Falha ao exportar Excel:', e)
+    }
+  }
+
+  const filaResumo = useMemo(() => {
+    const totalHoras = filaItensOrdenados.reduce((acc, p) => acc + (parseFloat(p.estimativaHoras) || 0), 0)
+    const dias = totalHoras / (horasUteisSelecionadas || 1)
+    return { totalHoras, dias, itens: filaItensOrdenados.length }
+  }, [filaItensOrdenados, horasUteisSelecionadas])
+
+  const filaArrastandoGrupoRef = useRef(false)
+
+  const filaOnDragStart = (e, id) => {
+    try { e.dataTransfer.setData('application/x-fila-drag', 'item') } catch {}
+    try { e.dataTransfer.setData('text/plain', String(id)) } catch {}
+  }
+  const filaOnDrop = (e, dropId) => {
+    e.preventDefault()
+    const tipo = (() => {
+      try { return e.dataTransfer.getData('application/x-fila-drag') } catch { return '' }
+    })()
+    if (tipo && tipo !== 'item') return
+    const dragId = e.dataTransfer.getData('text/plain')
+    if (!dragId || !dropId || String(dragId) === String(dropId)) return
+    const ids = [...filaIdsAtivas]
+    const from = ids.indexOf(String(dragId))
+    const to = ids.indexOf(String(dropId))
+    if (from < 0 || to < 0) return
+    ids.splice(from, 1)
+    ids.splice(to, 0, String(dragId))
+    if (filaCenario === 'sim1') {
+      setFilaSim1Ids(ids)
+      salvarFilaSim1(ids)
+    } else {
+      setFilaAtualIds(ids)
+      salvarFilaAtual(ids)
+    }
+  }
+  const filaAllowDrop = (e) => e.preventDefault()
+
+  const filaGrupoOnDragStart = (e, groupKey) => {
+    filaArrastandoGrupoRef.current = true
+    try { e.dataTransfer.setData('application/x-fila-drag', 'group') } catch {}
+    try { e.dataTransfer.setData('text/plain', String(groupKey)) } catch {}
+  }
+  const filaGrupoOnDragEnd = () => {
+    setTimeout(() => { filaArrastandoGrupoRef.current = false }, 0)
+  }
+  const filaGrupoOnDrop = (e, dropGroupKey) => {
+    e.preventDefault()
+    const tipo = (() => {
+      try { return e.dataTransfer.getData('application/x-fila-drag') } catch { return '' }
+    })()
+    if (tipo !== 'group') return
+
+    const dragGroupKey = (() => {
+      try { return e.dataTransfer.getData('text/plain') } catch { return '' }
+    })()
+    if (!dragGroupKey || !dropGroupKey) return
+
+    const fromKey = String(dragGroupKey)
+    const toKey = String(dropGroupKey)
+    if (fromKey === toKey) return
+
+    const order = filaGrupos.map(g => String(g.key))
+    const fromIdx = order.indexOf(fromKey)
+    const toIdx = order.indexOf(toKey)
+    if (fromIdx < 0 || toIdx < 0) return
+
+    const nextOrder = [...order]
+    nextOrder.splice(fromIdx, 1)
+    nextOrder.splice(toIdx, 0, fromKey)
+
+    const mapKeyToIds = new Map()
+    for (const g of filaGrupos) {
+      mapKeyToIds.set(String(g.key), (g.items || []).map(p => String(p.pedido_seq)))
+    }
+    const nextIds = nextOrder.flatMap(k => mapKeyToIds.get(k) || [])
+
+    if (filaCenario === 'sim1') {
+      setFilaSim1Ids(nextIds)
+      salvarFilaSim1(nextIds)
+    } else {
+      setFilaAtualIds(nextIds)
+      salvarFilaAtual(nextIds)
+    }
+    filaGrupoOnDragEnd()
+  }
+
+  const filaOrdenarPorDtFatura = () => {
+    const ids = [...filaIdsAtivas]
+    if (!ids.length) return
+
+    const withMeta = ids.map((id, idx) => {
+      const p = filaBasePorId.get(String(id))
+      const raw = p?.dt_fatura
+      const t = raw ? new Date(raw).getTime() : NaN
+      return { id: String(id), idx, t: Number.isNaN(t) ? null : t }
+    })
+
+    withMeta.sort((a, b) => {
+      if (a.t == null && b.t == null) return a.idx - b.idx
+      if (a.t == null) return 1
+      if (b.t == null) return -1
+      if (a.t === b.t) return a.idx - b.idx
+      return a.t - b.t
+    })
+
+    const nextIds = withMeta.map(x => x.id)
+    if (filaCenario === 'sim1') {
+      setFilaSim1Ids(nextIds)
+      salvarFilaSim1(nextIds)
+    } else {
+      setFilaAtualIds(nextIds)
+      salvarFilaAtual(nextIds)
+    }
+  }
+
+  const filaCriarSimulacao = async () => {
+    const base = [...filaAtualIds]
+    setFilaSim1Ids(base)
+    setFilaCenario('sim1')
+    await salvarFilaSim1(base)
+  }
+  const filaAplicarSimulacao = async () => {
+    const base = [...filaSim1Ids]
+    setFilaAtualIds(base)
+    setFilaCenario('atual')
+    await salvarFilaAtual(base)
+  }
+  const filaDescartarSimulacao = async () => {
+    setFilaSim1Ids([])
+    setFilaCenario('atual')
+    await salvarFilaSim1([])
+  }
 
   const handleFiltroChange = (e) => {
     const { name, value } = e.target
@@ -633,9 +1022,11 @@ const PrevisaoTrabalho = () => {
   }
 
   const toggleTurnoAtivo = (turnoId) => {
-    setTurnos(prev => prev.map(t => 
-      t.id === turnoId ? { ...t, ativo: !t.ativo } : t
-    ))
+    setTurnos(prev => {
+      const next = prev.map(t => (t.id === turnoId ? { ...t, ativo: !t.ativo } : t))
+      salvarTurnos(next)
+      return next
+    })
   }
 
   const totalEstimativaHoras = itensParaCalculo.reduce((acc, item) => 
@@ -811,6 +1202,17 @@ const PrevisaoTrabalho = () => {
               <FaProjectDiagram className="inline mr-2" />
               Gantt
             </button>
+            <button
+              onClick={() => setAbaSelecionada('fila')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                abaSelecionada === 'fila'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <FaList className="inline mr-2" />
+              Fila de Produção
+            </button>
           </nav>
           </div>
         </div>
@@ -938,7 +1340,7 @@ const PrevisaoTrabalho = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">Filtro</label>
               <label className="inline-flex items-center gap-2 text-sm text-gray-700">
                 <input type="checkbox" checked={apenasSaldoPositivo} onChange={(e)=>setApenasSaldoPositivo(e.target.checked)} />
-                Apenas com saldo {'>'} 0
+                Apenas com saldo {'>'}= 0 ({resumoCarteiraSaldo.saldoPos}/{resumoCarteiraSaldo.total})
               </label>
             </div>
             <div>
@@ -1123,6 +1525,170 @@ const PrevisaoTrabalho = () => {
       )}
 
       {/* Conteúdo das Abas */}
+      {abaSelecionada === 'fila' && (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cenário</label>
+                <select value={filaCenario} onChange={(e)=>setFilaCenario(e.target.value)} className="p-2 border border-gray-300 rounded-md">
+                  <option value="atual">Atual</option>
+                  <option value="sim1">Simulação 1</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Visualizar por</label>
+                <select
+                  value={filaAgruparPor}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setFilaAgruparPor(v)
+                    salvarFilaAgruparPor(v)
+                  }}
+                  className="p-2 border border-gray-300 rounded-md"
+                >
+                  <option value="cliente">Cliente</option>
+                  <option value="pedido_cliente">Pedido Cliente</option>
+                  <option value="pedido_seq">Pedido/Seq</option>
+                </select>
+              </div>
+              <div className="flex-1"></div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={filaOrdenarPorDtFatura}
+                  className="px-3 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                  disabled={filaItensOrdenados.length === 0}
+                  title="Ordena a sequência do cenário selecionado pela Dt.Fatura (mais cedo primeiro)"
+                >
+                  Ordenar por Dt.Fatura
+                </button>
+                <button
+                  onClick={filaExportarExcel}
+                  className="px-3 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                  disabled={filaItensOrdenados.length === 0}
+                >
+                  Exportar Excel
+                </button>
+                <button
+                  onClick={filaCriarSimulacao}
+                  className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  disabled={!filaBaseIdsDefault.length}
+                >
+                  Criar simulação
+                </button>
+                <button
+                  onClick={filaAplicarSimulacao}
+                  className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  disabled={filaSim1Ids.length === 0}
+                >
+                  Aplicar simulação
+                </button>
+                <button
+                  onClick={filaDescartarSimulacao}
+                  className="px-3 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                  disabled={filaSim1Ids.length === 0}
+                >
+                  Descartar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Fila de Produção (arraste para reordenar)</h3>
+              <p className="text-sm text-gray-600">Fila única considerando 1 operador</p>
+            </div>
+            <div className="p-4">
+              {filaGrupos.length === 0 ? (
+                <p className="text-gray-500">Nenhum item para exibir.</p>
+              ) : (
+                <div className="space-y-4">
+                  {filaGrupos.map((g) => {
+                    const keyStr = String(g.key)
+                    const recolhido = (filaAgruparPor === 'cliente' || filaAgruparPor === 'pedido_cliente')
+                      ? (filaGruposRecolhidos?.[filaAgruparPor] || []).map(String).includes(keyStr)
+                      : false
+                    const horasGrupo = (g.items || []).reduce((acc, p) => acc + (parseFloat(p.estimativaHoras) || 0), 0)
+                    const grupoPodeArrastar = filaAgruparPor === 'cliente' || filaAgruparPor === 'pedido_cliente'
+                    const clienteDoGrupo = String((g.items?.[0]?.cliente || g.items?.[0]?.nome_cliente || 'Sem Cliente') || 'Sem Cliente')
+                    const dtFaturaMin = (() => {
+                      const dates = (g.items || [])
+                        .map(it => it?.dt_fatura)
+                        .filter(Boolean)
+                        .map(v => new Date(v))
+                        .filter(d => !Number.isNaN(d.getTime()))
+                      if (!dates.length) return ''
+                      dates.sort((a, b) => a.getTime() - b.getTime())
+                      return dates[0].toLocaleDateString('pt-BR')
+                    })()
+                    const tituloGrupo = filaAgruparPor === 'pedido_cliente'
+                      ? `${String(g.key)} — ${dtFaturaMin ? `${dtFaturaMin} • ` : ''}${clienteDoGrupo}`
+                      : String(g.key)
+                    return (
+                      <div key={g.key} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (filaArrastandoGrupoRef.current) return
+                            filaToggleGrupo(g.key)
+                          }}
+                          draggable={grupoPodeArrastar}
+                          onDragStart={(e) => filaGrupoOnDragStart(e, g.key)}
+                          onDragEnd={filaGrupoOnDragEnd}
+                          onDragOver={filaAllowDrop}
+                          onDrop={(e) => filaGrupoOnDrop(e, g.key)}
+                          className="w-full bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 flex items-center justify-between"
+                          disabled={filaAgruparPor === 'pedido_seq'}
+                          title={filaAgruparPor === 'pedido_seq' ? 'Agrupamento por Pedido/Seq não possui recolher/expandir' : 'Clique para recolher/expandir (ou arraste para reordenar)'}
+                        >
+                          <span className="truncate">{tituloGrupo}</span>
+                          <span className="text-xs text-gray-500">{recolhido ? 'Expandir' : 'Recolher'} • {Number(horasGrupo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}h • {g.items.length} item(ns)</span>
+                        </button>
+                        {!recolhido && (
+                          <div className="p-3 space-y-2">
+                            {g.items.map((p, idxItem) => {
+                              const id = String(p.pedido_seq)
+                              const saldo = Number(p.saldoProduzir || 0)
+                              const horas = Number(p.estimativaHoras || 0)
+                              const confiabilidade = p.confiabilidade || '-'
+                              return (
+                                <div
+                                  key={`${id}-${idxItem}`}
+                                  draggable
+                                  onDragStart={(e) => filaOnDragStart(e, id)}
+                                  onDragOver={filaAllowDrop}
+                                  onDrop={(e) => filaOnDrop(e, id)}
+                                  className="border border-gray-200 rounded-md p-3 bg-white hover:bg-gray-50 cursor-move"
+                                  title="Arraste para mudar a sequência"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="text-sm font-semibold text-gray-900 truncate">{p.pedido_seq}</div>
+                                      <div className="text-xs text-gray-600 truncate">{p.pedido_cliente || p.cliente || '-'}</div>
+                                      <div className="text-xs text-gray-500 truncate">{p.produto || '-'}</div>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-1">
+                                      <div className="text-xs text-gray-700">Saldo: {saldo.toLocaleString('pt-BR')}</div>
+                                      <div className="text-xs text-gray-700">{horas.toFixed(2)}h</div>
+                                      <div className="text-xs text-gray-500">{confiabilidade}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {abaSelecionada === 'carteira' && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -1278,6 +1844,9 @@ const PrevisaoTrabalho = () => {
                     Produtividade (pcs/h)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Teórico (pcs/h)
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Estimativa (horas)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1316,6 +1885,9 @@ const PrevisaoTrabalho = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {pedido.produtividade ? pedido.produtividade.pcsPorHora.toFixed(1) : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {pedido.teoricoPcsHora ? Number(pedido.teoricoPcsHora).toFixed(1) : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {pedido.estimativaHoras}
@@ -1712,8 +2284,8 @@ const PrevisaoTrabalho = () => {
                       </label>
                       <div className="w-full p-2 border border-gray-300 rounded-md bg-blue-50 text-blue-700 font-medium">
                         {turnoEditando?.id === turno.id 
-                          ? (turnoEditando.horasTrabalho - turnoEditando.horasParadas).toFixed(1)
-                          : (turno.horasTrabalho - turno.horasParadas).toFixed(1)
+                          ? (turnoEditando.horasTrabalho - turnoEditando.horasParadas).toFixed(2)
+                          : (turno.horasTrabalho - turno.horasParadas).toFixed(2)
                         }h
                       </div>
                     </div>
@@ -1732,7 +2304,7 @@ const PrevisaoTrabalho = () => {
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-bold text-blue-600">
-                    {horasBase}h/dia (turnos)
+                    {Number(horasBase || 0).toFixed(2)}h/dia (turnos)
                   </div>
                   <div className="text-sm text-blue-600">{turnos.filter(t => t.ativo).length} turnos ativos</div>
                 </div>

@@ -411,9 +411,10 @@ class SupabaseService {
    */
   async salvarConfiguracao(chave, valor) {
     try {
+      const valorStr = typeof valor === 'string' ? valor : JSON.stringify(valor)
       const { data, error } = await this.supabase
         .from('configuracoes')
-        .upsert({ chave, valor })
+        .upsert({ chave, valor: valorStr })
         .select();
 
       if (error) {
