@@ -611,6 +611,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const match = produtoStr.match(/(\d{3,4})([A-Z]{2,4})$/)
     return match ? match[1] : ''
   }
+
+  const extrairComprimentoLongoMm = (produto) => {
+    if (!produto) return ''
+    const s = String(produto).trim().toUpperCase()
+    const m = s.match(/(\d{4})(?=[A-Z]{2,4}$)/)
+    const digits = m ? m[1] : ''
+    if (!digits || !/^\d{4}$/.test(digits)) return ''
+    const n = parseInt(digits, 10)
+    if (!Number.isFinite(n)) return ''
+    return `${n.toLocaleString('pt-BR')} mm`
+  }
   
   // Busca em tempo real por código do Produto, Ferramenta e Comprimento
   const resultadosRackProduto = useMemo(() => {
@@ -756,6 +767,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const seq = p[1] || ''
         const produtoPlanilha = String(l.produto || getCampoOriginalLote(l, 'Produto') || l.codigo || '').trim()
         const ferramentaPlanilha = extrairFerramenta(produtoPlanilha || '')
+        const comprimentoLongoMm = extrairComprimentoLongoMm(produtoPlanilha)
         const amarradoCodigo = String(l.codigo || getCampoOriginalLote(l, 'Amarrado') || '').trim()
         
         if (!map.has(num)) {
@@ -763,6 +775,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             lote: num,
             produto: produtoPlanilha,
             ferramenta: ferramentaPlanilha,
+            comprimentoLongoMm,
             romaneios: new Set(),
             pedido,
             seq,
@@ -773,6 +786,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         // Se em registros subsequentes houver produto não vazio, mantém o primeiro não vazio
         if (!entry.produto && produtoPlanilha) entry.produto = produtoPlanilha
         if (!entry.ferramenta && ferramentaPlanilha) entry.ferramenta = ferramentaPlanilha
+        if (!entry.comprimentoLongoMm && comprimentoLongoMm) entry.comprimentoLongoMm = comprimentoLongoMm
         const rom = String(l.romaneio || '').trim()
         if (rom) entry.romaneios.add(rom)
         
@@ -799,6 +813,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         lote: e.lote,
         produto: e.produto,
         ferramenta: e.ferramenta,
+        comprimentoLongoMm: e.comprimentoLongoMm,
         romaneio: Array.from(e.romaneios).join(', '),
         pedido: e.pedido,
         seq: e.seq,
@@ -871,6 +886,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       lote: a.lote,
       produto: a.produto,
       ferramenta: extrairFerramenta(a.produto || ''),
+      comprimentoLongoMm: extrairComprimentoLongoMm(a.produto || ''),
       romaneio: a.romaneio,
       pedido: a.pedido_seq ? a.pedido_seq.split('/')[0] : '',
       seq: a.pedido_seq ? a.pedido_seq.split('/')[1] : '',
@@ -2412,7 +2428,18 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
               </div>
               <div>
-                <label className="block label-sm font-medium text-gray-700 mb-1">Lotes encontrados</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block label-sm font-medium text-gray-700">Lotes encontrados</label>
+                  <div className="text-[11px] text-gray-600">
+                    {(() => {
+                      const qtdLotes = lotesEncontrados.length
+                      const qtdAmarrados = (lotesEncontrados || []).reduce((acc, l) => acc + ((l?.amarrados?.length) || 0), 0)
+                      const comprimentos = new Set((lotesEncontrados || []).map(l => String(l?.comprimentoLongoMm || '').trim()).filter(v => v))
+                      const qtdComprimentos = comprimentos.size
+                      return `${qtdLotes} lote(s) • ${qtdAmarrados} amarrado(s) • ${qtdComprimentos} comprimento(s)`
+                    })()}
+                  </div>
+                </div>
                 <div className="max-h-72 overflow-auto border rounded p-3 space-y-2">
                   {lotesEncontrados.length === 0 && (
                     <div className="text-sm text-gray-500">
@@ -2456,7 +2483,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                             <div>Produto: {l.produto || '-'}</div>
                             <div>
                               Ferramenta: {l.ferramenta ? (
-                                <span className="inline-block px-2 py-0.5 rounded bg-primary-50 text-primary-700 font-semibold">{l.ferramenta}</span>
+                                <>
+                                  <span className="inline-block px-2 py-0.5 rounded bg-primary-50 text-primary-700 font-semibold">{l.ferramenta}</span>
+                                  {l.comprimentoLongoMm ? (
+                                    <span className="ml-2 text-gray-600">• Perfil Longo: {l.comprimentoLongoMm}</span>
+                                  ) : null}
+                                </>
                               ) : '-'}
                             </div>
                             {l.rack && (

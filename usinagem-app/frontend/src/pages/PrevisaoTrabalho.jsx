@@ -60,6 +60,14 @@ const PrevisaoTrabalho = () => {
   const [filaAtualIds, setFilaAtualIds] = useState([])
   const [filaSim1Ids, setFilaSim1Ids] = useState([])
   const [filaGruposRecolhidos, setFilaGruposRecolhidos] = useState({ cliente: [], pedido_cliente: [] })
+  const [mostrarModalExportarFila, setMostrarModalExportarFila] = useState(false)
+  const [dataExportarFila, setDataExportarFila] = useState(() => {
+    const hoje = new Date()
+    const y = hoje.getFullYear()
+    const m = String(hoje.getMonth() + 1).padStart(2, '0')
+    const d = String(hoje.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  })
 
   // Turnos de trabalho
   const [turnos, setTurnos] = useState([
@@ -718,6 +726,92 @@ const PrevisaoTrabalho = () => {
     })
   }
 
+  const distribuirHorasPorData = (itens, dataInicio, horasUteisDiaUtil, extrasSabado) => {
+    const resultado = []
+    const getCapacidadeDia = (dt) => {
+      const dow = dt.getDay()
+      if (dow >= 1 && dow <= 5) return Number(horasUteisDiaUtil || 0)
+      if (dow === 6) return Number(extrasSabado || 0)
+      return 0
+    }
+    const avancarParaProximoDia = (dt) => {
+      const next = new Date(dt)
+      next.setDate(next.getDate() + 1)
+      return next
+    }
+
+    let dataAtual = parseLocalDate(dataInicio)
+    if (isNaN(dataAtual.getTime())) dataAtual = new Date()
+
+    let capacidadeRestante = getCapacidadeDia(dataAtual)
+
+    for (const item of itens) {
+      const horasEstimadas = Number(item.estimativaHoras || 0)
+
+      if (!(horasEstimadas > 0)) {
+        resultado.push({
+          Ordem: resultado.length + 1,
+          Grupo: item.grupo || '',
+          PedidoSeq: item.pedido_seq || '',
+          Cliente: item.cliente || item.nome_cliente || '',
+          Produto: item.produto || '',
+          EstimativaHoras: 0,
+          DataInicio: dataAtual.toLocaleDateString('pt-BR'),
+          DataFim: dataAtual.toLocaleDateString('pt-BR'),
+          DiasUteis: 0,
+          Sabados: 0
+        })
+        continue
+      }
+
+      let horasRestantes = horasEstimadas
+      let dataInicioItem = null
+      let dataFimItem = null
+      const diasUsados = new Set()
+      let sabados = 0
+
+      while (horasRestantes > 0) {
+        while (capacidadeRestante <= 0) {
+          dataAtual = avancarParaProximoDia(dataAtual)
+          capacidadeRestante = getCapacidadeDia(dataAtual)
+        }
+
+        if (!dataInicioItem) dataInicioItem = new Date(dataAtual)
+        const keyDia = dataAtual.toISOString().slice(0, 10)
+        if (!diasUsados.has(keyDia)) {
+          diasUsados.add(keyDia)
+          if (dataAtual.getDay() === 6) sabados++
+        }
+
+        const alocar = Math.min(horasRestantes, capacidadeRestante)
+        horasRestantes -= alocar
+        capacidadeRestante -= alocar
+        dataFimItem = new Date(dataAtual)
+      }
+
+      const diasUteis = Array.from(diasUsados).filter(d => {
+        const dt = parseLocalDate(d)
+        const dow = dt.getDay()
+        return dow >= 1 && dow <= 5
+      }).length
+
+      resultado.push({
+        Ordem: resultado.length + 1,
+        Grupo: item.grupo || '',
+        PedidoSeq: item.pedido_seq || '',
+        Cliente: item.cliente || item.nome_cliente || '',
+        Produto: item.produto || '',
+        EstimativaHoras: horasEstimadas,
+        DataInicio: (dataInicioItem || dataAtual).toLocaleDateString('pt-BR'),
+        DataFim: (dataFimItem || dataAtual).toLocaleDateString('pt-BR'),
+        DiasUteis: diasUteis,
+        Sabados: sabados
+      })
+    }
+
+    return resultado
+  }
+
   const filaExportarExcel = async () => {
     try {
       const XLSX = await import('xlsx')
@@ -740,11 +834,26 @@ const PrevisaoTrabalho = () => {
           Prazo: p.dt_fatura ? new Date(p.dt_fatura).toLocaleDateString('pt-BR') : ''
         }
       })
+      
+      const itensComGrupo = filaItensOrdenados.map((p, idx) => ({
+        ...p,
+        grupo: filaAgruparPor === 'pedido_seq'
+          ? String(p.pedido_seq || '')
+          : (filaAgruparPor === 'pedido_cliente'
+            ? String(p.pedido_cliente || 'Sem Pedido Cliente')
+            : String(p.cliente || p.nome_cliente || 'Sem Cliente'))
+      }))
+      
+      const cronograma = distribuirHorasPorData(itensComGrupo, dataExportarFila, horasUteisDiaUtil, extrasSabado)
+      
       const ws = XLSX.utils.json_to_sheet(rows)
+      const wsCronograma = XLSX.utils.json_to_sheet(cronograma)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Fila')
+      XLSX.utils.book_append_sheet(wb, wsCronograma, 'Cronograma')
       const nome = `fila_producao_${filaCenario}_${new Date().toISOString().slice(0,10)}.xlsx`
       XLSX.writeFile(wb, nome)
+      setMostrarModalExportarFila(false)
     } catch (e) {
       console.error('Falha ao exportar Excel:', e)
     }
@@ -1563,7 +1672,7 @@ const PrevisaoTrabalho = () => {
                   Ordenar por Dt.Fatura
                 </button>
                 <button
-                  onClick={filaExportarExcel}
+                  onClick={() => setMostrarModalExportarFila(true)}
                   className="px-3 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
                   disabled={filaItensOrdenados.length === 0}
                 >
@@ -2346,6 +2455,51 @@ const PrevisaoTrabalho = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mostrarModalExportarFila && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Exportar Fila para Excel</h2>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Data Inicial do Cronograma
+              </label>
+              <input
+                type="date"
+                value={dataExportarFila}
+                onChange={(e) => setDataExportarFila(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                A distribuição de horas será calculada a partir desta data, respeitando a capacidade diária configurada.
+              </p>
+            </div>
+
+            <div className="bg-blue-50 p-3 rounded-md mb-6">
+              <p className="text-sm text-blue-800">
+                <strong>Capacidade diária:</strong> {Number(horasUteisDiaUtil || 0).toFixed(2)}h (dias úteis)
+                {Number(extrasSabado || 0) > 0 && ` + ${Number(extrasSabado || 0).toFixed(2)}h (sábados)`}
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMostrarModalExportarFila(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={filaExportarExcel}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Exportar
+              </button>
             </div>
           </div>
         </div>
