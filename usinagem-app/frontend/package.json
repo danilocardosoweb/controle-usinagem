@@ -23,7 +23,11 @@
     "react-router-dom": "^6.18.0",
     "reactflow": "^11.11.4",
     "xlsx": "^0.18.5",
-    "react-barcode": "^1.4.6"
+    "react-barcode": "^1.4.6",
+    "@react-three/fiber": "^8.15.12",
+    "@react-three/drei": "^9.92.7",
+    "three": "^0.160.0",
+    "prop-types": "^15.8.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
