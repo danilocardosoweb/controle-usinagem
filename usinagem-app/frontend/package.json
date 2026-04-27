@@ -22,7 +22,8 @@
     "react-icons": "^4.11.0",
     "react-router-dom": "^6.18.0",
     "reactflow": "^11.11.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "react-barcode": "^1.4.6"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
