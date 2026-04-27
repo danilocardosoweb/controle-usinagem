@@ -95,13 +95,8 @@ function GeradorRomaneio({
       }
       agrupado[chave].quantidade += apt.quantidade
       
-      // Tentar extrair o palete/rack de várias fontes
-      let palete = apt.rack_embalagem || apt.rack || apt.rack_ou_pallet || 'DESCONHECIDO'
-      
-      // Se tem amarrados_detalhados, usar o primeiro rack disponível
-      if (Array.isArray(apt.amarrados_detalhados) && apt.amarrados_detalhados.length > 0) {
-        palete = apt.amarrados_detalhados[0]?.rack || palete
-      }
+      // Extrair nome real do palete — rack_acabado é o campo principal (ex: USI-1246)
+      const palete = apt.rack_acabado || apt.rackAcabado || apt.rack_embalagem || apt.rack_ou_pallet || apt.rackOuPallet || 'DESCONHECIDO'
       
       agrupado[chave].racks.push({
         palete: palete,

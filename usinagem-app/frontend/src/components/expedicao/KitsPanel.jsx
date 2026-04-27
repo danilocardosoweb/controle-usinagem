@@ -34,7 +34,7 @@ const createInitialComponent = (ordem = 1) => ({
   ordem,
 })
 
-function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user, loadRomaneios, loadRomaneioItens }) {
+function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user, loadRomaneios, loadRomaneioItens, loadApontamentos }) {
   const {
     items: kits,
     loading: kitsLoading,
@@ -943,6 +943,10 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
             const sequencial = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
             const numeroRomaneio = `ROM-${dia}${mes}${ano}-${sequencial}`
 
+            // Calcular totais para o romaneio
+            const totalPecas = dadosRomaneio.paletesParaSeparar.reduce((sum, p) => sum + (p.quantidadeNecessaria || 0), 0)
+            const racksUnicos = new Set(dadosRomaneio.paletesParaSeparar.map(p => p.rack).filter(Boolean))
+
             // Criar romaneio
             const romaneioData = {
               numero_romaneio: numeroRomaneio,
@@ -952,6 +956,8 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
               kit_nome: dadosRomaneio.kitNome,
               quantidade_kits: dadosRomaneio.quantidadeKits,
               status: 'pendente',
+              total_racks: racksUnicos.size,
+              total_pecas: totalPecas,
               observacoes: `Romaneio gerado para ${dadosRomaneio.quantidadeKits} kits de ${dadosRomaneio.kitNome}`,
             }
 
@@ -983,10 +989,15 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                 }
               }
               
+              // rack_acabado é o nome real do palete (ex: USI-1246)
+              const nomeRack = apontamentoOriginal?.rack_acabado || apontamentoOriginal?.rackAcabado
+                || apontamentoOriginal?.rack_ou_pallet || apontamentoOriginal?.rackOuPallet
+                || palete.rack || 'RACK-DESCONHECIDO'
+
               console.log(`🔍 Buscando apontamento:`, {
                 apontamentoId: palete.apontamentoId,
                 encontrado: !!apontamentoOriginal,
-                rack: apontamentoOriginal?.rack_embalagem || palete.rack,
+                rack: nomeRack,
                 pesoEstimado: pesoEstimadoKg,
               })
               
@@ -996,11 +1007,11 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                 comprimento: palete.comprimento,
                 comprimento_acabado_mm: parseInt(palete.comprimento) || 0,
                 produto: palete.produtoOriginal,
-                rack_ou_pallet: apontamentoOriginal?.rack_embalagem || palete.rack || 'RACK-DESCONHECIDO',
+                rack_ou_pallet: nomeRack,
                 quantidade: palete.quantidadeNecessaria,
                 apontamento_id: palete.apontamentoId,
                 cliente: apontamentoOriginal?.cliente || dadosRomaneio.cliente,
-                pedido_seq: apontamentoOriginal?.pedido_seq || '-',
+                pedido_seq: apontamentoOriginal?.pedido_seq || apontamentoOriginal?.pedido_cliente || '-',
                 lote: apontamentoOriginal?.lote || '-',
                 lote_externo: apontamentoOriginal?.lote_externo || '-',
                 peso_estimado_kg: pesoEstimadoKg > 0 ? Number(pesoEstimadoKg.toFixed(3)) : null,
@@ -1032,10 +1043,27 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
               console.log('✅ Itens do romaneio salvos')
             }
 
-            // Recarregar romaneios
-            if (loadRomaneios) {
-              await loadRomaneios()
+            // Marcar apontamentos com romaneio_numero para que não apareçam mais como disponíveis
+            const apontamentoIds = dadosRomaneio.paletesParaSeparar
+              .map(p => p.apontamentoId)
+              .filter(Boolean)
+
+            if (apontamentoIds.length > 0) {
+              const { error: errMark } = await supabaseService.supabase
+                .from('apontamentos')
+                .update({ romaneio_numero: numeroRomaneio })
+                .in('id', apontamentoIds)
+              if (errMark) {
+                console.warn('⚠️ Erro ao marcar apontamentos com romaneio:', errMark)
+              } else {
+                console.log(`✅ ${apontamentoIds.length} apontamento(s) marcados com romaneio ${numeroRomaneio}`)
+              }
             }
+
+            // Recarregar romaneios, itens e apontamentos para atualizar quantidades disponíveis
+            if (loadRomaneios) await loadRomaneios()
+            if (loadRomaneioItens) await loadRomaneioItens()
+            if (loadApontamentos) await loadApontamentos()
 
             setGeradorRomaneioAberto(false)
             alert(`✅ Romaneio gerado com sucesso!\n\nKit: ${dadosRomaneio.kitNome}\nQuantidade: ${dadosRomaneio.quantidadeKits} kits\nTotal de itens: ${dadosRomaneio.resumo.totalUnidades} un`)

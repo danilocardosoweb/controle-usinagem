@@ -15,7 +15,7 @@ export default function Expedicao() {
   const navigate = useNavigate()
   
   const { items: apontamentos } = useSupabase('apontamentos')
-  const { items: apontamentosParaKits } = useSupabase('apontamentos') // Carrega TODOS os apontamentos sem filtro de data
+  const { items: apontamentosParaKits, loadItems: loadApontamentosParaKits } = useSupabase('apontamentos') // Carrega TODOS os apontamentos sem filtro de data
   const { items: maquinas } = useSupabase('maquinas')
   const { items: romaneios, loadItems: loadRomaneios } = useSupabase('expedicao_romaneios')
   const { items: romaneioItens, loadItems: loadRomaneioItens } = useSupabase('expedicao_romaneio_itens')
@@ -1190,6 +1190,7 @@ export default function Expedicao() {
             user={user}
             loadRomaneios={loadRomaneios}
             loadRomaneioItens={loadRomaneioItens}
+            loadApontamentos={loadApontamentosParaKits}
           />
         )}
 

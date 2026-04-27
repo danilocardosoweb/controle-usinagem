@@ -3,8 +3,9 @@ import { Canvas } from '@react-three/fiber'
 import { Edges, OrbitControls, PerspectiveCamera, Html, Line } from '@react-three/drei'
 import { DoubleSide } from 'three'
 import { FaTimes, FaCubes, FaSave, FaEdit, FaTruckLoading, FaPlus, FaTrash, FaClipboardList, FaSearch, FaSync, FaExclamationTriangle, FaBan, FaRulerCombined, FaBoxOpen, FaDownload, FaUpload, FaPrint, FaCalendarAlt, FaUser, FaCheck, FaFolderOpen, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
-import PaleteVisualizacao3D, { PALETE_CONFIGS, calcularLayoutColunas } from './PaleteVisualizacao3D'
+import PaleteVisualizacao3D, { PALETE_CONFIGS, calcularLayoutColunas, calcularDimensoesPalete } from './PaleteVisualizacao3D'
 import AmarradoVisualizacao3D from './AmarradoVisualizacao3D'
+import PaleteDetalhe2D from './PaleteDetalhe2D'
 import { gerarPosicoesAmarrado } from '../utils/geometriaAmarrado'
 import { AmarradoService } from '../services/AmarradoService'
 import { supabase } from '../config/supabase'
@@ -1355,8 +1356,8 @@ const FORM_DEFAULT = {
   ripas_entre_offset_mm: 0,             // offset de ajuste fino em mm
   ripas_entre_manual:    false,           // modo manual ativado
   ripas_entre_posicoes:  '',             // JSON: posições Z específicas [z1, z2, z3...]
-  ripa_altura_mm:        30,
-  ripa_largura_mm:       50,
+  ripa_altura_mm:        17,
+  ripa_largura_mm:       75,
   ripa_comprimento_mm:   1200,           // comprimento da ripa transversal
   ripa_topo:             true,
 
@@ -1378,8 +1379,8 @@ const FORM_DEFAULT = {
   ripas_lat_manual:      false,         // modo manual ativado
   ripas_lat_posicoes:    '',            // JSON: posições Z específicas [z1, z2, z3...]
   ripas_lat_margem_mm:   40,
-  ripa_vert_largura_mm:  50,
-  ripa_vert_comp_mm:     30,
+  ripa_vert_largura_mm:  17,
+  ripa_vert_comp_mm:     75,
   ripa_vert_altura_mm:   1080,
 
   // ========== PACOTE ==========
@@ -1859,9 +1860,11 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   }, [open, ferramenta, comprimento])
 
   useEffect(() => {
-    if (!open || activeTab !== 'cubagem') return
-    fetchRomaneiosDisponiveis()
-    fetchRacksEmCargas()
+    if (!open || (activeTab !== 'cubagem' && activeTab !== 'validacao')) return
+    if (activeTab === 'cubagem') {
+      fetchRomaneiosDisponiveis()
+      fetchRacksEmCargas()
+    }
     // Carregar ferramentas_cfg para ter pecas_por_amarrado / pcs_por_pallet
     supabase.from('ferramentas_cfg').select('ferramenta, comprimento_mm, pecas_por_amarrado, pcs_por_pallet, pcs_por_caixa, embalagem')
       .then(({ data }) => { if (data) setFerramentasCfgData(data) })
@@ -1913,8 +1916,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         ripas_entre_offset_mm: data.ripas_entre_offset_mm ?? 0,
         ripas_entre_manual:    data.ripas_entre_manual    ?? false,
         ripas_entre_posicoes:  data.ripas_entre_posicoes  ?? '',
-        ripa_altura_mm:        data.ripa_altura_mm        ?? 30,
-        ripa_largura_mm:       data.ripa_largura_mm       ?? 50,
+        ripa_altura_mm:        data.ripa_altura_mm        ?? 17,
+        ripa_largura_mm:       data.ripa_largura_mm       ?? 75,
         ripa_comprimento_mm: data.ripa_comprimento_mm   ?? 1200,
         ripa_topo:             data.ripa_topo             ?? true,
         // Camada final
@@ -1933,8 +1936,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         ripas_lat_manual:      data.ripas_lat_manual      ?? false,
         ripas_lat_posicoes:    data.ripas_lat_posicoes    ?? '',
         ripas_lat_margem_mm:   data.ripas_lat_margem_mm   ?? 40,
-        ripa_vert_largura_mm:  data.ripa_vert_largura_mm  ?? 50,
-        ripa_vert_comp_mm:     data.ripa_vert_comp_mm     ?? 30,
+        ripa_vert_largura_mm:  data.ripa_vert_largura_mm  ?? 17,
+        ripa_vert_comp_mm:     data.ripa_vert_comp_mm     ?? 75,
         ripa_vert_altura_mm:   data.ripa_vert_altura_mm   ?? 1080,
         // Pacote
         largura_pacote_mm:     data.largura_pacote_mm     ?? 300,
@@ -2080,8 +2083,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         ripas_entre_offset_mm: config.ripas_entre_offset_mm ?? 0,
         ripas_entre_manual:    config.ripas_entre_manual    ?? false,
         ripas_entre_posicoes:  config.ripas_entre_posicoes  ?? '',
-        ripa_altura_mm:        config.ripa_altura_mm        ?? 30,
-        ripa_largura_mm:       config.ripa_largura_mm       ?? 50,
+        ripa_altura_mm:        config.ripa_altura_mm        ?? 17,
+        ripa_largura_mm:       config.ripa_largura_mm       ?? 75,
         ripa_comprimento_mm:   config.ripa_comprimento_mm   ?? 1200,
         ripa_topo:             config.ripa_topo             ?? true,
         // Camada final
@@ -2100,8 +2103,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         ripas_lat_manual:      config.ripas_lat_manual      ?? false,
         ripas_lat_posicoes:    config.ripas_lat_posicoes    ?? '',
         ripas_lat_margem_mm:   config.ripas_lat_margem_mm   ?? 40,
-        ripa_vert_largura_mm:  config.ripa_vert_largura_mm  ?? 50,
-        ripa_vert_comp_mm:     config.ripa_vert_comp_mm     ?? 30,
+        ripa_vert_largura_mm:  config.ripa_vert_largura_mm  ?? 17,
+        ripa_vert_comp_mm:     config.ripa_vert_comp_mm     ?? 75,
         // Pacote
         largura_pacote_mm:     config.largura_pacote_mm     ?? 300,
         altura_pacote_mm:      config.altura_pacote_mm      ?? 100,
@@ -2293,43 +2296,16 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     }
   }, [metricsPaleteAtual, ferramentasCfgData])
 
-  // Calcula dimensões do palete (largura, profundidade, altura) a partir de uma config do banco
+  // Calcula dimensões do palete a partir de uma config do banco
+  // Usa calcularDimensoesPalete (fonte única de verdade) para consistência entre abas
   const calcularDimensoesDaConfig = useCallback((cfg) => {
-    if (!cfg) return null
-    try {
-      const pkLarg = mmToM(Number(cfg.largura_pacote_mm) || 0)
-      const pkProf = mmToM(Number(cfg.profundidade_pacote_mm) || 0)
-      const pkAlt  = mmToM(Number(cfg.altura_pacote_mm) || 0)
-      if (pkLarg <= 0 || pkProf <= 0 || pkAlt <= 0) return null
-
-      const layout = calcularLayoutColunas({
-        pacotesPorCamada: Math.max(1, Number(cfg.pacotes_por_camada) || 1),
-        orientacaoPacote: cfg.orientacao_pacote || 'longitudinal',
-        pkLargX: pkLarg,
-        pkProfZ: pkProf,
-        gap: 0.01,
-        colunasRotacionadas: [],
-      })
-
-      const ripaAlt  = mmToM(Number(cfg.ripa_altura_mm) || 30)
-      const camadasPorBloco = Math.max(1, Number(cfg.camadas_por_bloco) || 1)
-      const numBlocos = Math.max(1, Number(cfg.num_blocos) || 1)
-      const altCamada = pkAlt + 0.004
-      const altRipaBloco = cfg.ripa_entre_camadas ? ripaAlt + 0.004 : 0.006
-      const altBlocoTotal = altRipaBloco + camadasPorBloco * altCamada
-      const altEmpilhado = numBlocos * altBlocoTotal + (cfg.ripa_topo ? ripaAlt + 0.004 : 0)
-      const totalAlt = 0.112 + altEmpilhado
-      
-      // Dimensões reais do palete (SEM ripas laterais - são estruturais, não aumentam pegada)
-      const totalLarg = layout.spanX  // Eixo X (comprimento do material)
-      const totalProf = layout.spanZ   // Eixo Z (largura do material)
-
-      return {
-        largura: totalProf.toFixed(2),   // Largura real do palete (eixo Z)
-        comprimento: totalLarg.toFixed(2), // Comprimento real do palete (eixo X)
-        altura: totalAlt.toFixed(2),
-      }
-    } catch { return null }
+    const dims = calcularDimensoesPalete(cfg)
+    if (!dims) return null
+    return {
+      largura: dims.larguraM.toFixed(2),      // eixo X (lado a lado dos pacotes)
+      comprimento: dims.comprimentoM.toFixed(2), // eixo Z (comprimento do material)
+      altura: dims.alturaM.toFixed(2),
+    }
   }, [])
 
   // Busca a melhor config de palete para uma ferramenta+comprimento
@@ -2953,20 +2929,20 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     <h3>DIMENSÕES TOTAIS DO PALETE</h3>
     <div class="dim-grid">
       <div class="dim-item">
-        <div class="num">${getVal('largura_pacote_mm') ? Math.round((Number(getVal('largura_pacote_mm')) * (getVal('pacotes_por_camada', 3) > 3 ? 4 : 3)) / 10) * 10 : '1200'}</div>
+        <div class="num">${metricsPaleteAtual ? Math.round(metricsPaleteAtual.totalLarg * 1000) : '1200'}</div>
         <div class="unit">mm Largura</div>
       </div>
       <div class="dim-item">
-        <div class="num">${getVal('altura_pacote_mm') ? Math.round((Number(getVal('altura_pacote_mm')) * (getVal('camadas_por_bloco', 1) * getVal('num_blocos', 1))) / 10) * 10 + 112 : '672'}</div>
+        <div class="num">${metricsPaleteAtual ? Math.round(metricsPaleteAtual.totalAlt * 1000) : '672'}</div>
         <div class="unit">mm Altura Total</div>
       </div>
       <div class="dim-item">
-        <div class="num">${getVal('profundidade_pacote_mm') ? Math.round(Number(getVal('profundidade_pacote_mm')) / 10) * 10 : '1000'}</div>
+        <div class="num">${metricsPaleteAtual ? Math.round(metricsPaleteAtual.totalProf * 1000) : '1000'}</div>
         <div class="unit">mm Comprimento</div>
       </div>
     </div>
     <div class="cubagem">
-      Cubagem: ${((Number(getVal('largura_pacote_mm', 1200))/1000) * ((Number(getVal('altura_pacote_mm', 80)) * getVal('camadas_por_bloco', 1) * getVal('num_blocos', 1) + 112)/1000) * (Number(getVal('profundidade_pacote_mm', 1000))/1000)).toFixed(3)} m³
+      Cubagem: ${metricsPaleteAtual ? metricsPaleteAtual.volume.toFixed(3) : '0.000'} m³
     </div>
   </div>
 
@@ -3008,7 +2984,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
     printWindow.document.write(html)
     printWindow.document.close()
-  }, [ferramenta, comprimento, config, form])
+  }, [ferramenta, comprimento, config, form, metricsPaleteAtual])
 
   // Auto-carregar simulação via prop (quando acessado via URL)
   useEffect(() => {
@@ -3146,6 +3122,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
             {[
               { id: 'visualizacao', label: 'Visualização 3D' },
               { id: 'amarrado', label: 'Amarrados' },
+              { id: 'validacao', label: 'Validação 2D' },
               { id: 'cubagem', label: 'Cubagem em Caminhões' },
             ].map(tab => (
               <button
@@ -3348,6 +3325,25 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                 </SectionBlock>
               </div>
             </div>
+          </div>
+        ) : activeTab === 'validacao' ? (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <PaleteDetalhe2D
+              ferramenta={ferramenta}
+              comprimento={comprimento}
+              config={config}
+              ferramentaCfg={(() => {
+                const ferrNorm = ferramenta ? `${ferramenta.replace(/-/g, '').slice(0, 2)}-${ferramenta.replace(/-/g, '').slice(2)}` : ''
+                const compNum = comprimento ? parseInt(comprimento, 10) : 0
+                return ferramentasCfgData.find(c => {
+                  const cf = String(c?.ferramenta || '').toUpperCase()
+                  if (cf !== ferramenta?.toUpperCase() && cf !== ferrNorm?.toUpperCase()) return false
+                  if (!compNum) return true
+                  const cc = Number(c?.comprimento_mm || 0)
+                  return cc ? cc === compNum : true
+                }) || ferramentasCfgData.find(c => String(c?.ferramenta || '').toUpperCase() === ferramenta?.toUpperCase()) || null
+              })()}
+            />
           </div>
         ) : activeTab === 'visualizacao' ? (
           <div className="flex flex-1 min-h-0 overflow-hidden relative">

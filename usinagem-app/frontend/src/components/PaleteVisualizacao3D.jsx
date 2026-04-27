@@ -166,6 +166,61 @@ export function calcularLayoutColunas({ pacotesPorCamada = 1, orientacaoPacote =
 //   Z → comprimento do material (profundidade, ao longo do palete)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── CÁLCULO UNIFICADO DE DIMENSÕES DO PALETE (em mm) ────────────────────────
+// Fonte de verdade para TODAS as abas. Recebe um objeto config do banco
+// (ferramentas_cfg / paletes_config) e retorna dimensões consistentes.
+export function calcularDimensoesPalete(cfg) {
+  if (!cfg) return null
+  const pkLargMm = Number(cfg.largura_pacote_mm) || 0
+  const pkProfMm = Number(cfg.profundidade_pacote_mm) || 0
+  const pkAltMm  = Number(cfg.altura_pacote_mm) || 0
+  if (pkLargMm <= 0 || pkProfMm <= 0 || pkAltMm <= 0) return null
+
+  const pacotesPorCamada = Math.max(1, Number(cfg.pacotes_por_camada) || 1)
+  const camadasPorBloco  = Math.max(1, Number(cfg.camadas_por_bloco) || 1)
+  const numBlocos         = Math.max(1, Number(cfg.num_blocos) || 1)
+
+  const gapMm = 10 // GAP_ENTRE_PACOTES = 0.01m = 10mm
+  const pkLarg = pkLargMm / 1000
+  const pkProf = pkProfMm / 1000
+
+  const layout = calcularLayoutColunas({
+    pacotesPorCamada,
+    orientacaoPacote: cfg.orientacao_pacote || 'longitudinal',
+    pkLargX: pkLarg,
+    pkProfZ: pkProf,
+    gap: gapMm / 1000,
+    colunasRotacionadas: cfg.colunas_rotacionadas || [],
+  })
+
+  const spanXmm = layout.spanX * 1000 // largura total eixo X (mm)
+  const spanZmm = layout.spanZ * 1000 // profundidade total eixo Z (mm)
+
+  const ripaAltMm = Number(cfg.ripa_altura_mm) || 30
+  const altCamadaMm = pkAltMm + 4 // 0.004m gap
+  const altRipaBlocoMm = cfg.ripa_entre_camadas ? (ripaAltMm + 4) : 6
+  const altBlocoTotalMm = altRipaBlocoMm + camadasPorBloco * altCamadaMm
+  const altEmpilhadoMm = numBlocos * altBlocoTotalMm + (cfg.ripa_topo ? (ripaAltMm + 4) : 0)
+  const totalAltMm = 112 + altEmpilhadoMm // 112mm = base PBR
+
+  const totalPacotes = pacotesPorCamada * camadasPorBloco * numBlocos
+  const volumeM3 = (spanXmm / 1000) * (spanZmm / 1000) * (totalAltMm / 1000)
+
+  return {
+    larguraMm: Math.round(spanXmm),   // eixo X
+    comprimentoMm: Math.round(spanZmm), // eixo Z (comprimento do material)
+    alturaMm: Math.round(totalAltMm),
+    larguraM: spanXmm / 1000,
+    comprimentoM: spanZmm / 1000,
+    alturaM: totalAltMm / 1000,
+    volumeM3,
+    totalPacotes,
+    pacotesPorCamada,
+    camadasPorBloco,
+    numBlocos,
+  }
+}
+
 // Configurações de paletes pré-definidos (em metros)
 export const PALETE_CONFIGS = {
   'PBR_1000x1000':  { largX: 1.0,  profZ: 1.0,  nTab: 7, label: 'PBR 1000×1000 mm' },

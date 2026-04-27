@@ -182,7 +182,7 @@ export default function MontagemPalete() {
       </div>
 
       {/* Barra de busca por ferramenta — oculta na aba cubagem */}
-      {paleteActiveTab !== 'cubagem' && <div className="bg-white border-b border-gray-200 px-5 py-3 flex-shrink-0">
+      {paleteActiveTab !== 'cubagem' && paleteActiveTab !== 'validacao' && <div className="bg-white border-b border-gray-200 px-5 py-3 flex-shrink-0">
         <form onSubmit={handleBuscar} className="flex items-center gap-2 flex-wrap">
           <label className="text-xs font-semibold text-gray-500 uppercase">Ferramenta:</label>
           <div className="relative" ref={dropdownRef}>
