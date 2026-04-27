@@ -722,7 +722,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
                   { label: 'Pacotes/camada', value: config.pacotes_por_camada },
                   { label: 'Camadas/bloco', value: config.camadas_por_bloco },
                   { label: 'Blocos', value: config.num_blocos },
-                  { label: 'Total camadas', value: totalCamadas },
+                  { label: 'Total camadas', value: (config.camadas_por_bloco || 1) * (config.num_blocos || 1) },
                   { label: 'Total pacotes', value: totalPacotesPalete },
                   { label: 'Ripa entre cam.', value: config.ripa_entre_camadas ? `Sim (${config.ripa_altura_mm}mm)` : 'Não' },
                   { label: 'Ripa lateral', value: config.ripa_vertical ? `Sim (${config.ripa_vert_comp_mm}mm)` : 'Não' },
