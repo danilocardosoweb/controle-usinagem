@@ -3,7 +3,7 @@ import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, Fa
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
-import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, resolverNomeKit } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -96,6 +96,8 @@ const Relatorios = () => {
   const { items: maquinasCat } = useSupabase('maquinas')
   const { items: lotesDB } = useSupabase('lotes')
   const { items: inspecoesQualidade } = useSupabase('inspecoes_qualidade')
+  const { items: kitsDB } = useSupabase('expedicao_kits')
+  const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
 
   // Utilitário: Agrupar rastreabilidade em modo compacto (uma linha por apontamento)
   const agruparRastreabilidadeCompacto = (linhas) => {
@@ -239,12 +241,14 @@ const Relatorios = () => {
     const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
     const turno = a.turno || ''
 
+    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP: loteMPVal,
       cliente,
       item,
       codigoCliente,
+      nomeKit,
       medida,
       pedidoTecno,
       pedidoCli,
@@ -256,15 +260,13 @@ const Relatorios = () => {
       turno
     })
     
-    const blob = new Blob([html], { type: 'application/msword' })
-    const url = URL.createObjectURL(blob)
-    const aTag = document.createElement('a')
-    aTag.href = url
-    aTag.download = `identificacao_${lote || 'apontamento'}.doc`
-    document.body.appendChild(aTag)
-    aTag.click()
-    document.body.removeChild(aTag)
-    URL.revokeObjectURL(url)
+    // Abrir em nova janela pronta para impressão
+    const printWindow = window.open('', '_blank', 'width=1100,height=800')
+    printWindow.document.write(html)
+    printWindow.document.close()
+    setTimeout(() => {
+      printWindow.print()
+    }, 500)
   }
   
   // Utilitário: sanitizar nome de aba do Excel

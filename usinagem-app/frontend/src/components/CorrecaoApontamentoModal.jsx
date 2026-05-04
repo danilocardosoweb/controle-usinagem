@@ -45,6 +45,7 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
         operador: apontamento.operador || '',
         maquina: apontamento.maquina || '',
         rack_ou_pallet: apontamento.rack_ou_pallet || '',
+        lote_externo: apontamento.lote_externo || '',
         observacoes: apontamento.observacoes || ''
       })
 
@@ -343,6 +344,27 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
                   {camposAlterados.includes('rack_ou_pallet') && (
                     <p className="text-xs text-orange-600 mt-1">
                       Original: {apontamento?.rack_ou_pallet}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Lote Externo
+                  </label>
+                  <input
+                    type="text"
+                    name="lote_externo"
+                    value={formData.lote_externo ?? ''}
+                    onChange={handleChange}
+                    placeholder="Digite o lote externo..."
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      camposAlterados.includes('lote_externo') ? 'border-orange-500 bg-orange-50' : 'border-gray-300'
+                    }`}
+                  />
+                  {camposAlterados.includes('lote_externo') && (
+                    <p className="text-xs text-orange-600 mt-1">
+                      Original: {apontamento?.lote_externo || '(vazio)'}
                     </p>
                   )}
                 </div>

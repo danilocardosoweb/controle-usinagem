@@ -1,15 +1,26 @@
-import React, { useRef } from 'react'
-import { FaPrint, FaTimes, FaFileExcel } from 'react-icons/fa'
+import React, { useRef, useState } from 'react'
+import { FaPrint, FaTimes, FaFileExcel, FaFileAlt } from 'react-icons/fa'
+import ReimpressaoApontamentosModal from './ReimpressaoApontamentosModal'
 
 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR')
 const fmtDec = (n, dec = 1) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 
-export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
+export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamentos }) {
   const printRef = useRef()
+  const [reimpressaoModalAberto, setReimpressaoModalAberto] = useState(false)
 
-  const totalPecas = itens.reduce((sum, i) => sum + (i.quantidade || 0), 0)
-  const pesoTotal = itens.reduce((sum, i) => sum + (i.peso_estimado_kg || 0), 0)
-  const clienteUnico = romaneio.cliente || [...new Set(itens.map(i => i.cliente).filter(Boolean))].join(', ')
+  // Ordenar itens por Palete (rack_ou_pallet) do menor para o maior
+  const itensOrdenados = React.useMemo(() => {
+    return [...(itens || [])].sort((a, b) => {
+      const rackA = String(a.rack_ou_pallet || '').toUpperCase()
+      const rackB = String(b.rack_ou_pallet || '').toUpperCase()
+      return rackA.localeCompare(rackB, 'pt-BR', { numeric: true, sensitivity: 'base' })
+    })
+  }, [itens])
+
+  const totalPecas = itensOrdenados.reduce((sum, i) => sum + (i.quantidade || 0), 0)
+  const pesoTotal = itensOrdenados.reduce((sum, i) => sum + (i.peso_estimado_kg || 0), 0)
+  const clienteUnico = romaneio.cliente || [...new Set(itensOrdenados.map(i => i.cliente).filter(Boolean))].join(', ')
 
   const handlePrint = () => {
     const printWindow = window.open('', '', 'height=800,width=1100')
@@ -112,12 +123,13 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
               <th class="center">Qtd</th>
               <th class="right">Peso (kg)</th>
               <th>Cliente</th>
-              <th>Pedido</th>
+              <th>Pedido Seq</th>
+              <th>Pedido Cliente</th>
               <th>Lote Externo</th>
             </tr>
           </thead>
           <tbody>
-            ${itens.map((item, idx) => `
+            ${itensOrdenados.map((item, idx) => `
               <tr>
                 <td class="center" style="color:#999">${idx + 1}</td>
                 <td><strong>${item.rack_ou_pallet || '-'}</strong></td>
@@ -128,6 +140,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
                 <td class="right">${item.peso_estimado_kg ? fmtDec(item.peso_estimado_kg) : '-'}</td>
                 <td>${item.cliente || '-'}</td>
                 <td>${item.pedido_seq || '-'}</td>
+                <td><strong>${item.pedido_cliente || '-'}</strong></td>
                 <td>${item.lote_externo || '-'}</td>
               </tr>
             `).join('')}
@@ -231,12 +244,13 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
                 <th className="px-3 py-2.5 text-center">Qtd</th>
                 <th className="px-3 py-2.5 text-right">Peso (kg)</th>
                 <th className="px-3 py-2.5 text-left">Cliente</th>
-                <th className="px-3 py-2.5 text-left">Pedido</th>
+                <th className="px-3 py-2.5 text-left">Pedido Seq</th>
+                <th className="px-3 py-2.5 text-left">Pedido Cliente</th>
                 <th className="px-3 py-2.5 text-left rounded-tr-lg">Lote Externo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {itens.map((item, idx) => (
+              {itensOrdenados.map((item, idx) => (
                 <tr key={idx} className="hover:bg-blue-50/40 transition-colors">
                   <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2 font-semibold text-gray-800">{item.rack_ou_pallet || '-'}</td>
@@ -247,6 +261,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
                   <td className="px-3 py-2 text-right text-gray-700">{item.peso_estimado_kg ? fmtDec(item.peso_estimado_kg) : '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.cliente || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.pedido_seq || '-'}</td>
+                  <td className="px-3 py-2 text-gray-700 font-semibold">{item.pedido_cliente || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.lote_externo || '-'}</td>
                 </tr>
               ))}
@@ -266,6 +281,12 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
             Fechar
           </button>
           <button
+            onClick={() => setReimpressaoModalAberto(true)}
+            className="px-5 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm font-medium flex items-center gap-2"
+          >
+            <FaFileAlt className="w-3.5 h-3.5" /> Reimprimir Apontamentos
+          </button>
+          <button
             onClick={handlePrint}
             className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
           >
@@ -273,6 +294,16 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose }) {
           </button>
         </div>
       </div>
+
+      {/* Modal de Reimpressão de Apontamentos */}
+      {reimpressaoModalAberto && (
+        <ReimpressaoApontamentosModal
+          isOpen={reimpressaoModalAberto}
+          onClose={() => setReimpressaoModalAberto(false)}
+          itens={itensOrdenados}
+          apontamentos={apontamentos}
+        />
+      )}
     </div>
   )
 }

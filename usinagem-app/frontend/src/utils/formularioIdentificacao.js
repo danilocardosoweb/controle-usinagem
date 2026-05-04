@@ -23,12 +23,29 @@ export const calcularTurno = (dataHora) => {
   }
 }
 
+/**
+ * Dado um produto (item) e os arrays de kits+componentes,
+ * retorna o nome descritivo do primeiro kit que contém esse produto.
+ */
+export const resolverNomeKit = (produto, kits = [], componentes = []) => {
+  if (!produto || !kits.length) return ''
+  const prodUpper = String(produto).toUpperCase().trim()
+  for (const kit of kits) {
+    const compsDoKit = componentes.filter(c => String(c.kit_id) === String(kit.id))
+    if (compsDoKit.some(c => String(c.produto || '').toUpperCase().trim() === prodUpper)) {
+      return kit.nome || ''
+    }
+  }
+  return ''
+}
+
 export const buildFormularioIdentificacaoHtml = ({
   lote,
   loteMP,
   cliente,
   item,
   codigoCliente,
+  nomeKit,
   medida,
   pedidoTecno,
   pedidoCli,
@@ -48,12 +65,12 @@ export const buildFormularioIdentificacaoHtml = ({
   <style>
     @page { 
       size: A4 landscape; 
-      margin: 10mm; /* Ajustado para dar bom respiro mas sem forçar 2 páginas */
+      margin: 8mm; /* Ajustado para dar bom respiro mas sem forçar 2 páginas */
     }
     @media print {
       @page {
         size: landscape;
-        margin: 10mm;
+        margin: 8mm;
       }
       body {
         margin: 0;
@@ -71,11 +88,11 @@ export const buildFormularioIdentificacaoHtml = ({
     }
     .container {
       max-width: 100%;
-      height: 185mm; /* Altura máxima para não passar de 1 página, ocupando melhor o espaço */
+      height: 175mm; /* Altura máxima para não passar de 1 página, ocupando melhor o espaço */
       margin: 0 auto;
       background: #fff;
       border: 2px solid #000;
-      padding: 8mm 12mm; /* Aumentar padding interno */
+      padding: 5mm 10mm; /* Aumentar padding interno */
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -87,15 +104,15 @@ export const buildFormularioIdentificacaoHtml = ({
       padding-bottom: 5mm; 
     }
     .titulo { 
-      font-size: 26pt; /* Fonte maior */
+      font-size: 18pt; /* Fonte maior */
       font-weight: 800; 
       text-transform: uppercase;
       letter-spacing: 0.5pt;
       margin: 0;
     }
     .sub { 
-      margin-top: 4mm; 
-      font-size: 13pt; 
+      margin-top: 2mm; 
+      font-size: 10pt; 
       font-weight: 600; 
       color: #333;
       display: flex;
@@ -109,7 +126,7 @@ export const buildFormularioIdentificacaoHtml = ({
     .form-grid { 
       display: grid;
       grid-template-columns: 20% 80%; /* Ajuste para dar mais espaço ao label */
-      gap: 7mm 0; /* Maior espaçamento vertical */
+      gap: 4mm 0; /* Maior espaçamento vertical */
       align-items: center;
     }
     .form-grid.dupla-coluna {
@@ -128,11 +145,11 @@ export const buildFormularioIdentificacaoHtml = ({
       grid-template-columns: 20% 35% 15% 30%;
       gap: 0;
       align-items: center;
-      margin: 3mm 0; /* Mais respiro ao redor desta linha */
+      margin: 2mm 0; /* Mais respiro ao redor desta linha */
     }
     .label { 
       font-weight: 700; 
-      font-size: 16pt; /* Maior */
+      font-size: 11pt; /* Maior */
       text-transform: uppercase;
       letter-spacing: 0.5pt;
       color: #000;
@@ -141,7 +158,7 @@ export const buildFormularioIdentificacaoHtml = ({
     }
     .valor { 
       border-bottom: 1px solid #000; 
-      font-size: 20pt; /* Maior */
+      font-size: 14pt; /* Maior */
       font-weight: 600;
       padding: 1mm 2mm; 
       text-align: center;
@@ -185,7 +202,7 @@ export const buildFormularioIdentificacaoHtml = ({
         
         <div class="form-row">
           <div class="label">Código Cliente:</div>
-          <div class="valor">${codigoCliente || ''}</div>
+          <div class="valor" style="display:flex;align-items:center;justify-content:center;gap:10px;">${codigoCliente || ''}${nomeKit ? `<span style="font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.3pt;border-left:3px solid #1a3a6b;padding-left:10px;"> ${nomeKit}</span>` : ''}</div>
         </div>
         
         <div class="form-row">

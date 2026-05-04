@@ -1,18 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FaTruck, FaBarcode, FaCheckCircle, FaBox, FaClipboardList, FaHistory, FaPrint, FaPlus, FaSearch, FaFilter, FaDownload, FaTimes, FaCheck, FaExclamationTriangle, FaTrash, FaCubes, FaTruckLoading, FaCalendarAlt, FaUser, FaFolderOpen, FaSync, FaExternalLinkAlt, FaShippingFast, FaUndo, FaBoxes } from 'react-icons/fa'
+import { FaTruck, FaBarcode, FaCheckCircle, FaBox, FaClipboardList, FaHistory, FaPrint, FaPlus, FaSearch, FaFilter, FaDownload, FaTimes, FaCheck, FaExclamationTriangle, FaTrash, FaCubes, FaTruckLoading, FaCalendarAlt, FaUser, FaFolderOpen, FaSync, FaExternalLinkAlt, FaShippingFast, FaUndo, FaBoxes, FaEdit } from 'react-icons/fa'
 import { supabase } from '../config/supabase'
 import useSupabase from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import ExpedicaoService from '../services/ExpedicaoService'
 import ExpedicaoImpressao from '../components/ExpedicaoImpressao'
 import KitsPanel from '../components/expedicao/KitsPanel'
+import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 import { useAuth } from '../contexts/AuthContext'
+import { isAdmin } from '../utils/auth'
 import * as XLSX from 'xlsx'
 
 export default function Expedicao() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  
+  // Verificar se usuário é administrador
+  const userIsAdmin = useMemo(() => isAdmin(user), [user])
   
   const { items: apontamentos } = useSupabase('apontamentos')
   const { items: apontamentosParaKits, loadItems: loadApontamentosParaKits } = useSupabase('apontamentos') // Carrega TODOS os apontamentos sem filtro de data
@@ -22,10 +27,10 @@ export default function Expedicao() {
   const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
 
   const [tab, setTab] = useState('dashboard')
-  // Período padrão de 30 dias
+  // Período padrão de 90 dias para incluir racks antigos pendentes
   const [filtroDataInicio, setFiltroDataInicio] = useState(() => {
     const data = new Date()
-    data.setDate(data.getDate() - 30)
+    data.setDate(data.getDate() - 90)
     return data.toISOString().slice(0, 10)
   })
   const [filtroDataFim, setFiltroDataFim] = useState(() => new Date().toISOString().slice(0, 10))
@@ -51,6 +56,12 @@ export default function Expedicao() {
   const [itensNaoEncontrados, setItensNaoEncontrados] = useState({})   // id -> true
   const [observacoesDivergencia, setObservacoesDivergencia] = useState({}) // id -> string
   const [itemObsAberto, setItemObsAberto] = useState(null)  // id do item com painel de obs aberto
+
+  // Correção de apontamentos
+  const [correcaoApontamentoAberto, setCorrecaoApontamentoAberto] = useState(false)
+  const [apontamentoParaCorrigir, setApontamentoParaCorrigir] = useState(null)
+  const [buscaRackCorrecao, setBuscaRackCorrecao] = useState('')
+  const [resultadoBuscaCorrecao, setResultadoBuscaCorrecao] = useState([])
 
   // Simulações de cubagem
   const [simulacoesSalvas, setSimulacoesSalvas] = useState([])
@@ -193,6 +204,20 @@ export default function Expedicao() {
     console.log('  - Total apontamentos recebidos:', apontamentosParaKits.length)
     console.log('  - Apontamentos com rack não expedido:', resultado.length)
     console.log('  - Clientes únicos:', new Set(resultado.map(a => a.cliente)).size)
+    
+    // Debug específico para racks TRAMONTINA USI-128x
+    const racksTramontinaTodos = (Array.isArray(apontamentosParaKits) ? apontamentosParaKits : [])
+      .filter(a => {
+        const rack = String(a.rack_acabado || a.rackAcabado || a.rack_ou_pallet || '').trim().toUpperCase()
+        return rack.startsWith('USI-128')
+      })
+    console.log('🔍 Todos USI-128x:', racksTramontinaTodos.map(a => ({
+      rack: a.rack_acabado || a.rack_ou_pallet,
+      cliente: a.cliente,
+      data: a.created_at,
+      romaneio_numero: a.romaneio_numero,
+      noExpedidos: racksExpedidosSet.has(String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase())
+    })))
     
     return resultado
   }, [apontamentosParaKits, racksExpedidosSet])
@@ -616,6 +641,37 @@ export default function Expedicao() {
     }
   }
 
+  // Buscar apontamentos para correção
+  const buscarApontamentosParaCorrecao = async () => {
+    if (!buscaRackCorrecao.trim()) {
+      alert('Digite um rack para buscar')
+      return
+    }
+    
+    const termo = buscaRackCorrecao.trim().toUpperCase()
+    const encontrados = (Array.isArray(apontamentos) ? apontamentos : [])
+      .filter(a => {
+        const rack = String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase()
+        return rack.includes(termo)
+      })
+    
+    setResultadoBuscaCorrecao(encontrados)
+    console.log('🔍 Apontamentos encontrados para correção:', encontrados.length, encontrados)
+  }
+
+  const abrirCorrecaoApontamento = (apontamento) => {
+    setApontamentoParaCorrigir(apontamento)
+    setCorrecaoApontamentoAberto(true)
+  }
+
+  const handleSucessoCorrecao = () => {
+    setCorrecaoApontamentoAberto(false)
+    setApontamentoParaCorrigir(null)
+    // Recarregar a busca
+    buscarApontamentosParaCorrecao()
+    alert('✅ Correção salva com sucesso!')
+  }
+
   const cancelarRomaneio = async (romaneio) => {
     const confirmado = window.confirm(
       `Tem certeza que deseja cancelar o romaneio ${romaneio.numero_romaneio}?\n\nEsta ação não pode ser desfeita.`
@@ -765,7 +821,7 @@ export default function Expedicao() {
         ['Peso Total Estimado (kg):', formatarNumero(romaneio.peso_total_estimado_kg)],
         [],
         ['ITENS DO ROMANEIO'],
-        ['Rack', 'Produto', 'Ferramenta', 'Comp. Acabado (mm)', 'Quantidade', 'Peso Estimado (kg)', 'Cliente', 'Pedido', 'Lote Externo', 'Status']
+        ['Rack', 'Produto', 'Ferramenta', 'Comp. Acabado (mm)', 'Quantidade', 'Peso Estimado (kg)', 'Cliente', 'Pedido', 'Pedido Cliente', 'Lote Externo', 'Status']
       ]
 
       itens.forEach(item => {
@@ -778,6 +834,7 @@ export default function Expedicao() {
           formatarNumero(item.peso_estimado_kg),
           item.cliente || '',
           item.pedido_seq || '',
+          item.pedido_cliente || '',
           item.lote_externo || '',
           item.status_item || 'pendente'
         ])
@@ -869,6 +926,14 @@ export default function Expedicao() {
           >
             <FaBoxes /> Kits
           </button>
+          {userIsAdmin && (
+            <button
+              onClick={() => setTab('correcao')}
+              className={`px-4 py-3 font-medium flex items-center gap-2 ${tab === 'correcao' ? 'border-b-2 border-orange-600 text-orange-600' : 'text-gray-600'}`}
+            >
+              <FaEdit /> Correção
+            </button>
+          )}
           <button
             onClick={() => setTab('historico')}
             className={`px-4 py-3 font-medium flex items-center gap-2 ${tab === 'historico' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600'}`}
@@ -946,7 +1011,7 @@ export default function Expedicao() {
                   onClick={() => { 
                     const dataFim = new Date()
                     const dataInicio = new Date()
-                    dataInicio.setDate(dataInicio.getDate() - 30)
+                    dataInicio.setDate(dataInicio.getDate() - 90)
                     setFiltroDataInicio(dataInicio.toISOString().slice(0,10)); 
                     setFiltroDataFim(dataFim.toISOString().slice(0,10)); 
                     setFiltroCliente(''); 
@@ -1011,6 +1076,95 @@ export default function Expedicao() {
                 </table>
               )}
             </div>
+          </div>
+        )}
+
+        {tab === 'correcao' && userIsAdmin && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <FaEdit className="text-orange-500" />
+                Correção de Apontamentos
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Busque apontamentos pelo Rack Acabado (ex: USI-1246) para corrigir informações como Lote Externo, Pedido Cliente, etc.
+              </p>
+              
+              <div className="flex gap-3 mb-6">
+                <input
+                  type="text"
+                  value={buscaRackCorrecao}
+                  onChange={(e) => setBuscaRackCorrecao(e.target.value)}
+                  placeholder="Digite o rack (ex: USI-1246)..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  onKeyPress={(e) => e.key === 'Enter' && buscarApontamentosParaCorrecao()}
+                />
+                <button
+                  onClick={buscarApontamentosParaCorrecao}
+                  className="px-6 py-2 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg flex items-center gap-2"
+                >
+                  <FaSearch /> Buscar
+                </button>
+              </div>
+
+              {resultadoBuscaCorrecao.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Rack</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Produto</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Cliente</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Lote Externo</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Pedido Cliente</th>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {resultadoBuscaCorrecao.map((apt) => (
+                        <tr key={apt.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-semibold text-gray-800">{apt.rack_acabado || apt.rack_ou_pallet || '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{apt.produto || '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{apt.cliente || '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{apt.lote_externo || '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{apt.pedido_cliente || '-'}</td>
+                          <td className="px-4 py-2">
+                            <button
+                              onClick={() => abrirCorrecaoApontamento(apt)}
+                              className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded flex items-center gap-1"
+                            >
+                              <FaEdit /> Corrigir
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              
+              {buscaRackCorrecao && resultadoBuscaCorrecao.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  Nenhum apontamento encontrado para o rack "{buscaRackCorrecao}"
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {tab === 'correcao' && !userIsAdmin && (
+          <div className="bg-white p-8 rounded-lg shadow text-center">
+            <FaExclamationTriangle className="text-4xl text-orange-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Acesso Restrito</h3>
+            <p className="text-gray-600">
+              Apenas administradores podem acessar a funcionalidade de correção de apontamentos.
+            </p>
+            <button
+              onClick={() => setTab('dashboard')}
+              className="mt-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg"
+            >
+              Voltar para Racks Prontos
+            </button>
           </div>
         )}
 
@@ -1703,7 +1857,18 @@ export default function Expedicao() {
         <ExpedicaoImpressao
           romaneio={romaneioSelecionado}
           itens={itensRomaneioSelecionado}
+          apontamentos={apontamentos}
           onClose={() => setImpressaoModalAberto(false)}
+        />
+      )}
+
+      {/* Modal Correção de Apontamento */}
+      {correcaoApontamentoAberto && apontamentoParaCorrigir && (
+        <CorrecaoApontamentoModal
+          apontamento={apontamentoParaCorrigir}
+          usuarioId={user?.id}
+          onClose={() => setCorrecaoApontamentoAberto(false)}
+          onSucesso={handleSucessoCorrecao}
         />
       )}
 
@@ -1761,7 +1926,13 @@ export default function Expedicao() {
                   </tr>
                 </thead>
                 <tbody>
-                  {clienteSelecionadoDetalhes.racks.map((rack, idx) => {
+                  {[...clienteSelecionadoDetalhes.racks]
+                    .sort((a, b) => {
+                      const dataA = a.apontamentos[0]?.created_at || ''
+                      const dataB = b.apontamentos[0]?.created_at || ''
+                      return new Date(dataB) - new Date(dataA)
+                    })
+                    .map((rack, idx) => {
                     const selecionado = racksModalSelecionados.some(r => r.rack === rack.rack)
                     const primeiroAp = rack.apontamentos[0] || {}
                     return (
