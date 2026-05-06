@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import useSupabase from '../hooks/useSupabase'
 import { FaPrint, FaTimes, FaCheckSquare, FaSquare, FaEdit, FaFileAlt, FaBarcode, FaFileWord } from 'react-icons/fa'
-import { buildFormularioIdentificacaoHtml, calcularTurno, resolverNomeKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, calcularTurno, resolverKit } from '../utils/formularioIdentificacao'
 
 const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) => {
   const [selecionados, setSelecionados] = useState({})
@@ -142,14 +142,15 @@ const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) 
     const turno = apontamento.turno || calcularTurno(dataHoraProducao)
 
     // Gerar HTML do formulário
-    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
+    const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP,
       cliente,
       item,
       codigoCliente,
-      nomeKit,
+      nomeKit: kitInfo?.nome || '',
+      codigoKit: kitInfo?.codigo || '',
       medida,
       pedidoTecno,
       pedidoCli,

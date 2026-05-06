@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FaPrint, FaTimes, FaCheckCircle, FaExclamationTriangle, FaFileWord, FaBarcode, FaEye, FaArrowLeft } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, isImpressoraAtiva } from '../utils/impressoras'
-import { buildFormularioIdentificacaoHtml, resolverNomeKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, resolverKit } from '../utils/formularioIdentificacao'
 import EtiquetasService from '../services/EtiquetasService'
 import PrintService from '../services/PrintService'
 import useSupabase from '../hooks/useSupabase'
@@ -370,14 +370,15 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
       const turno = apontamento.turno || ''
 
-      const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
+      const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
       const html = buildFormularioIdentificacaoHtml({
         lote,
         loteMP: loteMPVal,
         cliente,
         item,
         codigoCliente: codigoClienteVal,
-        nomeKit,
+        nomeKit: kitInfo?.nome || '',
+        codigoKit: kitInfo?.codigo || '',
         medida,
         pedidoTecno,
         pedidoCli,

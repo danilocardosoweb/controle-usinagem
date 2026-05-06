@@ -25,18 +25,26 @@ export const calcularTurno = (dataHora) => {
 
 /**
  * Dado um produto (item) e os arrays de kits+componentes,
- * retorna o nome descritivo do primeiro kit que contém esse produto.
+ * retorna o objeto { nome, codigo } do primeiro kit que contém esse produto.
  */
-export const resolverNomeKit = (produto, kits = [], componentes = []) => {
-  if (!produto || !kits.length) return ''
+export const resolverKit = (produto, kits = [], componentes = []) => {
+  if (!produto || !kits.length) return null
   const prodUpper = String(produto).toUpperCase().trim()
   for (const kit of kits) {
     const compsDoKit = componentes.filter(c => String(c.kit_id) === String(kit.id))
     if (compsDoKit.some(c => String(c.produto || '').toUpperCase().trim() === prodUpper)) {
-      return kit.nome || ''
+      return { nome: kit.nome || '', codigo: kit.codigo || '' }
     }
   }
-  return ''
+  return null
+}
+
+/**
+ * @deprecated Use resolverKit() que retorna objeto com nome e codigo
+ */
+export const resolverNomeKit = (produto, kits = [], componentes = []) => {
+  const kit = resolverKit(produto, kits, componentes)
+  return kit ? kit.nome : ''
 }
 
 export const buildFormularioIdentificacaoHtml = ({
@@ -46,6 +54,7 @@ export const buildFormularioIdentificacaoHtml = ({
   item,
   codigoCliente,
   nomeKit,
+  codigoKit,
   medida,
   pedidoTecno,
   pedidoCli,
@@ -104,7 +113,7 @@ export const buildFormularioIdentificacaoHtml = ({
       padding-bottom: 5mm; 
     }
     .titulo { 
-      font-size: 18pt; /* Fonte maior */
+      font-size: 26pt;
       font-weight: 800; 
       text-transform: uppercase;
       letter-spacing: 0.5pt;
@@ -112,7 +121,7 @@ export const buildFormularioIdentificacaoHtml = ({
     }
     .sub { 
       margin-top: 2mm; 
-      font-size: 10pt; 
+      font-size: 14pt; 
       font-weight: 600; 
       color: #333;
       display: flex;
@@ -149,7 +158,7 @@ export const buildFormularioIdentificacaoHtml = ({
     }
     .label { 
       font-weight: 700; 
-      font-size: 11pt; /* Maior */
+      font-size: 15pt;
       text-transform: uppercase;
       letter-spacing: 0.5pt;
       color: #000;
@@ -158,7 +167,7 @@ export const buildFormularioIdentificacaoHtml = ({
     }
     .valor { 
       border-bottom: 1px solid #000; 
-      font-size: 14pt; /* Maior */
+      font-size: 20pt;
       font-weight: 600;
       padding: 1mm 2mm; 
       text-align: center;
@@ -171,7 +180,7 @@ export const buildFormularioIdentificacaoHtml = ({
       height: 7mm; 
     }
     .footer {
-      font-size: 10pt;
+      font-size: 12pt;
       color: #666;
       text-align: right;
       margin-top: 3mm;
@@ -202,7 +211,7 @@ export const buildFormularioIdentificacaoHtml = ({
         
         <div class="form-row">
           <div class="label">Código Cliente:</div>
-          <div class="valor" style="display:flex;align-items:center;justify-content:center;gap:10px;">${codigoCliente || ''}${nomeKit ? `<span style="font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.3pt;border-left:3px solid #1a3a6b;padding-left:10px;"> ${nomeKit}</span>` : ''}</div>
+          <div class="valor" style="display:flex;align-items:center;justify-content:center;gap:10px;">${codigoCliente || ''}${nomeKit ? `<span style="font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.3pt;border-left:3px solid #1a3a6b;padding-left:10px;"> ${nomeKit}${codigoKit ? ` <span style="font-size:11pt;color:#4a6b9b;font-weight:600;">(${codigoKit})</span>` : ''}</span>` : ''}</div>
         </div>
         
         <div class="form-row">

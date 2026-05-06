@@ -3,28 +3,12 @@
  * Fornece uma API compatível com o DatabaseService existente
  */
 
-import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_CONFIG, validateSupabaseConfig } from '../config/supabase.js';
+import { supabase as supabaseClient } from '../config/supabase.js';
 
 class SupabaseService {
   constructor() {
-    this.supabaseUrl = SUPABASE_CONFIG.url;
-    this.supabaseKey = SUPABASE_CONFIG.anonKey;
-    this.supabase = null;
-    this.isInitialized = false;
-    // Debug seguro: verifica se as variáveis do Vite foram carregadas (não imprime valores)
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[Supabase ENV] url:', !!this.supabaseUrl, 'key:', !!this.supabaseKey)
-      // Logs temporários para diagnosticar variáveis expostas pelo Vite
-      // eslint-disable-next-line no-console
-      console.log('[ENV keys]', Object.keys(import.meta?.env || {}))
-      // eslint-disable-next-line no-console
-      console.log('[VITE vars]', {
-        VITE_SUPABASE_URL_present: typeof import.meta?.env?.VITE_SUPABASE_URL === 'string',
-        VITE_SUPABASE_ANON_KEY_length: (import.meta?.env?.VITE_SUPABASE_ANON_KEY || '').length
-      })
-    } catch {}
+    this.supabase = supabaseClient;
+    this.isInitialized = true;
   }
 
   /**
@@ -104,24 +88,7 @@ class SupabaseService {
    * @returns {Promise} Promise que resolve quando o cliente estiver pronto
    */
   async init() {
-    if (this.isInitialized) return Promise.resolve();
-    
-    try {
-      // Validar configuração
-      validateSupabaseConfig();
-      
-      if (!this.supabase) {
-        this.supabase = createClient(this.supabaseUrl, this.supabaseKey);
-      }
-      
-      // Não forçar consulta a nenhuma tabela específica para não falhar quando o schema ainda não foi aplicado
-      this.isInitialized = true;
-      console.log('✅ Cliente Supabase inicializado com sucesso');
-      return Promise.resolve();
-    } catch (error) {
-      console.error('❌ Erro ao inicializar Supabase:', error.message);
-      return Promise.reject(error);
-    }
+    return Promise.resolve();
   }
 
   /**

@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Edges, OrbitControls, PerspectiveCamera, Html, Line } from '@react-three/drei'
 import { DoubleSide } from 'three'
-import { FaTimes, FaCubes, FaSave, FaEdit, FaTruckLoading, FaPlus, FaTrash, FaClipboardList, FaSearch, FaSync, FaExclamationTriangle, FaBan, FaRulerCombined, FaBoxOpen, FaDownload, FaUpload, FaPrint, FaCalendarAlt, FaUser, FaCheck, FaFolderOpen, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
+import { FaTimes, FaCubes, FaSave, FaEdit, FaTruckLoading, FaPlus, FaTrash, FaClipboardList, FaSearch, FaSync, FaExclamationTriangle, FaBan, FaRulerCombined, FaBoxOpen, FaDownload, FaUpload, FaPrint, FaCalendarAlt, FaUser, FaCheck, FaFolderOpen, FaChevronLeft, FaChevronRight, FaLevelDownAlt, FaShare, FaTrashAlt } from 'react-icons/fa'
 import PaleteVisualizacao3D, { PALETE_CONFIGS, calcularLayoutColunas, calcularDimensoesPalete } from './PaleteVisualizacao3D'
 import AmarradoVisualizacao3D from './AmarradoVisualizacao3D'
 import PaleteDetalhe2D from './PaleteDetalhe2D'
+import TooltipPaleteInfo from './TooltipPaleteInfo'
 import { gerarPosicoesAmarrado } from '../utils/geometriaAmarrado'
 import { AmarradoService } from '../services/AmarradoService'
 import { supabase } from '../config/supabase'
@@ -76,6 +77,7 @@ const agruparRomaneioItens = (itens = [], romaneiosMap = {}) => {
         produtos: new Set(),
         pedidos: new Set(),
         quantidadePecas: 0,
+        pesoEstimadoKg: 0,
         itens: [],
       }
     }
@@ -83,6 +85,7 @@ const agruparRomaneioItens = (itens = [], romaneiosMap = {}) => {
     const grupo = grupos[key]
     grupo.itens.push(item)
     grupo.quantidadePecas += Number(item.quantidade) || 0
+    grupo.pesoEstimadoKg += Number(item.peso_estimado_kg) || 0
     if (item.cliente) grupo.clientes.add(item.cliente)
     if (item.produto) grupo.produtos.add(item.produto)
     if (item.pedido_seq) grupo.pedidos.add(item.pedido_seq)
@@ -464,12 +467,273 @@ const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folga
               <Edges scale={1.001} color={truckColor} />
             </mesh>
             {/* Paletes posicionados com dimensões reais */}
-            {displayedBoxes.map((box) => (
-              <mesh key={box.key} position={box.position} castShadow>
-                <boxGeometry args={box.dims} />
-                <meshStandardMaterial color={box.cor} opacity={0.92} transparent />
-              </mesh>
-            ))}
+            {displayedBoxes.map((box) => {
+              // Extrair informações do item original para o tooltip
+              const itemIdxMatch = box.key.match(/^i(\d+)/)
+              const itemIdx = itemIdxMatch ? Number(itemIdxMatch[1]) : 0
+              const itemOriginal = filaItens[itemIdx]
+              
+              // Criar objeto palete para o tooltip
+              const paleteParaTooltip = {
+                id: box.key,
+                titulo: box.itemTitulo || itemOriginal?.titulo || 'Palete',
+                subtitulo: itemOriginal?.subtitulo || '',
+                origem: itemOriginal?.origem || 'manual',
+                largura: box.wReal || itemOriginal?.largura || 0,
+                comprimento: box.dReal || itemOriginal?.comprimento || 0,
+                altura: box.hReal || itemOriginal?.altura || 0,
+                volume: (box.wReal || 0) * (box.dReal || 0) * (box.hReal || 0),
+                quantidade: 1,
+                quantidadePecas: itemOriginal?.quantidadePecas || 0,
+                pesoPacoteKg: itemOriginal?.pesoPacoteKg || 0,
+                metadataRomaneio: itemOriginal?.metadataRomaneio || null
+              }
+
+              return (
+                <group key={box.key}>
+                  <mesh 
+                    position={box.position} 
+                    castShadow
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      console.log('🔥 Duplo clique no mesh 3D:', paleteParaTooltip.titulo)
+                      // Abrir tooltip diretamente
+                      const tooltip = document.createElement('div')
+                      tooltip.style.cssText = `
+                        position: fixed;
+                        top: ${e.clientY}px;
+                        left: ${e.clientX}px;
+                        z-index: 9999;
+                        background: white;
+                        padding: 16px;
+                        border-radius: 12px;
+                        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+                        border: 1px solid #e2e8f0;
+                        min-width: 320px;
+                        font-family: system-ui;
+                      `
+                      // Extrair informações adicionais do item original
+                      const itemOriginal = filaItens[itemIdx] || {}
+                      const metadata = paleteParaTooltip.metadataRomaneio || {}
+                      
+                      // Debug: verificar estrutura completa dos dados
+                      console.log('📋 Item original:', itemOriginal)
+                      console.log('📋 Metadata:', metadata)
+                      console.log('📋 FilaItens completa:', filaItens)
+                      console.log('📋 Chaves do itemOriginal:', Object.keys(itemOriginal))
+                      console.log('📋 itemOriginal.produtos:', itemOriginal.produtos)
+                      console.log('📋 itemOriginal.itens:', itemOriginal.itens)
+                      console.log('📋 itemOriginal.rack:', itemOriginal.rack)
+                      console.log('📋 itemOriginal.clientes:', itemOriginal.clientes)
+                      console.log('📋 itemOriginal.pedidos:', itemOriginal.pedidos)
+                      
+                      // Verificar se existe estrutura aninhada
+                      if (itemOriginal.metadataRomaneio) {
+                        console.log('📋 metadataRomaneio:', itemOriginal.metadataRomaneio)
+                        console.log('📋 metadataRomaneio.produtos:', itemOriginal.metadataRomaneio.produtos)
+                      }
+                      
+                      // Verificar todos os níveis do objeto
+                      const allKeys = []
+                      function getAllKeys(obj, prefix = '') {
+                        for (const key in obj) {
+                          const fullKey = prefix ? `${prefix}.${key}` : key
+                          allKeys.push(fullKey)
+                          if (typeof obj[key] === 'object' && obj[key] !== null) {
+                            getAllKeys(obj[key], fullKey)
+                          }
+                        }
+                      }
+                      getAllKeys(itemOriginal)
+                      console.log('📋 Todas as chaves encontradas:', allKeys)
+                      
+                      // CORREÇÃO: Buscar dados completos do romaneioPaletes quando for romaneio
+                      let produtos = []
+                      let pedidos = []
+                      let clientes = []
+                      let rackInfo = ''
+                      let comprimentoAcabadoMm = ''
+                      
+                      if (itemOriginal.origem === 'romaneio' && metadata.key) {
+                        // Buscar dados completos do romaneioPaletes usando a key
+                        const romaneioPalete = romaneioPaletes.find(rp => rp.key === metadata.key)
+                        console.log('🔍 Buscando romaneioPalete para key:', metadata.key)
+                        console.log('🔍 romaneioPalete encontrado:', romaneioPalete)
+                        
+                        if (romaneioPalete) {
+                          produtos = romaneioPalete.produtos || []
+                          pedidos = romaneioPalete.pedidos || []
+                          clientes = romaneioPalete.clientes || []
+                          rackInfo = romaneioPalete.rack || ''
+                          comprimentoAcabadoMm = romaneioPalete.comprimentoAcabadoMm || ''
+                        }
+                      }
+                      
+                      // Fallback para tentativas anteriores se não encontrar no romaneioPaletes
+                      if (produtos.length === 0) {
+                        produtos = itemOriginal.produtos || metadata.produtos || (itemOriginal.produto ? [itemOriginal.produto] : [])
+                      }
+                      if (pedidos.length === 0) {
+                        pedidos = itemOriginal.pedidos || metadata.pedidos || (itemOriginal.pedido_seq ? [itemOriginal.pedido_seq] : [])
+                      }
+                      if (clientes.length === 0) {
+                        clientes = itemOriginal.clientes || metadata.clientes || (itemOriginal.cliente ? [itemOriginal.cliente] : [])
+                      }
+                      if (!rackInfo) {
+                        rackInfo = itemOriginal.rack || metadata.rack || ''
+                      }
+                      if (!comprimentoAcabadoMm) {
+                        comprimentoAcabadoMm = itemOriginal.comprimentoAcabadoMm || ''
+                      }
+                      
+                      // Se ainda não encontrar, buscar dos itens individuais (último recurso)
+                      if (produtos.length === 0 && itemOriginal.itens && itemOriginal.itens.length > 0) {
+                        const produtosFromItens = itemOriginal.itens.map(item => item.produto).filter(p => p)
+                        produtos.push(...produtosFromItens)
+                      }
+                      
+                      if (pedidos.length === 0 && itemOriginal.itens && itemOriginal.itens.length > 0) {
+                        const pedidosFromItens = itemOriginal.itens.map(item => item.pedido_seq).filter(p => p)
+                        pedidos.push(...pedidosFromItens)
+                      }
+                      
+                      if (clientes.length === 0 && itemOriginal.itens && itemOriginal.itens.length > 0) {
+                        const clientesFromItens = itemOriginal.itens.map(item => item.cliente).filter(c => c)
+                        clientes.push(...clientesFromItens)
+                      }
+                      
+                      // Formatar lista de produtos
+                      const produtosText = produtos.length > 0 ? produtos.slice(0, 3).join(', ') + (produtos.length > 3 ? '...' : '') : '—'
+                      
+                      // Formatar lista de pedidos
+                      const pedidosText = pedidos.length > 0 ? pedidos.slice(0, 3).join(', ') + (pedidos.length > 3 ? '...' : '') : '—'
+                      
+                      // Formatar lista de clientes
+                      const clientesText = clientes.length > 0 ? clientes.slice(0, 2).join(', ') + (clientes.length > 2 ? '...' : '') : '—'
+
+                      // Debug final dos dados extraídos
+                      console.log('🔍 Dados finais extraídos:')
+                      console.log('  - produtos:', produtos)
+                      console.log('  - produtosText:', produtosText)
+                      console.log('  - pedidos:', pedidos)
+                      console.log('  - pedidosText:', pedidosText)
+                      console.log('  - clientes:', clientes)
+                      console.log('  - clientesText:', clientesText)
+                      console.log('  - rackInfo:', rackInfo)
+                      console.log('  - comprimentoAcabadoMm:', comprimentoAcabadoMm)
+
+                      // Calcular posicionamento inteligente do tooltip
+                      const tooltipWidth = 350
+                      const tooltipHeight = 400
+                      const margin = 20
+                      
+                      let left = e.clientX + margin
+                      let top = e.clientY + margin
+                      
+                      // Ajustar se ultrapassar borda direita
+                      if (left + tooltipWidth > window.innerWidth) {
+                        left = e.clientX - tooltipWidth - margin
+                      }
+                      
+                      // Ajustar se ultrapassar borda inferior
+                      if (top + tooltipHeight > window.innerHeight) {
+                        top = e.clientY - tooltipHeight - margin
+                      }
+                      
+                      // Garantir que não fique fora das bordas
+                      left = Math.max(margin, Math.min(left, window.innerWidth - tooltipWidth - margin))
+                      top = Math.max(margin, Math.min(top, window.innerHeight - tooltipHeight - margin))
+
+                      tooltip.style.cssText = `
+                        position: fixed;
+                        top: ${top}px;
+                        left: ${left}px;
+                        z-index: 9999;
+                        background: white;
+                        padding: 16px;
+                        border-radius: 12px;
+                        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+                        border: 1px solid #e2e8f0;
+                        min-width: 320px;
+                        max-width: 400px;
+                        font-family: system-ui;
+                      `
+
+                      tooltip.innerHTML = `
+                        <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b;">${paleteParaTooltip.titulo}</div>
+                        ${paleteParaTooltip.subtitulo ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">${paleteParaTooltip.subtitulo}</div>` : ''}
+                        
+                        <div style="border-top: 1px solid #e2e8f0; margin: 8px 0; padding-top: 8px;">
+                          <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                            <strong>Dimensões:</strong> ${paleteParaTooltip.largura.toFixed(2)}m × ${paleteParaTooltip.comprimento.toFixed(2)}m × ${paleteParaTooltip.altura.toFixed(2)}m
+                          </div>
+                          <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                            <strong>Volume:</strong> ${(paleteParaTooltip.volume || 0).toFixed(3)} m³
+                          </div>
+                          ${paleteParaTooltip.quantidadePecas > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peças:</strong> ${paleteParaTooltip.quantidadePecas}</div>` : ''}
+                          ${paleteParaTooltip.pesoPacoteKg > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peso:</strong> ${paleteParaTooltip.pesoPacoteKg.toFixed(1)} kg</div>` : ''}
+                          <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                            <strong>Origem:</strong> 
+                            <span style="padding: 2px 6px; background: ${paleteParaTooltip.origem === 'romaneio' ? '#dcfce7' : '#f1f5f9'}; color: ${paleteParaTooltip.origem === 'romaneio' ? '#166534' : '#475569'}; border-radius: 4px; font-size: 10px; font-weight: bold;">
+                              ${paleteParaTooltip.origem.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+
+                        ${rackInfo || produtos.length > 0 || pedidos.length > 0 || clientes.length > 0 || metadata.romaneioId ? `
+                          <div style="border-top: 1px solid #e2e8f0; margin: 8px 0; padding-top: 8px;">
+                            ${rackInfo ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Rack Acabado:</strong> <span style="color: #0f766e; font-weight: bold;">${rackInfo}</span></div>` : ''}
+                            ${produtos.length > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Produtos:</strong> ${produtosText}</div>` : ''}
+                            ${pedidos.length > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Pedidos:</strong> ${pedidosText}</div>` : ''}
+                            ${clientes.length > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Clientes:</strong> ${clientesText}</div>` : ''}
+                            ${metadata.romaneioId ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Romaneio:</strong> #${metadata.romaneioNumero || metadata.romaneioId}</div>` : ''}
+                            ${comprimentoAcabadoMm ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Comp. Acabado:</strong> ${comprimentoAcabadoMm}mm</div>` : ''}
+                          </div>
+                        ` : ''}
+
+                        <button onclick="this.parentElement.remove()" style="margin-top: 12px; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Fechar</button>
+                      `
+                      document.body.appendChild(tooltip)
+                      
+                      // Buscar informações do Kit se for romaneio
+                      if (metadata.romaneioId && paleteParaTooltip.origem === 'romaneio') {
+                        fetch(`/api/kits/romaneio/${metadata.romaneioId}`)
+                          .then(response => response.json())
+                          .then(kitData => {
+                            if (kitData && !tooltip.removed) {
+                              // Adicionar seção do kit
+                              const kitSection = document.createElement('div')
+                              kitSection.style.cssText = 'border-top: 1px solid #e2e8f0; margin: 8px 0; padding-top: 8px;'
+                              kitSection.innerHTML = `
+                                <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                                  <strong>Código do Kit:</strong> <span style="color: #059669; font-weight: bold;">${kitData.codigo || '—'}</span>
+                                </div>
+                                ${kitData.nome ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Nome Descritivo:</strong> ${kitData.nome}</div>` : ''}
+                                ${kitData.ferramenta ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Ferramenta:</strong> ${kitData.ferramenta}</div>` : ''}
+                                ${kitData.comprimento_mm ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Comprimento:</strong> ${kitData.comprimento_mm}mm</div>` : ''}
+                              `
+                              tooltip.appendChild(kitSection)
+                            }
+                          })
+                          .catch(error => console.log('Erro ao buscar kit:', error))
+                      }
+
+                      // Remover ao clicar fora
+                      setTimeout(() => {
+                        document.addEventListener('click', function removeTooltip() {
+                          tooltip.removed = true
+                          tooltip.remove()
+                          document.removeEventListener('click', removeTooltip)
+                        })
+                      }, 100)
+                    }}
+                  >
+                    <boxGeometry args={box.dims} />
+                    <meshStandardMaterial color={box.cor} opacity={0.92} transparent />
+                  </mesh>
+                </group>
+              )
+            })}
 
             {/* Cotas dimensionais do caminhão */}
             {/* Cota comprimento (X) — ao longo do eixo frente-fundo, abaixo do piso */}
@@ -859,16 +1123,32 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
   const handleMouseUp = useCallback(() => { setDragging(null) }, [])
   const handleBgClick = useCallback(() => { setSelectedId(null) }, [])
 
+  const moverComSeta = useCallback((dx, dz) => {
+    if (!selectedId) return
+    setPlacements(prev => prev.map(p => {
+      if (p.id !== selectedId) return p
+      const passo = GRID_M || 0.05
+      const nx = snap(Math.max(0, Math.min(p.x + dx * passo, compUtil - p.w)))
+      const nz = snap(Math.max(0, Math.min(p.z + dz * passo, largUtil - p.d)))
+      if (colide(p.id, nx, nz, p.w, p.d, p.camada)) return p
+      return { ...p, x: nx, z: nz, acessoBloqueado: !validarAcessoEmpilhadeira(p, nx, nz, p.w, p.d) }
+    }))
+  }, [selectedId, GRID_M, snap, compUtil, largUtil, colide, validarAcessoEmpilhadeira])
+
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'r' || e.key === 'R') rotacionar()
       if (e.key === 't' || e.key === 'T') deitarFrente()
       if (e.key === 'y' || e.key === 'Y') deitarLado()
       if (e.key === 'Delete' || e.key === 'Backspace') removerSelecionado()
+      if (e.key === 'ArrowRight') { e.preventDefault(); moverComSeta(1, 0) }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); moverComSeta(-1, 0) }
+      if (e.key === 'ArrowDown')  { e.preventDefault(); moverComSeta(0, 1) }
+      if (e.key === 'ArrowUp')    { e.preventDefault(); moverComSeta(0, -1) }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [rotacionar, deitarFrente, deitarLado, removerSelecionado])
+  }, [rotacionar, deitarFrente, deitarLado, removerSelecionado, moverComSeta])
 
   if (!caminhao) return <div className="text-xs text-slate-500">Selecione um caminhão.</div>
 
@@ -1049,24 +1329,69 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
         </svg>
       </div>
 
-      {/* Painel lateral de ações */}
-      <div className="flex flex-col gap-1.5 pt-1 w-14">
+      {/* Barra de ações em 3 colunas */}
+      <div className="flex flex-col gap-2 pt-1 w-full max-w-[280px]">
         {selectedId && (
-          <>
-            <button onClick={rotacionar} className="w-full py-1.5 rounded border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 text-[9px] font-bold text-slate-600 transition-all leading-tight" title="Girar no plano (R)">↻<br/>Girar</button>
-            <button onClick={deitarFrente} className="w-full py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[9px] font-bold text-slate-600 transition-all leading-tight" title="Deitar p/ frente (T)">⤵<br/>Deitar</button>
-            <button onClick={deitarLado} className="w-full py-1.5 rounded border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-300 text-[9px] font-bold text-slate-600 transition-all leading-tight" title="Tombar de lado (Y)">⤳<br/>Tombar</button>
-            <div className="w-full h-px bg-slate-200 my-0.5" />
-            <button onClick={removerSelecionado} className="w-full py-1.5 rounded border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 text-[9px] font-bold text-red-500 transition-all leading-tight" title="Remover (Del)">✕<br/>Del</button>
-            <div className="w-full h-px bg-slate-200 my-0.5" />
-          </>
+          <div className="bg-slate-50 border border-slate-200 rounded-lg shadow-sm p-1.5">
+            <span className="text-[8px] font-black text-slate-400 uppercase px-1 mb-1.5 block tracking-widest">Ações do Palete</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button 
+                onClick={rotacionar} 
+                className="flex flex-col items-center justify-center py-2 rounded bg-white border border-slate-200 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 text-slate-600 transition-all shadow-sm group"
+                title="Girar no plano (R)"
+              >
+                <FaSync className="text-xs mb-1 group-hover:rotate-180 transition-transform duration-500" />
+                <span className="text-[9px] font-bold">Girar</span>
+              </button>
+              <button 
+                onClick={deitarFrente} 
+                className="flex flex-col items-center justify-center py-2 rounded bg-white border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 text-slate-600 transition-all shadow-sm"
+                title="Deitar p/ frente (T)"
+              >
+                <FaLevelDownAlt className="text-xs mb-1" />
+                <span className="text-[9px] font-bold">Deitar</span>
+              </button>
+              <button 
+                onClick={deitarLado} 
+                className="flex flex-col items-center justify-center py-2 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700 text-slate-600 transition-all shadow-sm"
+                title="Tombar de lado (Y)"
+              >
+                <FaShare className="text-xs mb-1 rotate-90" />
+                <span className="text-[9px] font-bold">Tombar</span>
+              </button>
+              
+              <button 
+                onClick={removerSelecionado} 
+                className="col-span-1 flex flex-col items-center justify-center py-2 rounded bg-white border border-red-200 hover:bg-red-50 hover:border-red-300 text-red-500 transition-all shadow-sm"
+                title="Remover (Del)"
+              >
+                <FaTimes className="text-xs mb-1" />
+                <span className="text-[9px] font-bold">Remover</span>
+              </button>
+
+              {placements.length > 0 && (
+                <button
+                  onClick={() => { if(window.confirm('Remover todos os paletes da carga?')) { setPlacements([]); setSelectedId(null) } }}
+                  className="col-span-2 flex items-center justify-center gap-2 py-2 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 transition-all shadow-sm"
+                  title="Limpar toda a carga"
+                >
+                  <FaTrashAlt className="text-xs" />
+                  <span className="text-[9px] font-bold uppercase">Limpar Tudo</span>
+                </button>
+              )}
+            </div>
+          </div>
         )}
-        {placements.length > 0 && (
+        
+        {!selectedId && placements.length > 0 && (
           <button
-            onClick={() => { setPlacements([]); setSelectedId(null) }}
-            className="w-full py-1.5 rounded border border-red-300 bg-red-50 hover:bg-red-100 text-[9px] font-bold text-red-600 transition-all leading-tight"
-            title="Remover todos os paletes"
-          >🗑️<br/>Todos</button>
+            onClick={() => { if(window.confirm('Remover todos os paletes da carga?')) { setPlacements([]); setSelectedId(null) } }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 transition-all shadow-sm"
+            title="Limpar toda a carga"
+          >
+            <FaTrashAlt className="text-sm" />
+            <span className="text-[10px] font-black uppercase tracking-wider">Limpar Carga Completa</span>
+          </button>
         )}
       </div>
       </div>
@@ -1084,7 +1409,7 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
             {selectedPl.orientacaoFuros === 'longitudinal' ? '↕ Frente/Trás' : '↔ Lateral'}
             {selectedPl.acessoBloqueado && ' (Bloqueado!)'}
           </span>
-          <span className="text-slate-400 ml-auto">R=girar · T=deitar · Y=tombar · Del</span>
+          <span className="text-slate-400 ml-auto">R=girar · T=deitar · Y=tombar · Del · ↑↓←→=mover</span>
         </div>
       )}
 
@@ -1323,14 +1648,21 @@ const calcularCapacidadeNoCaminhao = (item, caminhao, { folgaPerimetroCm = 0, fo
     : 1
 
   const capacidadeTotal = melhor.capacidadePorPiso * camadasVerticais
-  const volumeItem = item.volume || (larguraItem * comprimentoItem * alturaItem)
+  const volumeItem = (larguraItem * comprimentoItem * alturaItem)
+  
   // Volume útil do caminhão sempre usa altura do caminhão (altUtil)
   const volumeUtil = compUtil * largUtil * altUtil
-  // Ocupação = volume total ocupado (capacidade × volume por item) / volume útil do caminhão
+  
+  // Ocupação Volumétrica = volume total ocupado (capacidade × volume por item) / volume útil do caminhão
   const volumeTotalOcupado = capacidadeTotal * volumeItem
   const ocupacaoVolume = volumeUtil > 0 && volumeTotalOcupado > 0
     ? Math.min(1, volumeTotalOcupado / volumeUtil)
     : 0
+
+  // Ocupação de Área = área total ocupada no piso / área útil do piso
+  const areaOcupadaPiso = melhor.capacidadePorPiso * (larguraItem * comprimentoItem)
+  const areaUtilPiso = compUtil * largUtil
+  const ocupacaoArea = areaUtilPiso > 0 ? Math.min(1, areaOcupadaPiso / areaUtilPiso) : 0
 
   return {
     ...melhor,
@@ -1340,6 +1672,7 @@ const calcularCapacidadeNoCaminhao = (item, caminhao, { folgaPerimetroCm = 0, fo
     volumeItem,
     volumeUtil,
     ocupacaoVolume,
+    ocupacaoArea,
     compUtil,
     largUtil,
     altUtil,
@@ -1795,6 +2128,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const [romaneioLoading, setRomaneioLoading] = useState(false)
   const [romaneioErro, setRomaneioErro] = useState('')
   const [romaneioFiltroStatus, setRomaneioFiltroStatus] = useState('conferido')
+  const [painelEsquerdoRecolhido, setPainelEsquerdoRecolhido] = useState(false)
   const [romaneioFiltroBusca, setRomaneioFiltroBusca] = useState('')
   const [romaneioFiltroNumero, setRomaneioFiltroNumero] = useState('') // filtro por número de romaneio
   const [romaneioModoSelecao, setRomaneioModoSelecao] = useState('rack') // 'rack' | 'romaneio' | 'cliente' | 'pedido'
@@ -2574,10 +2908,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   useEffect(() => {
     if (!itemBaseConfigurado) return
     setFilaItens(prev => {
+      if (!prev.length) return prev
       const snapshot = { ...itemBaseConfigurado, quantidade: itemBaseConfigurado.quantidade || 1 }
-      if (!prev.length) {
-        return [{ ...snapshot, id: gerarId(), origem: 'config_atual' }]
-      }
 
       let encontrou = false
       let alterado = false
@@ -2604,9 +2936,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         return item
       })
 
-      if (!encontrou) {
-        return [...prev, { ...snapshot, id: gerarId(), origem: 'config_atual' }]
-      }
+      if (!encontrou) return prev
 
       return alterado ? atualizado : prev
     })
@@ -2683,6 +3013,40 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const viagensItemSelecionado = simulacaoAtual?.capacidadeTotal > 0 && itemSelecionado
     ? Math.ceil((Number(itemSelecionado.quantidade) || 0) / simulacaoAtual.capacidadeTotal)
     : null
+
+  // Cálculo da ocupação volumétrica real da carga atual
+  const ocupacaoVolumeReal = useMemo(() => {
+    if (!caminhaoAtual) return 0
+    const folgaLinear = Math.max(0, Number(folgaPerimetroCm) || 0) / 100
+    const folgaAltura = Math.max(0, Number(folgaAlturaCm) || 0) / 100
+    const compUtil = Math.max(0, caminhaoAtual.comprimento - folgaLinear * 2)
+    const largUtil = Math.max(0, caminhaoAtual.largura - folgaLinear * 2)
+    const altUtil = considerarAltura ? Math.max(0, caminhaoAtual.altura - folgaAltura) : caminhaoAtual.altura
+    const volumeUtilTotal = compUtil * largUtil * altUtil
+    if (volumeUtilTotal <= 0) return 0
+
+    let volumeOcupado = 0
+    if (modoCubagem === 'manual') {
+      volumeOcupado = manualPlacements.reduce((acc, p) => acc + (p.w * p.alt * p.d), 0)
+    } else {
+      volumeOcupado = filaItens.reduce((acc, item) => {
+        const vol = item.volume || ((item.largura || 0) * (item.comprimento || 0) * (item.altura || 0))
+        return acc + vol * (Number(item.quantidade) || 0)
+      }, 0)
+    }
+    return Math.min(1, volumeOcupado / volumeUtilTotal)
+  }, [caminhaoAtual, modoCubagem, manualPlacements, filaItens, folgaPerimetroCm, folgaAlturaCm, considerarAltura])
+
+  // Peso real da carga: usa pesoEstimadoKg (romaneios) ou pesoPacoteKg*totalPacotes (manual)
+  const pesoRealCargaKg = useMemo(() => {
+    const total = filaItens.reduce((acc, item) => {
+      if (Number(item.pesoEstimadoKg) > 0) return acc + Number(item.pesoEstimadoKg)
+      const pesoPacote = Number(item.pesoPacoteKg) || 0
+      const pacotes = Number(item.totalPacotes) || 1
+      return acc + pesoPacote * pacotes * (Number(item.quantidade) || 1)
+    }, 0)
+    return total > 0 ? total : (totalPesoCargaKg || null)
+  }, [filaItens, totalPesoCargaKg])
 
   const formatMetros = (valor, digits = 2) => (
     Number.isFinite(valor) ? `${valor.toFixed(digits)} m` : '—'
@@ -3176,6 +3540,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       volume: largura * comprimento * altura,
       quantidade, // número de paletes (para UI)
       quantidadePecas: entrada.quantidadePecas || 0, // número real de peças
+      pesoEstimadoKg: entrada.pesoEstimadoKg || 0, // peso real dos itens do romaneio
+      produtos: entrada.produtos || [],
       metadataRomaneio: {
         key: entrada.key,
         romaneioId: entrada.romaneioId,
@@ -3185,6 +3551,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
     setFilaItens(prev => [...prev, novo])
     setItemSelecionadoId(novo.id)
+    // Recolhe painel esquerdo automaticamente para dar mais espaço à visualização
+    setPainelEsquerdoRecolhido(true)
   }
 
   return (
@@ -3991,8 +4359,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         ) : (
           <div className="flex-1 bg-slate-50 overflow-y-auto min-h-0">
             <div className="flex flex-col lg:flex-row gap-4 p-4">
-              {/* Coluna esquerda: fila de itens */}
-              <div className="flex-1 min-w-[320px] flex flex-col gap-4">
+              {/* Coluna esquerda: fila de itens - com animação de colapso */}
+              <div className={`flex flex-col gap-4 transition-all duration-500 ease-in-out overflow-hidden ${painelEsquerdoRecolhido ? 'w-0 opacity-0 pointer-events-none' : 'flex-1 min-w-[320px] opacity-100'}`}>
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   <div
                     className="p-4 flex items-center justify-between gap-3 bg-amber-50 cursor-pointer select-none hover:bg-amber-100/60 transition-colors"
@@ -4019,6 +4387,14 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         className="text-xs flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hover:shadow active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                       >
                         <FaPlus className="w-3 h-3" /> Capturar atual
+                      </button>
+                      {/* Botão para recolher painel lateral */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPainelEsquerdoRecolhido(true) }}
+                        className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all"
+                        title="Recolher painel (mais espaço para visualização)"
+                      >
+                        <span className="text-xs">◀</span>
                       </button>
                       <span className="text-slate-400 text-xs font-bold">{secaoItensAberta ? '▲' : '▼'}</span>
                     </div>
@@ -4429,8 +4805,32 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                 </section>
               </div>
 
-              {/* Coluna direita: caminhões e simulação */}
-              <div className="flex-1 min-w-[400px] flex flex-col gap-4">
+              {/* Toggle para expandir painel esquerdo (visível quando recolhido) */}
+              {painelEsquerdoRecolhido && (
+                <div className="hidden lg:flex flex-col gap-3 animate-in fade-in slide-in-from-left duration-500">
+                  <button
+                    onClick={() => setPainelEsquerdoRecolhido(false)}
+                    className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500 text-white shadow-lg hover:bg-amber-600 transition-all hover:scale-110 active:scale-95 group relative"
+                    title="Abrir Painel de Itens"
+                  >
+                    <FaChevronRight className="w-4 h-4" />
+                    <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-xl z-50">
+                      Abrir Itens e Paletes
+                    </div>
+                  </button>
+                  
+                  {/* Mini indicadores rápidos */}
+                  <div className="flex flex-col items-center gap-2 py-4 border-y border-slate-200">
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] font-black text-slate-400 uppercase">Fila</span>
+                      <span className="text-xs font-black text-amber-600">{totalPaletesFila}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Coluna direita: caminhões e simulação - expande quando esquerdo recolhe */}
+              <div className={`flex flex-col gap-4 transition-all duration-500 ease-in-out ${painelEsquerdoRecolhido ? 'flex-[3] min-w-[600px]' : 'flex-1 min-w-[400px]'}`}>
                 {/* Dashboard de Ocupação Rápida */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-slate-900 rounded-2xl p-4 shadow-lg border border-slate-800">
@@ -4443,9 +4843,9 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                   <div className="bg-slate-900 rounded-2xl p-4 shadow-lg border border-slate-800">
                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider mb-1">Volume Ocupado</p>
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl font-black text-amber-400">{Math.round((simulacaoAtual?.ocupacaoVolume || 0) * 100)}%</span>
+                      <span className="text-2xl font-black text-amber-400">{Math.round(ocupacaoVolumeReal * 100)}%</span>
                       <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
-                        <div className="h-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" style={{ width: `${Math.min(100, Math.round((simulacaoAtual?.ocupacaoVolume || 0) * 100))}%` }} />
+                        <div className="h-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" style={{ width: `${Math.min(100, Math.round(ocupacaoVolumeReal * 100))}%` }} />
                       </div>
                     </div>
                   </div>
@@ -4464,83 +4864,88 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                   </div>
                 </div>
 
-                <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-600 flex items-center justify-center">
+                <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300">
+                  <div className={`p-3 flex items-center justify-between gap-4 ${caminhoesExpandido ? 'bg-slate-800' : 'bg-white'}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${caminhoesExpandido ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-500'}`}>
                         <FaTruckLoading className="w-4 h-4" />
                       </div>
-                      <div>
-                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Escolha o tipo de caminhão</p>
-                        <p className="text-[10px] text-slate-500 font-bold uppercase">Define o espaço útil</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setCaminhoesExpandido(v => !v)}
-                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-600 transition-all shadow-sm"
-                      title={caminhoesExpandido ? 'Recolher lista' : 'Expandir lista'}
-                    >
-                      {caminhoesExpandido ? '▲ Recolher' : '▼ Expandir'}
-                      <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">({CAMINHOES_SIMULACAO.length})</span>
-                    </button>
-                  </div>
-
-                  <div className="p-4 bg-white">
-                    {/* Resumo compacto quando recolhido */}
-                    {!caminhoesExpandido && (
-                      <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50 group hover:border-slate-300 transition-colors">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{caminhaoAtual.titulo}</p>
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-white border border-slate-200 rounded text-slate-500">{caminhaoAtual.subtitulo}</span>
+                      
+                      {/* Compact Truck Info (Visible when NOT expanded) */}
+                      {!caminhoesExpandido && (
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <div>
+                            <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight truncate">{caminhaoAtual.titulo}</p>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase truncate">{caminhaoAtual.subtitulo}</p>
                           </div>
-                          <div className="flex gap-4 text-[11px] font-mono text-slate-600">
-                            <span className="flex items-center gap-1"><strong className="text-slate-400 font-sans uppercase">C:</strong>{caminhaoAtual.comprimento}m</span>
-                            <span className="flex items-center gap-1 border-l pl-4 border-slate-300"><strong className="text-slate-400 font-sans uppercase">L:</strong>{caminhaoAtual.largura}m</span>
-                            <span className="flex items-center gap-1 border-l pl-4 border-slate-300"><strong className="text-slate-400 font-sans uppercase">A:</strong>{caminhaoAtual.altura}m</span>
+                          <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-mono text-slate-500 shrink-0">
+                            <span>{caminhaoAtual.comprimento}m</span>
+                            <span className="text-slate-300">×</span>
+                            <span>{caminhaoAtual.largura}m</span>
+                            <span className="text-slate-300">×</span>
+                            <span>{caminhaoAtual.altura}m</span>
                           </div>
                         </div>
-                        <button
-                          onClick={() => setCaminhoesExpandido(true)}
-                          className="text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-600 hover:bg-slate-800 hover:text-white hover:border-slate-800 transition-all shadow-sm"
-                        >
-                          Trocar Caminhão
-                        </button>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Lista completa quando expandido */}
-                    {caminhoesExpandido && (
-                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200">
-                        {CAMINHOES_SIMULACAO.map(cam => {
-                          const ativo = caminhaoSelecionado === cam.id
-                          return (
-                            <button
-                              key={cam.id}
-                              onClick={() => {
-                                setCaminhaoSelecionado(cam.id)
-                                setCaminhoesExpandido(false)
-                              }}
-                              className={`text-left rounded-xl border p-4 transition-all group ${ativo ? 'border-slate-800 bg-slate-800 shadow-md ring-2 ring-slate-800/20' : 'border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50 hover:shadow-sm'}`}
-                            >
-                              <div className="flex items-center justify-between mb-1">
-                                <p className={`text-sm font-black uppercase tracking-tight ${ativo ? 'text-white' : 'text-slate-800'}`}>{cam.titulo}</p>
-                                {ativo && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />}
-                              </div>
-                              <p className={`text-[10px] font-bold uppercase mb-3 ${ativo ? 'text-slate-300' : 'text-slate-500'}`}>{cam.subtitulo}</p>
-                              
-                              <div className={`grid grid-cols-3 gap-1 p-2 rounded-lg text-[10px] font-mono text-center ${ativo ? 'bg-slate-900/50 text-slate-300' : 'bg-slate-100 text-slate-600 group-hover:bg-white border border-slate-200/50'}`}>
-                                <span className="flex flex-col"><span className={`text-[8px] font-sans uppercase ${ativo ? 'text-slate-500' : 'text-slate-400'}`}>Comp</span>{cam.comprimento}</span>
-                                <span className={`flex flex-col border-l ${ativo ? 'border-slate-700' : 'border-slate-200'}`}><span className={`text-[8px] font-sans uppercase ${ativo ? 'text-slate-500' : 'text-slate-400'}`}>Larg</span>{cam.largura}</span>
-                                <span className={`flex flex-col border-l ${ativo ? 'border-slate-700' : 'border-slate-200'}`}><span className={`text-[8px] font-sans uppercase ${ativo ? 'text-slate-500' : 'text-slate-400'}`}>Alt</span>{cam.altura}</span>
-                              </div>
-                              <p className={`text-[9px] mt-3 font-medium leading-relaxed ${ativo ? 'text-slate-400' : 'text-slate-500'}`}>{cam.observacao}</p>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                      {/* Header Title (Visible when expanded) */}
+                      {caminhoesExpandido && (
+                        <div>
+                          <p className="text-sm font-black text-white uppercase tracking-tight">Alterar Tipo de Caminhão</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">Selecione o modelo desejado</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setCaminhoesExpandido(v => !v)}
+                        className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl transition-all shadow-sm ${
+                          caminhoesExpandido 
+                            ? 'bg-slate-700 text-white hover:bg-slate-600 border border-slate-600' 
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                        }`}
+                      >
+                        {caminhoesExpandido ? 'Fechar Lista' : 'Trocar Caminhão'}
+                        {!caminhoesExpandido && <span className="bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded text-[9px]">({CAMINHOES_SIMULACAO.length})</span>}
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Lista completa quando expandido */}
+                  {caminhoesExpandido && (
+                    <div className="p-4 bg-slate-900 grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700">
+                      {CAMINHOES_SIMULACAO.map(cam => {
+                        const ativo = caminhaoSelecionado === cam.id
+                        return (
+                          <button
+                            key={cam.id}
+                            onClick={() => {
+                              setCaminhaoSelecionado(cam.id)
+                              setCaminhoesExpandido(false)
+                            }}
+                            className={`text-left rounded-xl border p-4 transition-all group relative overflow-hidden ${
+                              ativo 
+                                ? 'border-emerald-500/50 bg-slate-800 shadow-xl ring-1 ring-emerald-500/30' 
+                                : 'border-slate-800 bg-slate-800/40 hover:border-slate-600 hover:bg-slate-800/80'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1 relative z-10">
+                              <p className={`text-xs font-black uppercase tracking-tight ${ativo ? 'text-emerald-400' : 'text-slate-200'}`}>{cam.titulo}</p>
+                              {ativo && <FaCheck className="w-2.5 h-2.5 text-emerald-500" />}
+                            </div>
+                            <p className="text-[9px] font-bold uppercase mb-3 text-slate-500 relative z-10">{cam.subtitulo}</p>
+                            
+                            <div className={`grid grid-cols-3 gap-1 p-2 rounded-lg text-[10px] font-mono text-center relative z-10 ${ativo ? 'bg-slate-900/80 text-emerald-400/90' : 'bg-slate-900/40 text-slate-400 group-hover:text-slate-300'}`}>
+                              <span className="flex flex-col"><span className="text-[7px] font-sans uppercase opacity-50">Comp</span>{cam.comprimento}m</span>
+                              <span className="flex flex-col border-l border-white/5"><span className="text-[7px] font-sans uppercase opacity-50">Larg</span>{cam.largura}m</span>
+                              <span className="flex flex-col border-l border-white/5"><span className="text-[7px] font-sans uppercase opacity-50">Alt</span>{cam.altura}m</span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </section>
 
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-0 overflow-hidden">
@@ -4606,77 +5011,95 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         viewMode={truckViewMode}
                       />
                       
-                      {totalPesoCargaKg != null && (
+                      {pesoRealCargaKg != null && (
                         <div className="absolute top-4 left-4 pointer-events-none">
                           <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-xl px-3 py-2 shadow-2xl">
                             <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Peso Estimado</p>
                             <p className="text-lg font-black text-white">
-                              {totalPesoCargaKg >= 1000
-                                ? `${(totalPesoCargaKg / 1000).toFixed(2)} t`
-                                : `${totalPesoCargaKg.toFixed(0)} kg`}
+                              {pesoRealCargaKg >= 1000
+                                ? `${(pesoRealCargaKg / 1000).toFixed(2)} t`
+                                : `${pesoRealCargaKg.toFixed(0)} kg`}
                             </p>
                           </div>
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="p-4 space-y-4">
-                      {/* Editor 2D manual */}
-                      <TruckManualEditor2D
-                        caminhao={caminhaoAtual}
-                        filaItens={filaItens}
-                        folgaPerimetroCm={folgaPerimetroCm}
-                        folgaAlturaCm={folgaAlturaCm}
-                        considerarAltura={considerarAltura}
-                        onPlacementsChange={(pl) => setManualPlacements(pl)}
-                        initialPlacements={loadedPlacements}
-                      />
-                      {/* Mini 3D preview do posicionamento manual */}
+                    <div className="p-4 flex flex-col xl:flex-row gap-6 items-start h-full min-h-0">
+                      <div className="flex-1 w-full min-w-0 h-[600px] xl:h-[750px] overflow-y-auto pr-2 custom-scrollbar">
+                        {/* Editor 2D manual */}
+                        <TruckManualEditor2D
+                          caminhao={caminhaoAtual}
+                          filaItens={filaItens}
+                          folgaPerimetroCm={folgaPerimetroCm}
+                          folgaAlturaCm={folgaAlturaCm}
+                          considerarAltura={considerarAltura}
+                          onPlacementsChange={(pl) => setManualPlacements(pl)}
+                          initialPlacements={loadedPlacements}
+                        />
+                      </div>
+
+                      {/* Mini 3D preview do posicionamento manual - Sticky e Maior */}
                       {manualPlacements.length > 0 && (
-                        <div className="rounded-xl border border-slate-200 overflow-hidden">
-                          <div className="bg-slate-800 px-3 py-1.5 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">Preview 3D</span>
-                              <button onClick={() => setShowFolgas(v => !v)}
-                                className={`text-[9px] font-bold px-2 py-0.5 rounded transition-all ${showFolgas ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
-                                ↕ Folgas
-                              </button>
+                        <div className="w-full xl:w-[480px] xl:sticky xl:top-0 space-y-3 z-10 shrink-0">
+                          <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-2xl bg-white group">
+                            <div className="bg-slate-900 px-4 py-3 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Preview 3D em Tempo Real</span>
+                                <button onClick={() => setShowFolgas(v => !v)}
+                                  className={`text-[9px] font-bold px-2.5 py-1 rounded-lg transition-all shadow-sm ${showFolgas ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                                  ↕ Mostrar Folgas
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-black text-slate-500 bg-slate-800/50 px-2 py-0.5 rounded-md border border-slate-700/50">
+                                  {manualPlacements.length} {manualPlacements.length === 1 ? 'palete' : 'paletes'}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                              {showFolgas && (() => {
-                                const altCam = caminhaoAtual.altura
-                                const folgaAltVal = Math.max(0, Number(folgaAlturaCm) || 0) / 100
-                                const tetoUtil = altCam - folgaAltVal
-                                const menorFolga = manualPlacements.reduce((min, p) => {
-                                  const topo = (p.yCalc || 0) + p.alt
-                                  return Math.min(min, tetoUtil - topo)
-                                }, tetoUtil)
-                                const maiorTopo = manualPlacements.reduce((max, p) => Math.max(max, (p.yCalc || 0) + p.alt), 0)
+
+                            {/* Alerta de folga mínima se visível */}
+                            {showFolgas && (() => {
+                              const altCam = caminhaoAtual.altura
+                              const folgaAltVal = Math.max(0, Number(folgaAlturaCm) || 0) / 100
+                              const tetoUtil = altCam - folgaAltVal
+                              const menorFolga = manualPlacements.reduce((min, p) => {
+                                const topo = (p.yCalc || 0) + p.alt
+                                return Math.min(min, tetoUtil - topo)
+                              }, tetoUtil)
+                              
+                              if (menorFolga < 0.2) {
                                 return (
-                                  <span className={`text-[10px] font-bold ${menorFolga < 0.3 ? 'text-red-400' : menorFolga < 0.6 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                                    Min: {(menorFolga * 100).toFixed(0)}cm · Livre: {((tetoUtil - maiorTopo) * 100).toFixed(0)}cm
-                                  </span>
+                                  <div className="bg-red-500/10 border-y border-red-500/20 px-4 py-1.5 flex items-center gap-2">
+                                    <FaExclamationTriangle className="w-3 h-3 text-red-500" />
+                                    <span className="text-[10px] font-bold text-red-600 uppercase">
+                                      Atenção: Folga crítica no teto ({(menorFolga * 100).toFixed(0)}cm)
+                                    </span>
+                                  </div>
                                 )
-                              })()}
-                              <span className="text-[10px] text-slate-500">{manualPlacements.length} paletes</span>
-                            </div>
-                          </div>
-                          <div className="h-56 bg-slate-900">
-                            <Canvas shadows gl={{ powerPreference: 'low-power', antialias: false }} onCreated={({ gl }) => {
-                              const canvas = gl.domElement
-                              canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault() })
-                              canvas.addEventListener('webglcontextrestored', () => { gl.forceContextRestore?.() })
-                            }}>
-                              <PerspectiveCamera makeDefault fov={45} position={[
-                                Math.max(8, caminhaoAtual.comprimento * 0.6),
-                                Math.max(6, caminhaoAtual.altura * 1.6 + 2),
-                                Math.max(8, caminhaoAtual.largura * 1.0 + 4),
-                              ]} />
-                              <color attach="background" args={['#0f172a']} />
-                              <ambientLight intensity={0.9} />
-                              <directionalLight position={[5, 8, 5]} intensity={0.8} />
-                              <group>
-                                {(() => {
+                              }
+                              return null
+                            })()}
+
+                            <div className="h-[300px] xl:h-[450px] bg-slate-900 relative">
+                              <Canvas shadows gl={{ powerPreference: 'low-power', antialias: true }} onCreated={({ gl }) => {
+                                const canvas = gl.domElement
+                                canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault() })
+                                canvas.addEventListener('webglcontextrestored', () => { gl.forceContextRestore?.() })
+                              }}>
+                                <PerspectiveCamera makeDefault fov={40} position={[
+                                  Math.max(12, caminhaoAtual.comprimento * 0.9),
+                                  Math.max(10, caminhaoAtual.altura * 2.2),
+                                  Math.max(12, caminhaoAtual.largura * 1.8),
+                                ]} />
+                                <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
+                                <color attach="background" args={['#0f172a']} />
+                                <ambientLight intensity={1.2} />
+                                <pointLight position={[10, 10, 10]} intensity={1.5} castShadow />
+                                <directionalLight position={[-10, 20, 10]} intensity={0.8} />
+                                <group>
+                                  {(() => {
                                   const baseDim = Math.max(caminhaoAtual.comprimento, caminhaoAtual.largura, 1)
                                   const sc = 8 / baseDim
                                   const len = caminhaoAtual.comprimento * sc
@@ -4697,16 +5120,256 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                         <meshStandardMaterial color="#38bdf8" transparent opacity={0.08} depthWrite={false} side={DoubleSide} />
                                         <Edges scale={1.001} color="#38bdf8" />
                                       </mesh>
-                                      {manualPlacements.map(p => (
-                                        <mesh key={p.id} position={[
+                                      {manualPlacements.map(p => {
+                                        // Extrair informações do item original para o tooltip
+                                        const itemOriginal = filaItens[p.itemIdx] || {}
+                                        
+                                        // Criar objeto palete para o tooltip
+                                        const paleteParaTooltip = {
+                                          id: p.id,
+                                          titulo: p.titulo || itemOriginal?.titulo || 'Palete',
+                                          subtitulo: itemOriginal?.subtitulo || '',
+                                          origem: itemOriginal?.origem || 'manual',
+                                          largura: p.w || itemOriginal?.largura || 0,
+                                          comprimento: p.d || itemOriginal?.comprimento || 0,
+                                          altura: p.alt || itemOriginal?.altura || 0,
+                                          volume: (p.w || 0) * (p.d || 0) * (p.alt || 0),
+                                          quantidade: 1,
+                                          quantidadePecas: itemOriginal?.quantidadePecas || 0,
+                                          pesoPacoteKg: itemOriginal?.pesoPacoteKg || 0,
+                                          metadataRomaneio: itemOriginal?.metadataRomaneio || null
+                                        }
+
+                                        const meshPosition = [
                                           (-caminhaoAtual.comprimento / 2 + fLin + p.x + p.w / 2) * sc,
                                           ((p.yCalc || 0) + p.alt / 2) * sc,
                                           (-lU / 2 + p.z + p.d / 2) * sc,
-                                        ]}>
-                                          <boxGeometry args={[p.w * sc * 0.97, p.alt * sc * 0.97, p.d * sc * 0.97]} />
-                                          <meshStandardMaterial color={p.cor} opacity={0.9} transparent />
-                                        </mesh>
-                                      ))}
+                                        ]
+
+                                        return (
+                                          <group key={p.id}>
+                                            <mesh 
+                                              position={meshPosition}
+                                              onDoubleClick={(e) => {
+                                                e.stopPropagation()
+                                                console.log('🔥 Duplo clique no mesh manual:', paleteParaTooltip.titulo)
+                                                // Abrir tooltip diretamente
+                                                const tooltip = document.createElement('div')
+                                                tooltip.style.cssText = `
+                                                  position: fixed;
+                                                  top: ${e.clientY}px;
+                                                  left: ${e.clientX}px;
+                                                  z-index: 9999;
+                                                  background: white;
+                                                  padding: 16px;
+                                                  border-radius: 12px;
+                                                  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+                                                  border: 1px solid #e2e8f0;
+                                                  min-width: 320px;
+                                                  font-family: system-ui;
+                                                `
+                                                // Extrair informações adicionais do item original
+                      const itemOriginal = filaItens[p.itemIdx] || {}
+                      const metadata = paleteParaTooltip.metadataRomaneio || {}
+                      
+                      // Debug: verificar estrutura completa dos dados
+                      console.log('📋 Item original manual:', itemOriginal)
+                      console.log('📋 Metadata manual:', metadata)
+                      console.log('📋 FilaItens completa manual:', filaItens)
+                      console.log('📋 Chaves do itemOriginal manual:', Object.keys(itemOriginal))
+                      console.log('📋 itemOriginal.produtos manual:', itemOriginal.produtos)
+                      console.log('📋 itemOriginal.itens manual:', itemOriginal.itens)
+                      console.log('📋 itemOriginal.rack manual:', itemOriginal.rack)
+                      console.log('📋 itemOriginal.clientes manual:', itemOriginal.clientes)
+                      console.log('📋 itemOriginal.pedidos manual:', itemOriginal.pedidos)
+                      
+                      // CORREÇÃO: Buscar dados completos do romaneioPaletes quando for romaneio
+                      let produtos = []
+                      let pedidos = []
+                      let clientes = []
+                      let rackInfo = ''
+                      let comprimentoAcabadoMm = ''
+                      
+                      if (itemOriginal.origem === 'romaneio' && metadata.key) {
+                        // Buscar dados completos do romaneioPaletes usando a key
+                        const romaneioPalete = romaneioPaletes.find(rp => rp.key === metadata.key)
+                        console.log('🔍 Buscando romaneioPalete para key:', metadata.key)
+                        console.log('🔍 romaneioPalete encontrado:', romaneioPalete)
+                        
+                        if (romaneioPalete) {
+                          produtos = romaneioPalete.produtos || []
+                          pedidos = romaneioPalete.pedidos || []
+                          clientes = romaneioPalete.clientes || []
+                          rackInfo = romaneioPalete.rack || ''
+                          comprimentoAcabadoMm = romaneioPalete.comprimentoAcabadoMm || ''
+                        }
+                      }
+                      
+                      // Fallback para tentativas anteriores se não encontrar no romaneioPaletes
+                      if (produtos.length === 0) {
+                        produtos = itemOriginal.produtos || metadata.produtos || (itemOriginal.produto ? [itemOriginal.produto] : [])
+                      }
+                      if (pedidos.length === 0) {
+                        pedidos = itemOriginal.pedidos || metadata.pedidos || (itemOriginal.pedido_seq ? [itemOriginal.pedido_seq] : [])
+                      }
+                      if (clientes.length === 0) {
+                        clientes = itemOriginal.clientes || metadata.clientes || (itemOriginal.cliente ? [itemOriginal.cliente] : [])
+                      }
+                      if (!rackInfo) {
+                        rackInfo = itemOriginal.rack || metadata.rack || ''
+                      }
+                      if (!comprimentoAcabadoMm) {
+                        comprimentoAcabadoMm = itemOriginal.comprimentoAcabadoMm || ''
+                      }
+                      
+                      // Se ainda não encontrar, buscar dos itens individuais (último recurso)
+                      if (produtos.length === 0 && itemOriginal.itens && itemOriginal.itens.length > 0) {
+                        const produtosFromItens = itemOriginal.itens.map(item => item.produto).filter(p => p)
+                        produtos.push(...produtosFromItens)
+                      }
+                      
+                      if (pedidos.length === 0 && itemOriginal.itens && itemOriginal.itens.length > 0) {
+                        const pedidosFromItens = itemOriginal.itens.map(item => item.pedido_seq).filter(p => p)
+                        pedidos.push(...pedidosFromItens)
+                      }
+                      
+                      if (clientes.length === 0 && itemOriginal.itens && itemOriginal.itens.length > 0) {
+                        const clientesFromItens = itemOriginal.itens.map(item => item.cliente).filter(c => c)
+                        clientes.push(...clientesFromItens)
+                      }
+                      
+                      // Formatar lista de produtos
+                      const produtosText = produtos.length > 0 ? produtos.slice(0, 3).join(', ') + (produtos.length > 3 ? '...' : '') : '—'
+                      
+                      // Formatar lista de pedidos
+                      const pedidosText = pedidos.length > 0 ? pedidos.slice(0, 3).join(', ') + (pedidos.length > 3 ? '...' : '') : '—'
+                      
+                      // Formatar lista de clientes
+                      const clientesText = clientes.length > 0 ? clientes.slice(0, 2).join(', ') + (clientes.length > 2 ? '...' : '') : '—'
+
+                      // Debug final dos dados extraídos
+                      console.log('🔍 Dados finais extraídos:')
+                      console.log('  - produtos:', produtos)
+                      console.log('  - produtosText:', produtosText)
+                      console.log('  - pedidos:', pedidos)
+                      console.log('  - pedidosText:', pedidosText)
+                      console.log('  - clientes:', clientes)
+                      console.log('  - clientesText:', clientesText)
+                      console.log('  - rackInfo:', rackInfo)
+                      console.log('  - comprimentoAcabadoMm:', comprimentoAcabadoMm)
+
+                      // Calcular posicionamento inteligente do tooltip
+                      const tooltipWidth = 350
+                      const tooltipHeight = 400
+                      const margin = 20
+                      
+                      let left = e.clientX + margin
+                      let top = e.clientY + margin
+                      
+                      // Ajustar se ultrapassar borda direita
+                      if (left + tooltipWidth > window.innerWidth) {
+                        left = e.clientX - tooltipWidth - margin
+                      }
+                      
+                      // Ajustar se ultrapassar borda inferior
+                      if (top + tooltipHeight > window.innerHeight) {
+                        top = e.clientY - tooltipHeight - margin
+                      }
+                      
+                      // Garantir que não fique fora das bordas
+                      left = Math.max(margin, Math.min(left, window.innerWidth - tooltipWidth - margin))
+                      top = Math.max(margin, Math.min(top, window.innerHeight - tooltipHeight - margin))
+
+                                                tooltip.style.cssText = `
+                                                  position: fixed;
+                                                  top: ${top}px;
+                                                  left: ${left}px;
+                                                  z-index: 9999;
+                                                  background: white;
+                                                  padding: 16px;
+                                                  border-radius: 12px;
+                                                  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+                                                  border: 1px solid #e2e8f0;
+                                                  min-width: 320px;
+                                                  max-width: 400px;
+                                                  font-family: system-ui;
+                                                `
+
+                                                tooltip.innerHTML = `
+                                                  <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b;">${paleteParaTooltip.titulo}</div>
+                                                  ${paleteParaTooltip.subtitulo ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">${paleteParaTooltip.subtitulo}</div>` : ''}
+                                                  
+                                                  <div style="border-top: 1px solid #e2e8f0; margin: 8px 0; padding-top: 8px;">
+                                                    <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                                                      <strong>Dimensões:</strong> ${paleteParaTooltip.largura.toFixed(2)}m × ${paleteParaTooltip.comprimento.toFixed(2)}m × ${paleteParaTooltip.altura.toFixed(2)}m
+                                                    </div>
+                                                    <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                                                      <strong>Volume:</strong> ${(paleteParaTooltip.volume || 0).toFixed(3)} m³
+                                                    </div>
+                                                    ${paleteParaTooltip.quantidadePecas > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peças:</strong> ${paleteParaTooltip.quantidadePecas}</div>` : ''}
+                                                    ${paleteParaTooltip.pesoPacoteKg > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peso:</strong> ${paleteParaTooltip.pesoPacoteKg.toFixed(1)} kg</div>` : ''}
+                                                    <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                                                      <strong>Origem:</strong> 
+                                                      <span style="padding: 2px 6px; background: ${paleteParaTooltip.origem === 'romaneio' ? '#dcfce7' : '#f1f5f9'}; color: ${paleteParaTooltip.origem === 'romaneio' ? '#166534' : '#475569'}; border-radius: 4px; font-size: 10px; font-weight: bold;">
+                                                        ${paleteParaTooltip.origem.toUpperCase()}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+
+                                                  ${itemOriginal.rack || metadata.rack || produtos.length > 0 || pedidos.length > 0 || clientes.length > 0 || metadata.romaneioId ? `
+                                                    <div style="border-top: 1px solid #e2e8f0; margin: 8px 0; padding-top: 8px;">
+                                                      ${itemOriginal.rack || metadata.rack ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Rack Acabado:</strong> <span style="color: #0f766e; font-weight: bold;">${itemOriginal.rack || metadata.rack}</span></div>` : ''}
+                                                      ${produtos.length > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Produtos:</strong> ${produtosText}</div>` : ''}
+                                                      ${pedidos.length > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Pedidos:</strong> ${pedidosText}</div>` : ''}
+                                                      ${clientes.length > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Clientes:</strong> ${clientesText}</div>` : ''}
+                                                      ${metadata.romaneioId ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Romaneio:</strong> #${metadata.romaneioNumero || metadata.romaneioId}</div>` : ''}
+                                                      ${itemOriginal.comprimentoAcabadoMm ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Comp. Acabado:</strong> ${itemOriginal.comprimentoAcabadoMm}mm</div>` : ''}
+                                                    </div>
+                                                  ` : ''}
+
+                                                  <button onclick="this.parentElement.remove()" style="margin-top: 12px; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">Fechar</button>
+                                                `
+                                                document.body.appendChild(tooltip)
+                                                
+                                                // Buscar informações do Kit se for romaneio
+                      if (metadata.romaneioId && paleteParaTooltip.origem === 'romaneio') {
+                        fetch(`/api/kits/romaneio/${metadata.romaneioId}`)
+                          .then(response => response.json())
+                          .then(kitData => {
+                            if (kitData && !tooltip.removed) {
+                              // Adicionar seção do kit
+                              const kitSection = document.createElement('div')
+                              kitSection.style.cssText = 'border-top: 1px solid #e2e8f0; margin: 8px 0; padding-top: 8px;'
+                              kitSection.innerHTML = `
+                                <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
+                                  <strong>Código do Kit:</strong> <span style="color: #059669; font-weight: bold;">${kitData.codigo || '—'}</span>
+                                </div>
+                                ${kitData.nome ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Nome Descritivo:</strong> ${kitData.nome}</div>` : ''}
+                                ${kitData.ferramenta ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Ferramenta:</strong> ${kitData.ferramenta}</div>` : ''}
+                                ${kitData.comprimento_mm ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Comprimento:</strong> ${kitData.comprimento_mm}mm</div>` : ''}
+                              `
+                              tooltip.appendChild(kitSection)
+                            }
+                          })
+                          .catch(error => console.log('Erro ao buscar kit:', error))
+                      }
+
+                                                // Remover ao clicar fora
+                                                setTimeout(() => {
+                                                  document.addEventListener('click', function removeTooltip() {
+                                                    tooltip.removed = true
+                                                    tooltip.remove()
+                                                    document.removeEventListener('click', removeTooltip)
+                                                  })
+                                                }, 100)
+                                              }}
+                                            >
+                                              <boxGeometry args={[p.w * sc * 0.97, p.alt * sc * 0.97, p.d * sc * 0.97]} />
+                                              <meshStandardMaterial color={p.cor} opacity={0.9} transparent />
+                                            </mesh>
+                                          </group>
+                                        )
+                                      })}
                                       {/* Folga indicators: only for top-level pallets (nothing stacked above) */}
                                       {showFolgas && manualPlacements.filter(p => {
                                         const topoP = (p.yCalc || 0) + p.alt
@@ -4752,14 +5415,49 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                   )
                                 })()}
                               </group>
-                              <OrbitControls enablePan={false} enableDamping />
                             </Canvas>
+                            
+                            {/* Legenda de controles 3D */}
+                            <div className="absolute bottom-3 left-3 flex flex-col gap-1.5 pointer-events-none">
+                              <div className="bg-slate-900/60 backdrop-blur-sm px-2 py-1 rounded text-[8px] font-black text-slate-400 uppercase tracking-tighter border border-slate-700/50">
+                                Botão Esq: Girar • Botão Dir: Mover • Scroll: Zoom
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  )}
-                </section>
+                        
+                        {/* Sumário de espaço livre (sempre visível quando manual) */}
+                        <div className="bg-slate-50 border-t border-slate-100 p-3 grid grid-cols-2 gap-3">
+                          {(() => {
+                            const altCam = caminhaoAtual.altura
+                            const folgaAltVal = Math.max(0, Number(folgaAlturaCm) || 0) / 100
+                            const tetoUtil = altCam - folgaAltVal
+                            const maiorTopo = manualPlacements.reduce((max, p) => Math.max(max, (p.yCalc || 0) + p.alt), 0)
+                            const espacoLivreTeto = tetoUtil - maiorTopo
+                            
+                            return (
+                              <>
+                                <div className="bg-white rounded-lg p-2 border border-slate-200">
+                                  <p className="text-[8px] font-black text-slate-400 uppercase">Espaço Livre Teto</p>
+                                  <p className={`text-sm font-black ${(espacoLivreTeto * 100) < 30 ? 'text-red-600' : 'text-slate-700'}`}>
+                                    {(espacoLivreTeto * 100).toFixed(0)}cm
+                                  </p>
+                                </div>
+                                <div className="bg-white rounded-lg p-2 border border-slate-200">
+                                  <p className="text-[8px] font-black text-slate-400 uppercase">Vol. Ocupado</p>
+                                  <p className="text-sm font-black text-indigo-600">
+                                    {manualPlacements.reduce((a, b) => a + (b.w * b.alt * b.d), 0).toFixed(2)} m³
+                                  </p>
+                                </div>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
 
                 {/* ─── AÇÕES: SALVAR / CARREGAR / IMPRIMIR ─── */}
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
@@ -4904,7 +5602,12 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                   const compU = Math.max(0.1, compCam - folgaLin * 2)
                   const largU = Math.max(0.1, largCam - folgaLin * 2)
                   const totalPaletes = placements.length > 0 ? placements.length : filaItens.reduce((a, i) => a + (Number(i.quantidade) || 0), 0)
-                  const pesoTotal = totalPesoCargaKg ? (totalPesoCargaKg / 1000).toFixed(2) + ' t' : '—'
+
+                  const pesoParaExibir = pesoRealCargaKg || 0
+                  const pesoTotal = pesoParaExibir > 0
+                    ? (pesoParaExibir >= 1000 ? (pesoParaExibir / 1000).toFixed(2) + ' t' : pesoParaExibir.toFixed(0) + ' kg')
+                    : '—'
+                  const ocupacaoPerc = Math.round(ocupacaoVolumeReal * 100)
 
                   // SVG rendering helpers
                   const svgTopW = 680
@@ -4962,7 +5665,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         </div>
                         <div className="border border-slate-300 rounded-lg p-2.5">
                           <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Ocupação</p>
-                          <p className="font-black text-slate-800 text-xs">{simulacaoAtual?.ocupacaoPerc?.toFixed(1) || '—'}%</p>
+                          <p className="font-black text-slate-800 text-xs">{ocupacaoPerc > 0 ? ocupacaoPerc + '%' : '—'}</p>
                           <p className="text-slate-500 mt-0.5">Volume útil</p>
                         </div>
                       </div>
@@ -4980,6 +5683,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                 <th className="border border-slate-600 px-2 py-1.5 text-center font-black w-8">Nº</th>
                                 <th className="border border-slate-600 px-2 py-1.5 text-center font-bold w-6">Cor</th>
                                 <th className="border border-slate-600 px-2 py-1.5 text-left font-bold">Identificação</th>
+                                <th className="border border-slate-600 px-2 py-1.5 text-left font-bold">Produto</th>
                                 <th className="border border-slate-600 px-2 py-1.5 text-center font-bold">Nível</th>
                                 <th className="border border-slate-600 px-2 py-1.5 text-center font-bold">Dimensões (C×L×A)</th>
                                 <th className="border border-slate-600 px-2 py-1.5 text-center font-bold">Pos. X</th>
@@ -4994,6 +5698,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                     <span className="inline-block w-3.5 h-3.5 rounded-sm border border-slate-300" style={{ background: p.cor }} />
                                   </td>
                                   <td className="border border-slate-200 px-2 py-1 font-semibold text-slate-700">{p.titulo}</td>
+                                  <td className="border border-slate-200 px-2 py-1 font-mono text-[9px] text-slate-600">{(p.produtos?.[0] || p.produto || '')}</td>
                                   <td className="border border-slate-200 px-2 py-1 text-center font-bold">{p.camada === 0 ? 'Chão' : `Nv.${p.camada}`}</td>
                                   <td className="border border-slate-200 px-2 py-1 text-center font-mono">{(p.w * 100).toFixed(0)}×{(p.d * 100).toFixed(0)}×{(p.alt * 100).toFixed(0)} cm</td>
                                   <td className="border border-slate-200 px-2 py-1 text-center font-mono">{p.x.toFixed(2)}m</td>
@@ -5045,80 +5750,97 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                           </div>
 
                           {/* ── VISTA LATERAL DIREITA ── */}
-                          <div className="mb-5 page-break-inside-avoid" style={{ pageBreakBefore: 'auto' }}>
-                            <h2 className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-2">Vista Lateral Direita</h2>
-                            <p className="text-[9px] text-slate-400 mb-2">Fundo do caminhão ← → Porta traseira · Olhando pelo lado direito (Z = 0)</p>
-                            <svg width={svgSideW} height={svgSideH + 30} viewBox={`-5 -20 ${svgSideW + 10} ${svgSideH + 30}`} className="border border-slate-300 rounded bg-white block">
-                              {/* Contorno do caminhão */}
-                              <rect x={0} y={0} width={compU * scaleSide} height={altCam * scaleSide} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="6,3" rx={3} />
-                              {/* Chão */}
-                              <line x1={0} y1={altCam * scaleSide} x2={compU * scaleSide} y2={altCam * scaleSide} stroke="#475569" strokeWidth={2} />
-                              {/* Porta traseira */}
-                              <line x1={compU * scaleSide} y1={-4} x2={compU * scaleSide} y2={altCam * scaleSide + 4} stroke="#ef4444" strokeWidth={2} />
-                              <text x={compU * scaleSide - 2} y={-8} textAnchor="end" style={{ fontSize: 7, fill: '#ef4444', fontWeight: 'bold' }}>PORTA</text>
-                              <text x={0} y={-8} textAnchor="start" style={{ fontSize: 7, fill: '#64748b' }}>FUNDO</text>
-                              {/* Escala */}
-                              <text x={compU * scaleSide / 2} y={altCam * scaleSide + 14} textAnchor="middle" style={{ fontSize: 7, fill: '#64748b' }}>{compU.toFixed(1)}m</text>
-                              {/* Paletes — projeção lateral: X = posição ao longo do caminhão, Y = altura (invertida pois SVG Y cresce para baixo) */}
-                              {numbered.map(p => {
-                                const rx = p.x * scaleSide
-                                const rw = p.w * scaleSide
-                                const rh = p.alt * scaleSide
-                                const ry = (altCam - (p.yCalc || 0) - p.alt) * scaleSide
-                                return (
-                                  <g key={p.id}>
-                                    <rect x={rx} y={ry} width={rw} height={rh} fill={p.cor} fillOpacity={0.8} stroke="#1e293b" strokeWidth={1} rx={1} />
-                                    <text x={rx + rw / 2} y={ry + rh / 2 - 3} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(12, rw * 0.3, rh * 0.4), fill: contrastColor(p.cor), fontWeight: '900' }}>
-                                      {p._num}
-                                    </text>
-                                    <text x={rx + rw / 2} y={ry + rh / 2 + 6} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(7, rw * 0.15, rh * 0.2), fill: contrastColor(p.cor), fontWeight: '600' }}>
-                                      {p.titulo.length > 10 ? p.titulo.slice(0, 10) + '…' : p.titulo}
-                                    </text>
-                                  </g>
-                                )
-                              })}
-                              {/* Escala vertical */}
-                              <text x={compU * scaleSide + 8} y={altCam * scaleSide / 2} textAnchor="start" style={{ fontSize: 7, fill: '#64748b' }}>{altCam.toFixed(1)}m</text>
-                            </svg>
-                          </div>
+                          {(() => {
+                            // Vista direita: olhando pelo lado Z=0. Ordenar por z crescente → menor z na frente.
+                            // Para cada palete, o visível é o de menor z que ocupa aquela faixa X+Y.
+                            // Renderizar todos de trás para frente (z decrescente), o mais próximo fica em cima.
+                            const sortedDir = [...numbered].sort((a, b) => (b.z || 0) - (a.z || 0))
+                            // IDs dos paletes com menor z para cada faixa (os visíveis)
+                            const visivelDir = new Set()
+                            const ocupadosDir = [] // [{x0,x1,y0,y1}]
+                            ;[...numbered].sort((a, b) => (a.z || 0) - (b.z || 0)).forEach(p => {
+                              const x0 = p.x, x1 = p.x + p.w
+                              const y0 = p.yCalc || 0, y1 = y0 + p.alt
+                              const bloqueado = ocupadosDir.some(r => x0 < r.x1 && x1 > r.x0 && y0 < r.y1 && y1 > r.y0)
+                              if (!bloqueado) { visivelDir.add(p.id); ocupadosDir.push({ x0, x1, y0, y1 }) }
+                            })
+                            return (
+                            <div className="mb-5 page-break-inside-avoid" style={{ pageBreakBefore: 'auto' }}>
+                              <h2 className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-2">Vista Lateral Direita</h2>
+                              <p className="text-[9px] text-slate-400 mb-2">Fundo do caminhão ← → Porta traseira · Olhando pelo lado direito (Z = 0)</p>
+                              <svg width={svgSideW} height={svgSideH + 30} viewBox={`-5 -20 ${svgSideW + 10} ${svgSideH + 30}`} className="border border-slate-300 rounded bg-white block">
+                                <rect x={0} y={0} width={compU * scaleSide} height={altCam * scaleSide} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="6,3" rx={3} />
+                                <line x1={0} y1={altCam * scaleSide} x2={compU * scaleSide} y2={altCam * scaleSide} stroke="#475569" strokeWidth={2} />
+                                <line x1={compU * scaleSide} y1={-4} x2={compU * scaleSide} y2={altCam * scaleSide + 4} stroke="#ef4444" strokeWidth={2} />
+                                <text x={compU * scaleSide - 2} y={-8} textAnchor="end" style={{ fontSize: 7, fill: '#ef4444', fontWeight: 'bold' }}>PORTA</text>
+                                <text x={0} y={-8} textAnchor="start" style={{ fontSize: 7, fill: '#64748b' }}>FUNDO</text>
+                                <text x={compU * scaleSide / 2} y={altCam * scaleSide + 14} textAnchor="middle" style={{ fontSize: 7, fill: '#64748b' }}>{compU.toFixed(1)}m</text>
+                                {sortedDir.map(p => {
+                                  const rx = p.x * scaleSide
+                                  const rw = p.w * scaleSide
+                                  const rh = p.alt * scaleSide
+                                  const ry = (altCam - (p.yCalc || 0) - p.alt) * scaleSide
+                                  const visivel = visivelDir.has(p.id)
+                                  return (
+                                    <g key={p.id}>
+                                      <rect x={rx} y={ry} width={rw} height={rh} fill={p.cor} fillOpacity={visivel ? 0.85 : 0.25} stroke="#1e293b" strokeWidth={visivel ? 1 : 0.5} strokeDasharray={visivel ? 'none' : '3,2'} rx={1} />
+                                      {visivel && (<>
+                                        <text x={rx + rw / 2} y={ry + rh / 2 - 3} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(12, rw * 0.3, rh * 0.4), fill: contrastColor(p.cor), fontWeight: '900' }}>{p._num}</text>
+                                        <text x={rx + rw / 2} y={ry + rh / 2 + 6} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(7, rw * 0.15, rh * 0.2), fill: contrastColor(p.cor), fontWeight: '600' }}>{p.titulo.length > 10 ? p.titulo.slice(0, 10) + '…' : p.titulo}</text>
+                                      </>)}
+                                    </g>
+                                  )
+                                })}
+                                <text x={compU * scaleSide + 8} y={altCam * scaleSide / 2} textAnchor="start" style={{ fontSize: 7, fill: '#64748b' }}>{altCam.toFixed(1)}m</text>
+                              </svg>
+                            </div>
+                            )
+                          })()}
 
                           {/* ── VISTA LATERAL ESQUERDA ── */}
-                          <div className="mb-5 page-break-inside-avoid">
-                            <h2 className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-2">Vista Lateral Esquerda</h2>
-                            <p className="text-[9px] text-slate-400 mb-2">Porta traseira ← → Fundo do caminhão · Olhando pelo lado esquerdo (Z = máx) · Espelhado</p>
-                            <svg width={svgSideW} height={svgSideH + 30} viewBox={`-5 -20 ${svgSideW + 10} ${svgSideH + 30}`} className="border border-slate-300 rounded bg-white block">
-                              {/* Contorno do caminhão */}
-                              <rect x={0} y={0} width={compU * scaleSide} height={altCam * scaleSide} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="6,3" rx={3} />
-                              {/* Chão */}
-                              <line x1={0} y1={altCam * scaleSide} x2={compU * scaleSide} y2={altCam * scaleSide} stroke="#475569" strokeWidth={2} />
-                              {/* Porta traseira (agora à esquerda) */}
-                              <line x1={0} y1={-4} x2={0} y2={altCam * scaleSide + 4} stroke="#ef4444" strokeWidth={2} />
-                              <text x={2} y={-8} textAnchor="start" style={{ fontSize: 7, fill: '#ef4444', fontWeight: 'bold' }}>PORTA</text>
-                              <text x={compU * scaleSide} y={-8} textAnchor="end" style={{ fontSize: 7, fill: '#64748b' }}>FUNDO</text>
-                              {/* Escala */}
-                              <text x={compU * scaleSide / 2} y={altCam * scaleSide + 14} textAnchor="middle" style={{ fontSize: 7, fill: '#64748b' }}>{compU.toFixed(1)}m</text>
-                              {/* Paletes espelhados no eixo X */}
-                              {numbered.map(p => {
-                                const rxMirror = (compU - p.x - p.w) * scaleSide
-                                const rw = p.w * scaleSide
-                                const rh = p.alt * scaleSide
-                                const ry = (altCam - (p.yCalc || 0) - p.alt) * scaleSide
-                                return (
-                                  <g key={p.id}>
-                                    <rect x={rxMirror} y={ry} width={rw} height={rh} fill={p.cor} fillOpacity={0.8} stroke="#1e293b" strokeWidth={1} rx={1} />
-                                    <text x={rxMirror + rw / 2} y={ry + rh / 2 - 3} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(12, rw * 0.3, rh * 0.4), fill: contrastColor(p.cor), fontWeight: '900' }}>
-                                      {p._num}
-                                    </text>
-                                    <text x={rxMirror + rw / 2} y={ry + rh / 2 + 6} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(7, rw * 0.15, rh * 0.2), fill: contrastColor(p.cor), fontWeight: '600' }}>
-                                      {p.titulo.length > 10 ? p.titulo.slice(0, 10) + '…' : p.titulo}
-                                    </text>
-                                  </g>
-                                )
-                              })}
-                              {/* Escala vertical */}
-                              <text x={compU * scaleSide + 8} y={altCam * scaleSide / 2} textAnchor="start" style={{ fontSize: 7, fill: '#64748b' }}>{altCam.toFixed(1)}m</text>
-                            </svg>
-                          </div>
+                          {(() => {
+                            // Vista esquerda: olhando pelo lado Z=máx. O palete com maior (z+d) fica na frente.
+                            const sortedEsq = [...numbered].sort((a, b) => ((a.z || 0) + (a.d || 0)) - ((b.z || 0) + (b.d || 0)))
+                            const visivelEsq = new Set()
+                            const ocupadosEsq = []
+                            ;[...numbered].sort((a, b) => ((b.z || 0) + (b.d || 0)) - ((a.z || 0) + (a.d || 0))).forEach(p => {
+                              const x0 = p.x, x1 = p.x + p.w
+                              const y0 = p.yCalc || 0, y1 = y0 + p.alt
+                              const bloqueado = ocupadosEsq.some(r => x0 < r.x1 && x1 > r.x0 && y0 < r.y1 && y1 > r.y0)
+                              if (!bloqueado) { visivelEsq.add(p.id); ocupadosEsq.push({ x0, x1, y0, y1 }) }
+                            })
+                            return (
+                            <div className="mb-5 page-break-inside-avoid">
+                              <h2 className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-2">Vista Lateral Esquerda</h2>
+                              <p className="text-[9px] text-slate-400 mb-2">Porta traseira ← → Fundo do caminhão · Olhando pelo lado esquerdo (Z = máx) · Espelhado</p>
+                              <svg width={svgSideW} height={svgSideH + 30} viewBox={`-5 -20 ${svgSideW + 10} ${svgSideH + 30}`} className="border border-slate-300 rounded bg-white block">
+                                <rect x={0} y={0} width={compU * scaleSide} height={altCam * scaleSide} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="6,3" rx={3} />
+                                <line x1={0} y1={altCam * scaleSide} x2={compU * scaleSide} y2={altCam * scaleSide} stroke="#475569" strokeWidth={2} />
+                                <line x1={0} y1={-4} x2={0} y2={altCam * scaleSide + 4} stroke="#ef4444" strokeWidth={2} />
+                                <text x={2} y={-8} textAnchor="start" style={{ fontSize: 7, fill: '#ef4444', fontWeight: 'bold' }}>PORTA</text>
+                                <text x={compU * scaleSide} y={-8} textAnchor="end" style={{ fontSize: 7, fill: '#64748b' }}>FUNDO</text>
+                                <text x={compU * scaleSide / 2} y={altCam * scaleSide + 14} textAnchor="middle" style={{ fontSize: 7, fill: '#64748b' }}>{compU.toFixed(1)}m</text>
+                                {sortedEsq.map(p => {
+                                  const rxMirror = (compU - p.x - p.w) * scaleSide
+                                  const rw = p.w * scaleSide
+                                  const rh = p.alt * scaleSide
+                                  const ry = (altCam - (p.yCalc || 0) - p.alt) * scaleSide
+                                  const visivel = visivelEsq.has(p.id)
+                                  return (
+                                    <g key={p.id}>
+                                      <rect x={rxMirror} y={ry} width={rw} height={rh} fill={p.cor} fillOpacity={visivel ? 0.85 : 0.25} stroke="#1e293b" strokeWidth={visivel ? 1 : 0.5} strokeDasharray={visivel ? 'none' : '3,2'} rx={1} />
+                                      {visivel && (<>
+                                        <text x={rxMirror + rw / 2} y={ry + rh / 2 - 3} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(12, rw * 0.3, rh * 0.4), fill: contrastColor(p.cor), fontWeight: '900' }}>{p._num}</text>
+                                        <text x={rxMirror + rw / 2} y={ry + rh / 2 + 6} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(7, rw * 0.15, rh * 0.2), fill: contrastColor(p.cor), fontWeight: '600' }}>{p.titulo.length > 10 ? p.titulo.slice(0, 10) + '…' : p.titulo}</text>
+                                      </>)}
+                                    </g>
+                                  )
+                                })}
+                                <text x={compU * scaleSide + 8} y={altCam * scaleSide / 2} textAnchor="start" style={{ fontSize: 7, fill: '#64748b' }}>{altCam.toFixed(1)}m</text>
+                              </svg>
+                            </div>
+                            )
+                          })()}
 
                           {/* ── VISTA FRONTAL (PELA PORTA) ── */}
                           <div className="mb-5 page-break-inside-avoid">
@@ -5214,11 +5936,16 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         </div>
                         <div className="col-span-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                           <div className="flex justify-between items-center text-[10px] font-black text-emerald-700 uppercase tracking-tight">
-                            <span>Ocupação do Baú</span>
-                            <span>{Math.round((simulacaoAtual.ocupacaoVolume || 0) * 100)}%</span>
+                            <span>Ocupação de Área (Piso)</span>
+                            <span>{Math.round((simulacaoAtual.ocupacaoArea || 0) * 100)}%</span>
                           </div>
                           <div className="h-2 rounded-full bg-emerald-200 mt-2 overflow-hidden">
-                            <div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" style={{ width: `${Math.min(100, Math.round((simulacaoAtual.ocupacaoVolume || 0) * 100))}%` }} />
+                            <div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" style={{ width: `${Math.min(100, Math.round((simulacaoAtual.ocupacaoArea || 0) * 100))}%` }} />
+                          </div>
+                          
+                          <div className="flex justify-between items-center text-[9px] font-bold text-emerald-600 uppercase tracking-tight mt-3">
+                            <span>Ocupação Volumétrica</span>
+                            <span>{Math.round((simulacaoAtual.ocupacaoVolume || 0) * 100)}%</span>
                           </div>
                         </div>
                       </div>

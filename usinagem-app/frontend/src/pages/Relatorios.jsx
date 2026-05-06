@@ -3,7 +3,7 @@ import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, Fa
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
-import { buildFormularioIdentificacaoHtml, resolverNomeKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, resolverKit } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -241,14 +241,15 @@ const Relatorios = () => {
     const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
     const turno = a.turno || ''
 
-    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
+    const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP: loteMPVal,
       cliente,
       item,
       codigoCliente,
-      nomeKit,
+      nomeKit: kitInfo?.nome || '',
+      codigoKit: kitInfo?.codigo || '',
       medida,
       pedidoTecno,
       pedidoCli,

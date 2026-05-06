@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip)
 import { isVisualizador } from '../utils/auth'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
-import { buildFormularioIdentificacaoHtml, calcularTurno, resolverNomeKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, calcularTurno, resolverKit } from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 import AutocompleteCodigoCliente from '../components/AutocompleteCodigoCliente'
@@ -775,14 +775,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const dataProducao = dataHoraProducao ? dataHoraProducao.toLocaleDateString('pt-BR') : ''
     const turno = formData.turno || calcularTurno(dataHoraProducao)
 
-    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
+    const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP: loteMPVal,
       cliente,
       item,
       codigoCliente,
-      nomeKit,
+      nomeKit: kitInfo?.nome || '',
+      codigoKit: kitInfo?.codigo || '',
       medida,
       pedidoTecno,
       pedidoCli,
@@ -860,14 +861,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
     const turno = dados.turno || calcularTurno(dataHoraProducao)
 
-    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
+    const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote: dados.lote || '',
       loteMP: dados.lote_externo || '',
       cliente: dados.cliente || '',
       item,
       codigoCliente: dados.codigo_produto_cliente || '',
-      nomeKit,
+      nomeKit: kitInfo?.nome || '',
+      codigoKit: kitInfo?.codigo || '',
       medida,
       pedidoTecno: dados.pedido_seq || '',
       pedidoCli: dados.pedido_cliente || '',
@@ -925,6 +927,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [comprimentoRefugo, setComprimentoRefugo] = useState('')
   const [durezaMaterial, setDurezaMaterial] = useState('')
   const [finalizarRack, setFinalizarRack] = useState(true)
+  const [editandoRack, setEditandoRack] = useState(false)
+  const [alertaExcessoAberto, setAlertaExcessoAberto] = useState(false)
+  const [alertaExcessoDados, setAlertaExcessoDados] = useState(null)
   // Modal de peça morta
   const [pecaMortaAberto, setPecaMortaAberto] = useState(false)
   const [pecaMortaQtd, setPecaMortaQtd] = useState('')
@@ -935,7 +940,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Modal de listagem de apontamentos da ordem selecionada
   const [listarApontAberto, setListarApontAberto] = useState(false)
   const [tabelaDiariaAberta, setTabelaDiariaAberta] = useState(false)
-  const [dataTabelaDiaria, setDataTabelaDiaria] = useState(() => new Date().toISOString().slice(0, 10))
+  const [dataTabelaDiaria, setDataTabelaDiaria] = useState(() => {
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  })
   const [filtroTabelaDiaria, setFiltroTabelaDiaria] = useState('')
   const [turnoTabelaDiaria, setTurnoTabelaDiaria] = useState('')
   const [graficoParadasAberto, setGraficoParadasAberto] = useState(false)
@@ -982,11 +991,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Modal de seleção de Rack!Embalagem e lotes (novo fluxo ao selecionar Pedido/Seq)
   const [rackModalAberto, setRackModalAberto] = useState(false)
   const [pedidoSeqSelecionado, setPedidoSeqSelecionado] = useState('')
+  const [rackModalPerfil, setRackModalPerfil] = useState({ perfilLongo: '', codigoPerfil: '' })
   const [rackDigitado, setRackDigitado] = useState('')
   const [lotesEncontrados, setLotesEncontrados] = useState([]) // [{id?, lote}]
   const [lotesSelecionados, setLotesSelecionados] = useState([]) // [lote]
   const [amarradosSelecionadosRack, setAmarradosSelecionadosRack] = useState([]) // [{lote, codigo, ...}]
   const [lotesExpandidos, setLotesExpandidos] = useState([]) // [lote] - controla quais lotes estão expandidos
+  const [kitEncontrado, setKitEncontrado] = useState(null) // { codigo, nome, cliente } | null
   // Digitar Lote de Extrusão manualmente
   const [manualAberto, setManualAberto] = useState(false)
   const [manualLotesTxt, setManualLotesTxt] = useState('')
@@ -1342,13 +1353,48 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     } catch { return '' }
   }
 
-  // Busca lotes na store 'lotes' conforme Rack informado (sem vincular ao Pedido/Seq neste momento)
+  // Racks compatíveis com o produto/ferramenta do pedido selecionado (para sugestão automática)
+  const racksCompativeis = useMemo(() => {
+    const ferramentaPedido = extrairFerramenta(rackModalPerfil.perfilLongo || rackModalPerfil.codigoPerfil || '')
+    if (!ferramentaPedido || !lotesDB || !rackModalAberto) return []
+    const rackMap = new Map()
+    for (const l of lotesDB) {
+      const rack = String(l.rack_embalagem || '').trim()
+      if (!rack) continue
+      const produtoLote = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
+      const ferramentaLote = extrairFerramenta(produtoLote)
+      if (!ferramentaLote || ferramentaLote.toUpperCase() !== ferramentaPedido.toUpperCase()) continue
+      if (!rackMap.has(rack)) {
+        rackMap.set(rack, { rack, ferramenta: ferramentaLote, lotes: new Set(), amarrados: 0, produto: produtoLote, comprimentoLongoMm: extrairComprimentoLongoMm(produtoLote) })
+      }
+      const entry = rackMap.get(rack)
+      const loteNum = String(l.lote || '').trim()
+      if (loteNum) entry.lotes.add(loteNum)
+      entry.amarrados += 1
+    }
+    return Array.from(rackMap.values())
+      .map(e => ({ ...e, lotes: e.lotes.size }))
+      .sort((a, b) => b.amarrados - a.amarrados)
+  }, [rackModalPerfil, lotesDB, rackModalAberto])
+
+  // Busca lotes na store 'lotes' conforme Rack informado (filtra por ferramenta compatível com o pedido)
   const buscarLotesPorRack = () => {
     const rack = String(rackDigitado || '').trim()
     if (!rack) { setLotesEncontrados([]); return }
+    
+    // Ferramenta do pedido selecionado para filtrar apenas lotes compatíveis
+    const ferramentaPedido = extrairFerramenta(rackModalPerfil.perfilLongo || rackModalPerfil.codigoPerfil || '')
+    
     try {
       // Busca exata primeiro (como na versão que funcionava)
-      let lista = (lotesDB || []).filter(l => String(l.rack_embalagem || '').trim() === rack)
+      let lista = (lotesDB || []).filter(l => {
+        if (String(l.rack_embalagem || '').trim() !== rack) return false
+        // Se tiver ferramenta do pedido, filtra apenas lotes compatíveis
+        if (!ferramentaPedido) return true
+        const produtoLote = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
+        const ferramentaLote = extrairFerramenta(produtoLote)
+        return ferramentaLote && ferramentaLote.toUpperCase() === ferramentaPedido.toUpperCase()
+      })
       
       // Se não encontrou nada, tenta busca normalizada
       if (lista.length === 0) {
@@ -1357,7 +1403,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           lista = (lotesDB || []).filter(l => {
             const lr = normalizeRackId(l.rack_embalagem)
             if (!lr) return false
-            return lr === rackNorm || (lr.endsWith(rackNorm) && rackNorm.length >= 3)
+            const matchRack = lr === rackNorm || (lr.endsWith(rackNorm) && rackNorm.length >= 3)
+            if (!matchRack) return false
+            // Se tiver ferramenta do pedido, filtra apenas lotes compatíveis
+            if (!ferramentaPedido) return true
+            const produtoLote = String(l.produto || getCampoOriginalLote(l, 'Produto') || '').trim()
+            const ferramentaLote = extrairFerramenta(produtoLote)
+            return ferramentaLote && ferramentaLote.toUpperCase() === ferramentaPedido.toUpperCase()
           })
         }
       }
@@ -2154,20 +2206,25 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           formData.ordemTrabalho
         )
 
+        setEditandoRack(false)
         if (rackEmAberto) {
-          // Reutilizar rack existente
+          // Reutilizar rack existente — checkbox padrão = false (rack ainda não finalizado)
           console.log('Rack em aberto encontrado:', rackEmAberto)
           setFormData(prev => ({ ...prev, rack_acabado: rackEmAberto }))
+          setFinalizarRack(false)
         } else {
-          // Gerar novo rack
+          // Novo rack — checkbox padrão = true (finalizar ao confirmar)
           const proximoRack = await supabaseService.obterProximoRackUsinagem()
           if (proximoRack) {
             console.log('Novo rack gerado:', proximoRack)
             setFormData(prev => ({ ...prev, rack_acabado: proximoRack }))
           }
+          setFinalizarRack(true)
         }
       } catch (err) {
         console.error('Erro ao gerar/reutilizar rack:', err)
+        setFinalizarRack(true)
+        setEditandoRack(false)
       }
     }
 
@@ -2369,6 +2426,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         })
         // Abre novo modal: Rack!Embalagem e lotes relacionados
         setPedidoSeqSelecionado(value)
+        setRackModalPerfil({ perfilLongo: ordem.perfilLongo || '', codigoPerfil: ordem.codigoPerfil || '' })
         setRackDigitado('')
         setLotesEncontrados([])
         setLotesSelecionados([])
@@ -2406,7 +2464,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     setConfirmarAberto(true)
   }
 
-  const concluirRegistro = async () => {
+  const concluirRegistro = async (forcarConfirmacao = false) => {
     const qtdForm = Number(formData.quantidade || 0)
     const qtdConf = Number(qtdConfirmada || 0)
     if (modo === 'embalagem' && formData.processoEmbalagem === 'rebarbar_embalar' && !String(formData.etapaEmbalagem || '').trim()) {
@@ -2420,6 +2478,19 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     if (qtdForm !== qtdConf) {
       alert('A quantidade confirmada deve ser igual à Quantidade Produzida.')
       return
+    }
+
+    // Validação de excesso: total apontado + qtd atual > qtdPedido * 1.10
+    if (!forcarConfirmacao) {
+      const qtdPed = Number(formData.qtdPedido || 0)
+      const totalComAtual = Number(totalApontado || 0) + qtdForm
+      if (qtdPed > 0 && totalComAtual > qtdPed * 1.10) {
+        const excesso = totalComAtual - qtdPed
+        const percentual = ((totalComAtual / qtdPed - 1) * 100).toFixed(1)
+        setAlertaExcessoDados({ qtdPed, totalComAtual, excesso, percentual, qtdForm })
+        setAlertaExcessoAberto(true)
+        return
+      }
     }
     // Mapeia para as colunas existentes na tabela public.apontamentos
     const lote = gerarCodigoLote()
@@ -2483,7 +2554,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       // Guardar seleção de lotes internos/externos na coluna padronizada
       lotes_externos: (formData.lotesExternos && formData.lotesExternos.length ? [...formData.lotesExternos] : []),
       lote: lote,
-      romaneio_numero: formData.romaneioNumero || '',
+      romaneio_numero: (formData.romaneioNumero && !/^0+$/.test(String(formData.romaneioNumero).trim())) ? String(formData.romaneioNumero).trim() : null,
       lote_externo: formData.loteExterno || '',
       // NOVO: Código do produto do cliente
       codigo_produto_cliente: formData.codigoProdutoCliente || '',
@@ -2691,6 +2762,44 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     if (rackModalAberto) buscarLotesPorRack()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rackDigitado, rackModalAberto, pedidoSeqSelecionado, lotesDB])
+
+  // Auto-seleciona rack quando há exatamente 1 opção compatível
+  useEffect(() => {
+    if (!rackModalAberto || rackDigitado) return
+    if (racksCompativeis.length === 1) {
+      setRackDigitado(racksCompativeis[0].rack)
+    }
+  }, [rackModalAberto, racksCompativeis])
+
+  // Busca kit que contém o produto selecionado
+  useEffect(() => {
+    if (!rackModalAberto || !kitComponentesDB || !kitsDB) {
+      setKitEncontrado(null)
+      return
+    }
+    const produtoBusca = String(rackModalPerfil.codigoPerfil || rackModalPerfil.perfilLongo || '').trim()
+    if (!produtoBusca) {
+      setKitEncontrado(null)
+      return
+    }
+    // Buscar componente que contém o produto
+    const componente = kitComponentesDB.find(c => {
+      const prodComponente = String(c.produto || '').trim()
+      return prodComponente === produtoBusca || prodComponente.startsWith(produtoBusca.substring(0, 12))
+    })
+    if (componente) {
+      const kit = kitsDB.find(k => k.id === componente.kit_id)
+      if (kit) {
+        setKitEncontrado({
+          codigo: kit.codigo || '',
+          nome: kit.nome || '',
+          cliente: kit.cliente || ''
+        })
+        return
+      }
+    }
+    setKitEncontrado(null)
+  }, [rackModalAberto, rackModalPerfil, kitComponentesDB, kitsDB])
 
   // Total apontado para a ordem selecionada
   const totalApontado = useMemo(() => {
@@ -3048,14 +3157,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
         const turno = apontamento.turno || ''
 
-        const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
+        const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
         const html = buildFormularioIdentificacaoHtml({
           lote,
           loteMP: loteMPVal,
           cliente,
           item,
           codigoCliente,
-          nomeKit,
+          nomeKit: kitInfo?.nome || '',
+          codigoKit: kitInfo?.codigo || '',
           medida,
           pedidoTecno,
           pedidoCli,
@@ -4600,6 +4710,69 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 <label className="block label-sm font-medium text-gray-700 mb-1">Pedido/Seq</label>
                 <input type="text" className="input-field input-field-sm" value={pedidoSeqSelecionado} readOnly />
               </div>
+
+              {/* Nome do Kit se o produto estiver cadastrado */}
+              {kitEncontrado && (
+                <div className="bg-gradient-to-r from-orange-50 to-amber-50 border-l-4 border-orange-500 rounded-r-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-orange-600 text-lg">📦</span>
+                    <div>
+                      <p className="text-xs text-orange-700 font-semibold uppercase tracking-wide">Produto vinculado a Kit</p>
+                      <p className="text-sm font-bold text-orange-900">
+                        {kitEncontrado.nome}
+                        {kitEncontrado.cliente && (
+                          <span className="font-normal text-orange-700 ml-2">({kitEncontrado.cliente})</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-orange-600">Código: {kitEncontrado.codigo}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Racks sugeridos automaticamente pela ferramenta do produto */}
+              {racksCompativeis.length > 0 ? (
+                <div>
+                  <label className="block label-sm font-medium text-gray-700 mb-1">
+                    Racks disponíveis com material compatível
+                    <span className="ml-2 text-xs text-green-600 font-normal">({extrairFerramenta(rackModalPerfil.perfilLongo || rackModalPerfil.codigoPerfil || '')})</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto">
+                    {racksCompativeis.map(r => (
+                      <button
+                        key={r.rack}
+                        type="button"
+                        onClick={() => setRackDigitado(r.rack)}
+                        className={`flex flex-col items-start px-3 py-2 rounded-lg border text-left text-sm transition-all ${
+                          rackDigitado === r.rack
+                            ? 'border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-300'
+                            : 'border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 text-gray-700'
+                        }`}
+                      >
+                        <span className="font-bold text-base leading-tight">{r.rack}</span>
+                        <span className="text-xs text-gray-500 mt-0.5">{r.lotes} lote(s) · {r.amarrados} amarrado(s)</span>
+                        {r.comprimentoLongoMm && <span className="text-xs text-blue-600">{r.comprimentoLongoMm}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : rackModalAberto && (rackModalPerfil.perfilLongo || rackModalPerfil.codigoPerfil) ? (
+                <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+                  <div className="flex items-start gap-2">
+                    <span className="text-yellow-600 text-lg">⚠</span>
+                    <div>
+                      <p className="text-sm font-semibold text-yellow-800">
+                        Não há material disponível para {extrairFerramenta(rackModalPerfil.perfilLongo || rackModalPerfil.codigoPerfil || '')}
+                      </p>
+                      <p className="text-xs text-yellow-700 mt-1">
+                        Nenhum rack/estoque encontrado com material longo compatível para este produto.
+                        Verifique se o material já foi recebido ou entre em contato com o almoxarifado.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div>
                 <label className="block label-sm font-medium text-gray-700 mb-1">Rack!Embalagem</label>
                 <div className="flex gap-2">
@@ -4685,15 +4858,27 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
               </div>
               <div>
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center justify-between mb-2">
                   <label className="block label-sm font-medium text-gray-700">Lotes encontrados</label>
-                  <div className="text-[11px] text-gray-600">
+                  <div className="flex items-center gap-2">
                     {(() => {
                       const qtdLotes = lotesEncontrados.length
                       const qtdAmarrados = (lotesEncontrados || []).reduce((acc, l) => acc + ((l?.amarrados?.length) || 0), 0)
                       const comprimentos = new Set((lotesEncontrados || []).map(l => String(l?.comprimentoLongoMm || '').trim()).filter(v => v))
                       const qtdComprimentos = comprimentos.size
-                      return `${qtdLotes} lote(s) • ${qtdAmarrados} amarrado(s) • ${qtdComprimentos} comprimento(s)`
+                      return (
+                        <>
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                            {qtdLotes} lote{qtdLotes !== 1 ? 's' : ''}
+                          </span>
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-200">
+                            {qtdAmarrados} amarrado{qtdAmarrados !== 1 ? 's' : ''}
+                          </span>
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                            {qtdComprimentos} comprimento{qtdComprimentos !== 1 ? 's' : ''}
+                          </span>
+                        </>
+                      )
                     })()}
                   </div>
                 </div>
@@ -5810,15 +5995,37 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
               </div>
               <div>
-                <label className="block text-sm text-gray-700 mb-1 font-semibold text-blue-800">Rack/Pallet (Acabado) *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-semibold text-blue-800">Rack/Pallet (Acabado) *</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditandoRack(prev => !prev)}
+                    title={editandoRack ? 'Bloquear edição' : 'Editar número do rack manualmente'}
+                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-colors ${
+                      editandoRack
+                        ? 'bg-yellow-100 border-yellow-400 text-yellow-700 hover:bg-yellow-200'
+                        : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-blue-600'
+                    }`}
+                  >
+                    <FaEdit className="w-3 h-3" />
+                    {editandoRack ? 'Bloqueando' : 'Editar'}
+                  </button>
+                </div>
                 <input 
                   type="text" 
-                  className="input-field input-field-sm border-blue-300 bg-blue-50 focus:ring-blue-500" 
+                  className={`input-field input-field-sm focus:ring-blue-500 transition-colors ${
+                    editandoRack
+                      ? 'border-yellow-400 bg-yellow-50'
+                      : 'border-blue-300 bg-blue-50'
+                  }`}
                   placeholder="Será gerado automaticamente" 
                   value={formData.rack_acabado} 
                   onChange={(e) => setFormData(prev => ({ ...prev, rack_acabado: e.target.value }))} 
-                  readOnly
+                  readOnly={!editandoRack}
                 />
+                {editandoRack && (
+                  <p className="text-xs text-yellow-700 mt-1">⚠ Edição manual ativa — certifique-se de usar um rack válido.</p>
+                )}
                 <div className="mt-3 border border-blue-200 bg-blue-50 rounded-md p-2 flex items-start gap-2 shadow-inner">
                   <input
                     type="checkbox"
@@ -5874,6 +6081,62 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           </div>
         </div>
       )}
+      {/* Modal: Alerta de excesso de produção (>10% do pedido) */}
+      {alertaExcessoAberto && alertaExcessoDados && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 border-t-4 border-red-500">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <span className="text-red-600 text-xl font-bold">!</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-red-700">Atenção — Excesso de Produção</h3>
+                <p className="text-sm text-gray-600 mt-0.5">A quantidade ultrapassa o limite permitido de <strong>10% acima do pedido</strong>.</p>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-gray-600">Qtd. do Pedido:</span><span className="font-semibold">{alertaExcessoDados.qtdPed} pcs</span></div>
+              <div className="flex justify-between"><span className="text-gray-600">Limite permitido (+10%):</span><span className="font-semibold">{Math.floor(alertaExcessoDados.qtdPed * 1.10)} pcs</span></div>
+              <div className="flex justify-between border-t border-red-200 pt-1 mt-1"><span className="text-gray-600">Total com este apontamento:</span><span className="font-bold text-red-700">{alertaExcessoDados.totalComAtual} pcs ({alertaExcessoDados.percentual}% acima)</span></div>
+              <div className="flex justify-between"><span className="text-gray-600">Excedente:</span><span className="font-bold text-red-700">+{alertaExcessoDados.excesso} pcs</span></div>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-5 text-sm text-yellow-900">
+              <p className="font-semibold mb-2">🔍 Antes de prosseguir, analise:</p>
+              <ul className="space-y-1 list-disc list-inside text-yellow-800">
+                <li>Foram extrudadas barras longas a mais do que o necessário para este pedido?</li>
+                <li>O comprimento da barra longa estava correto para o produto?</li>
+                <li>Houve erro no setup ou na programação da quantidade?</li>
+                <li>O excedente já estava previsto pelo cliente ou pelo comercial?</li>
+              </ul>
+              <p className="mt-3 font-semibold text-yellow-900">Se o excesso não for justificável, corrija a quantidade antes de confirmar.</p>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => { setAlertaExcessoAberto(false); setAlertaExcessoDados(null) }}
+              >
+                Voltar e Corrigir
+              </button>
+              <button
+                type="button"
+                className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded text-sm font-semibold transition"
+                onClick={() => {
+                  setAlertaExcessoAberto(false)
+                  setAlertaExcessoDados(null)
+                  concluirRegistro(true)
+                }}
+              >
+                Confirmar mesmo assim
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Listar apontamentos da ordem atual */}
       {listarApontAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -6007,13 +6270,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2">Pedido.Cliente</th>
                     <th className="text-left px-3 py-2">Data Entrega</th>
                     <th className="text-right px-3 py-2">Qtd. Pedido</th>
-                    <th className="text-right px-3 py-2">Faturado</th>
+                    <th className="text-right px-3 py-2">Apontado</th>
                     <th className="text-right px-3 py-2">Saldo</th>
+                    <th className="text-right px-3 py-2">Faturado</th>
                     <th className="text-left px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ordensFiltradas.map((o) => (
+                  {ordensFiltradas.map((o) => {
+                    const apontadoParaEsteItem = totalApontadoPorPedido[String(o.id)] || 0
+                    const saldoItem = Number(o.qtdPedido || 0) - apontadoParaEsteItem
+                    return (
                     <tr key={o.id} className={`border-t ${o._generico ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50'}`}>
                       <td className="px-3 py-2 font-semibold">
                         {o._generico ? (
@@ -6032,6 +6299,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2">{o.cliente}</td>
                       <td className="px-3 py-2">{o.pedidoCliente}</td>
                       <td className="px-3 py-2">{o.dtFatura ? new Date(o.dtFatura).toLocaleDateString('pt-BR') : '-'}</td>
+                      {/* Qtd. Pedido */}
                       <td className="px-3 py-2 text-right font-semibold">
                         {o._generico ? (
                           <span className="text-gray-400 text-xs italic">-</span>
@@ -6041,6 +6309,27 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                           </span>
                         )}
                       </td>
+                      {/* Apontado */}
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {o._generico ? (
+                          <span className="text-gray-400 text-xs italic">-</span>
+                        ) : (
+                          <span className={apontadoParaEsteItem > 0 ? 'text-blue-600' : 'text-gray-400'}>
+                            {apontadoParaEsteItem.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                          </span>
+                        )}
+                      </td>
+                      {/* Saldo */}
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {o._generico ? (
+                          <span className="text-gray-400 text-xs italic">livre</span>
+                        ) : (
+                          <span className={saldoItem <= 0 ? 'text-green-600' : 'text-orange-600'}>
+                            {saldoItem.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                          </span>
+                        )}
+                      </td>
+                      {/* Faturado */}
                       <td className="px-3 py-2 text-right font-semibold">
                         {o._generico ? (
                           <span className="text-gray-400 text-xs italic">-</span>
@@ -6049,19 +6338,6 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                             {Number(o.separado || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                           </span>
                         )}
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold">
-                        {o._generico ? (
-                          <span className="text-gray-400 text-xs italic">livre</span>
-                        ) : (() => {
-                          const apontadoParaEsteItem = totalApontadoPorPedido[String(o.id)] || 0
-                          const saldoItem = Number(o.qtdPedido || 0) - apontadoParaEsteItem
-                          return (
-                            <span className={saldoItem <= 0 ? 'text-green-600' : 'text-orange-600'}>
-                              {saldoItem.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                            </span>
-                          )
-                        })()}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button
@@ -6089,6 +6365,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                             }))
                             setBuscaAberta(false)
                             setPedidoSeqSelecionado(o.id)
+                            setRackModalPerfil({ perfilLongo: o.perfilLongo || '', codigoPerfil: o.codigoPerfil || '' })
                             setRackDigitado('')
                             setLotesEncontrados([])
                             setLotesSelecionados([])
@@ -6100,10 +6377,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                         </button>
                       </td>
                     </tr>)
-                  )}
+                  })}
                   {ordensFiltradas.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="px-3 py-6 text-center text-gray-500">Nenhum pedido encontrado</td>
+                      <td colSpan="13" className="px-3 py-6 text-center text-gray-500">Nenhum pedido encontrado</td>
                     </tr>
                   )}
                 </tbody>

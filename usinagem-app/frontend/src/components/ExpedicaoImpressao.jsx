@@ -5,9 +5,13 @@ import ReimpressaoApontamentosModal from './ReimpressaoApontamentosModal'
 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR')
 const fmtDec = (n, dec = 1) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 
-export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamentos }) {
+export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamentos, kitComponentes }) {
   const printRef = useRef()
   const [reimpressaoModalAberto, setReimpressaoModalAberto] = useState(false)
+
+  // Exibe coluna "Nome Descritivo" apenas se o romaneio for de kit
+  const temDescricao = !!(romaneio.kit_nome)
+  const nomeKit = romaneio.kit_nome || ''
 
   // Ordenar itens por Palete (rack_ou_pallet) do menor para o maior
   const itensOrdenados = React.useMemo(() => {
@@ -125,6 +129,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
               <th>Cliente</th>
               <th>Pedido Seq</th>
               <th>Pedido Cliente</th>
+              ${temDescricao ? '<th>Nome Descritivo</th>' : ''}
               <th>Lote Externo</th>
             </tr>
           </thead>
@@ -141,9 +146,9 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
                 <td>${item.cliente || '-'}</td>
                 <td>${item.pedido_seq || '-'}</td>
                 <td><strong>${item.pedido_cliente || '-'}</strong></td>
+                ${temDescricao ? `<td style="color:#1e40af;font-weight:600">${nomeKit}</td>` : ''}
                 <td>${item.lote_externo || '-'}</td>
-              </tr>
-            `).join('')}
+              </tr>`).join('')}
           </tbody>
         </table>
 
@@ -246,6 +251,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
                 <th className="px-3 py-2.5 text-left">Cliente</th>
                 <th className="px-3 py-2.5 text-left">Pedido Seq</th>
                 <th className="px-3 py-2.5 text-left">Pedido Cliente</th>
+                {temDescricao && <th className="px-3 py-2.5 text-left">Nome Descritivo</th>}
                 <th className="px-3 py-2.5 text-left rounded-tr-lg">Lote Externo</th>
               </tr>
             </thead>
@@ -262,6 +268,9 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
                   <td className="px-3 py-2 text-gray-700">{item.cliente || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.pedido_seq || '-'}</td>
                   <td className="px-3 py-2 text-gray-700 font-semibold">{item.pedido_cliente || '-'}</td>
+                  {temDescricao && (
+                    <td className="px-3 py-2 text-blue-700 font-semibold text-xs">{nomeKit}</td>
+                  )}
                   <td className="px-3 py-2 text-gray-700">{item.lote_externo || '-'}</td>
                 </tr>
               ))}
