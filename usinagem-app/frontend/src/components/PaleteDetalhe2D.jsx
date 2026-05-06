@@ -182,6 +182,146 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
   )
 }
 
+// ─── Vista Frontal 2D (comprimento × altura) ────────────────────────────────
+function DiagramaFrontal({ config, completude, pcsPorAmarrado, pcsPorPalete, pecasReais, comprimentoAcabadoMm }) {
+  const { camadas_por_bloco, num_blocos, profundidade_pacote_mm, altura_pacote_mm,
+    ripa_altura_mm, ripa_entre_camadas, ripa_topo } = config
+
+  const amarradosReais = pcsPorAmarrado > 0 ? Math.floor((pecasReais || 0) / pcsPorAmarrado) : 0
+  const amarradosPalete = pcsPorAmarrado > 0 && pcsPorPalete > 0 ? Math.floor(pcsPorPalete / pcsPorAmarrado) : 0
+  const pct = amarradosPalete > 0 ? Math.min(1, amarradosReais / amarradosPalete) : (completude || 0)
+
+  const dimsCanonicos = calcularDimensoesPalete(config)
+  const labelAltMm  = dimsCanonicos?.alturaMm || 0
+  // Comprimento do palete = profundidade do pacote (eixo Z do palete cadastrado)
+  const labelCompMm = dimsCanonicos?.comprimentoMm || (profundidade_pacote_mm || 0)
+
+  const pkD = profundidade_pacote_mm || 6000
+  const pkH = altura_pacote_mm || 100
+  const ripaH = ripa_entre_camadas ? (ripa_altura_mm || 17) : 0
+  const totalCamadas = (camadas_por_bloco || 3) * (num_blocos || 3)
+  const totalPacotes = totalCamadas // 1 pacote por camada nessa vista (profundidade × altura)
+
+  const SVG_W = 520
+  const SVG_H = 320
+  const MARGIN = { top: 24, left: 50, right: 20, bottom: 32 }
+  const drawW = SVG_W - MARGIN.left - MARGIN.right
+  const drawH = SVG_H - MARGIN.top - MARGIN.bottom
+
+  const altBloco = pkH + (ripa_entre_camadas ? ripaH : 0)
+  const altTotal = 112 + totalCamadas * altBloco + (ripa_topo ? ripaH : 0)
+  // Usar comprimento real do palete (não apenas o pacote) para escala correta
+  const compRealMm = labelCompMm > 0 ? labelCompMm : pkD
+  // comprimentoAcabadoMm usado apenas para label informativo (não afeta escala)
+  const scaleX = drawW / compRealMm
+  const scaleY = drawH / altTotal
+
+  const baseH = 112 * scaleY
+  const pkHpx = pkH * scaleY
+  const ripaHpx = ripaH * scaleY
+  const pkDpx = compRealMm * scaleX // largura total do desenho = comprimento real
+
+  const pacotesConfirmados = Math.round(pct * totalPacotes)
+  const camadas = []
+  let yAtual = MARGIN.top + drawH - baseH
+  let pacotesContados = 0
+
+  for (let b = 0; b < (num_blocos || 3); b++) {
+    for (let c = 0; c < (camadas_por_bloco || 3); c++) {
+      yAtual -= pkHpx
+      pacotesContados++
+      const cheio = pacotesContados <= pacotesConfirmados
+      camadas.push(
+        <rect
+          key={`p-${b}-${c}`}
+          x={MARGIN.left} y={yAtual}
+          width={pkDpx - 1} height={pkHpx - 1}
+          fill={cheio ? '#4ade80' : '#e5e7eb'}
+          stroke={cheio ? '#16a34a' : '#d1d5db'}
+          strokeWidth={0.8} rx={2}
+        />
+      )
+      if (ripa_entre_camadas && ripaH > 0 && (c < (camadas_por_bloco || 3) - 1 || b < (num_blocos || 3) - 1)) {
+        yAtual -= ripaHpx
+        camadas.push(
+          <rect key={`ripa-${b}-${c}`}
+            x={MARGIN.left} y={yAtual}
+            width={pkDpx} height={ripaHpx}
+            fill="#d97706" opacity={0.7} rx={1}
+          />
+        )
+      }
+    }
+    if (b < (num_blocos || 3) - 1 && ripa_entre_camadas && ripaH > 0) {
+      yAtual -= ripaHpx
+      camadas.push(
+        <rect key={`ripa-bloco-${b}`}
+          x={MARGIN.left} y={yAtual}
+          width={pkDpx} height={ripaHpx}
+          fill="#b45309" opacity={0.85} rx={1}
+        />
+      )
+    }
+  }
+
+  if (ripa_topo && ripaH > 0) {
+    yAtual -= ripaHpx
+    camadas.push(
+      <rect key="ripa-topo"
+        x={MARGIN.left} y={yAtual}
+        width={pkDpx} height={ripaHpx}
+        fill="#d97706" opacity={0.7} rx={1}
+      />
+    )
+  }
+
+  return (
+    <svg width={SVG_W} height={SVG_H} style={{ width: '100%', height: 'auto' }}>
+      <rect x={0} y={0} width={SVG_W} height={SVG_H} fill="#f8fafc" rx={8} />
+      {camadas}
+      {/* Base */}
+      <rect x={MARGIN.left} y={MARGIN.top + drawH - baseH}
+        width={pkDpx} height={baseH}
+        fill="#fde68a" stroke="#f59e0b" strokeWidth={1} rx={2} />
+      <text x={MARGIN.left + pkDpx / 2} y={MARGIN.top + drawH - baseH / 2 + 4}
+        textAnchor="middle" fontSize={9} fill="#92400e" fontWeight="600">
+        Palete PBR 112mm
+      </text>
+      {/* Cota comprimento */}
+      <line x1={MARGIN.left} y1={MARGIN.top + drawH + 12} x2={MARGIN.left + pkDpx} y2={MARGIN.top + drawH + 12}
+        stroke="#6b7280" strokeWidth={1} />
+      <line x1={MARGIN.left} y1={MARGIN.top + drawH + 8} x2={MARGIN.left} y2={MARGIN.top + drawH + 16} stroke="#6b7280" strokeWidth={1} />
+      <line x1={MARGIN.left + pkDpx} y1={MARGIN.top + drawH + 8} x2={MARGIN.left + pkDpx} y2={MARGIN.top + drawH + 16} stroke="#6b7280" strokeWidth={1} />
+      <text x={MARGIN.left + pkDpx / 2} y={MARGIN.top + drawH + 24}
+        textAnchor="middle" fontSize={9} fill="#374151">
+        {fmtMm(labelCompMm || pkD)} (comprimento palete)
+      </text>
+      {comprimentoAcabadoMm > 0 && comprimentoAcabadoMm !== labelCompMm && (
+        <text x={MARGIN.left + pkDpx / 2} y={MARGIN.top + drawH + 36}
+          textAnchor="middle" fontSize={8} fill="#6366f1">
+          Material: {fmtMm(comprimentoAcabadoMm)}
+        </text>
+      )}
+      {/* Cota altura */}
+      <line x1={MARGIN.left - 14} y1={MARGIN.top} x2={MARGIN.left - 14} y2={MARGIN.top + drawH}
+        stroke="#6b7280" strokeWidth={1} />
+      <line x1={MARGIN.left - 18} y1={MARGIN.top} x2={MARGIN.left - 10} y2={MARGIN.top} stroke="#6b7280" strokeWidth={1} />
+      <line x1={MARGIN.left - 18} y1={MARGIN.top + drawH} x2={MARGIN.left - 10} y2={MARGIN.top + drawH} stroke="#6b7280" strokeWidth={1} />
+      <text x={MARGIN.left - 26} y={MARGIN.top + drawH / 2}
+        textAnchor="middle" fontSize={9} fill="#374151"
+        transform={`rotate(-90, ${MARGIN.left - 26}, ${MARGIN.top + drawH / 2})`}>
+        {fmtMm(labelAltMm || altTotal)} (alt.)
+      </text>
+      {/* Badge */}
+      <rect x={SVG_W - 80} y={4} width={74} height={20} rx={10}
+        fill={pct >= 0.99 ? '#16a34a' : pct >= 0.5 ? '#f59e0b' : '#ef4444'} />
+      <text x={SVG_W - 43} y={17} textAnchor="middle" fontSize={10} fill="white" fontWeight="700">
+        {Math.round(pct * 100)}% completo
+      </text>
+    </svg>
+  )
+}
+
 // ─── Vista Superior 2D (planta) ───────────────────────────────────────────────
 function DiagramaPlanta({ config }) {
   const { pacotes_por_camada, largura_pacote_mm, profundidade_pacote_mm,
@@ -273,6 +413,7 @@ function DiagramaPlanta({ config }) {
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
 export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferramentaCfg }) {
   const [secaoLateralAberta, setSecaoLateralAberta] = useState(true)
+  const [secaoFrontalAberta, setSecaoFrontalAberta] = useState(false)
   const [secaoPlantaAberta, setSecaoPlantaAberta] = useState(false)
   const [secaoDimsAberta, setSecaoDimsAberta] = useState(false)
   const [secaoEstruturaAberta, setSecaoEstruturaAberta] = useState(false)
@@ -662,17 +803,26 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
               </div>
             </div>
 
-            {/* Vista Lateral — colapsável */}
+            {/* Vista Lateral + Frontal — colapsável, lado a lado */}
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
               <button onClick={() => setSecaoLateralAberta(v => !v)}
                 className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
-                <span>Vista Lateral (Esquema)</span>
+                <span>Esquemas 2D — Vista Lateral (Largura) &amp; Vista Frontal (Comprimento)</span>
                 <span className="text-gray-400">{secaoLateralAberta ? '▲' : '▼'}</span>
               </button>
               {secaoLateralAberta && (
                 <div className="px-3 pb-2 border-t border-gray-100">
-                  <DiagramaLateral config={config} completude={pct} pcsPorAmarrado={pcsPorAmarrado} pcsPorPalete={pcsPorPalete} pecasReais={pecasRack} />
-                  <div className="flex gap-3 mt-1 text-[9px] text-gray-500">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Vista Lateral (Largura)</p>
+                      <DiagramaLateral config={config} completude={pct} pcsPorAmarrado={pcsPorAmarrado} pcsPorPalete={pcsPorPalete} pecasReais={pecasRack} />
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Vista Frontal (Comprimento)</p>
+                      <DiagramaFrontal config={config} completude={pct} pcsPorAmarrado={pcsPorAmarrado} pcsPorPalete={pcsPorPalete} pecasReais={pecasRack} comprimentoAcabadoMm={rackSelecionado?.comprimento_acabado_mm || 0} />
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-2 text-[9px] text-gray-500">
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-green-300 inline-block border border-green-500"/> Preenchido</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-200 inline-block border border-gray-400"/> Vazio</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-yellow-600 inline-block opacity-70"/> Ripa</span>

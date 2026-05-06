@@ -554,18 +554,17 @@ const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folga
                       let rackInfo = ''
                       let comprimentoAcabadoMm = ''
                       
-                      if (itemOriginal.origem === 'romaneio' && metadata.key) {
-                        // Buscar dados completos do romaneioPaletes usando a key
-                        const romaneioPalete = romaneioPaletes.find(rp => rp.key === metadata.key)
-                        console.log('🔍 Buscando romaneioPalete para key:', metadata.key)
-                        console.log('🔍 romaneioPalete encontrado:', romaneioPalete)
-                        
-                        if (romaneioPalete) {
-                          produtos = romaneioPalete.produtos || []
-                          pedidos = romaneioPalete.pedidos || []
-                          clientes = romaneioPalete.clientes || []
-                          rackInfo = romaneioPalete.rack || ''
-                          comprimentoAcabadoMm = romaneioPalete.comprimentoAcabadoMm || ''
+                      {
+                        const _rackBusca = String(itemOriginal.titulo || paleteParaTooltip.titulo || '').toUpperCase().trim()
+                        const _romPalete = metadata.key
+                          ? romaneioPaletes.find(rp => rp.key === metadata.key)
+                          : romaneioPaletes.find(rp => String(rp.rack || '').toUpperCase().trim() === _rackBusca)
+                        if (_romPalete) {
+                          produtos = _romPalete.produtos || []
+                          pedidos = _romPalete.pedidos || []
+                          clientes = _romPalete.clientes || []
+                          rackInfo = _romPalete.rack || ''
+                          comprimentoAcabadoMm = _romPalete.comprimentoAcabadoMm || ''
                         }
                       }
                       
@@ -2793,6 +2792,28 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       return mudou ? atualizados : prev
     })
   }, [romaneioPaletes])
+
+  useEffect(() => {
+    if (!manualPlacements.length) return
+    setManualPlacements(prev => {
+      let mudou = false
+      const atualizados = prev.map((p) => {
+        if (p.produto || p.produtos?.[0]) return p
+        const rackTitulo = String(p.titulo || '').toUpperCase().trim()
+        const filaItem = p.itemIdx !== undefined && p.itemIdx >= 0
+          ? filaItens[p.itemIdx]
+          : filaItens.find((item) => String(item.titulo || '').toUpperCase().trim() === rackTitulo)
+        const romaneioPalete = filaItem?.metadataRomaneio?.key
+          ? romaneioPaletes.find((rp) => rp.key === filaItem.metadataRomaneio.key)
+          : romaneioPaletes.find((rp) => String(rp.rack || '').toUpperCase().trim() === rackTitulo)
+        const produto = filaItem?.produtos?.[0] || filaItem?.produto || romaneioPalete?.produtos?.[0] || ''
+        if (!produto) return p
+        mudou = true
+        return { ...p, produto }
+      })
+      return mudou ? atualizados : prev
+    })
+  }, [manualPlacements.length, filaItens, romaneioPaletes])
 
   // Lista única de números de romaneio para o dropdown (com cliente)
   const romaneioNumerosUnicos = useMemo(() => {
@@ -5034,7 +5055,19 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                           folgaPerimetroCm={folgaPerimetroCm}
                           folgaAlturaCm={folgaAlturaCm}
                           considerarAltura={considerarAltura}
-                          onPlacementsChange={(pl) => setManualPlacements(pl)}
+                          onPlacementsChange={(pl) => {
+                            setManualPlacements((pl || []).map((p) => {
+                              const rackTitulo = String(p.titulo || '').toUpperCase().trim()
+                              const filaItem = p.itemIdx !== undefined && p.itemIdx >= 0
+                                ? filaItens[p.itemIdx]
+                                : filaItens.find((item) => String(item.titulo || '').toUpperCase().trim() === rackTitulo)
+                              const romaneioPalete = filaItem?.metadataRomaneio?.key
+                                ? romaneioPaletes.find((rp) => rp.key === filaItem.metadataRomaneio.key)
+                                : romaneioPaletes.find((rp) => String(rp.rack || '').toUpperCase().trim() === rackTitulo)
+                              const produto = p.produto || p.produtos?.[0] || filaItem?.produtos?.[0] || filaItem?.produto || romaneioPalete?.produtos?.[0] || ''
+                              return { ...p, produto }
+                            }))
+                          }}
                           initialPlacements={loadedPlacements}
                         />
                       </div>
@@ -5190,18 +5223,17 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                       let rackInfo = ''
                       let comprimentoAcabadoMm = ''
                       
-                      if (itemOriginal.origem === 'romaneio' && metadata.key) {
-                        // Buscar dados completos do romaneioPaletes usando a key
-                        const romaneioPalete = romaneioPaletes.find(rp => rp.key === metadata.key)
-                        console.log('🔍 Buscando romaneioPalete para key:', metadata.key)
-                        console.log('🔍 romaneioPalete encontrado:', romaneioPalete)
-                        
-                        if (romaneioPalete) {
-                          produtos = romaneioPalete.produtos || []
-                          pedidos = romaneioPalete.pedidos || []
-                          clientes = romaneioPalete.clientes || []
-                          rackInfo = romaneioPalete.rack || ''
-                          comprimentoAcabadoMm = romaneioPalete.comprimentoAcabadoMm || ''
+                      {
+                        const _rackBusca = String(itemOriginal.titulo || paleteParaTooltip.titulo || '').toUpperCase().trim()
+                        const _romPalete = metadata.key
+                          ? romaneioPaletes.find(rp => rp.key === metadata.key)
+                          : romaneioPaletes.find(rp => String(rp.rack || '').toUpperCase().trim() === _rackBusca)
+                        if (_romPalete) {
+                          produtos = _romPalete.produtos || []
+                          pedidos = _romPalete.pedidos || []
+                          clientes = _romPalete.clientes || []
+                          rackInfo = _romPalete.rack || ''
+                          comprimentoAcabadoMm = _romPalete.comprimentoAcabadoMm || ''
                         }
                       }
                       
@@ -5592,9 +5624,80 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
                 {/* ─── VIEW: RELATÓRIO PARA IMPRESSÃO ─── */}
                 {showExportView && (() => {
-                  const placements = manualPlacements
+                  // No modo automático, usar filaItens; no manual, usar manualPlacements
+                  const placements = modoCubagem === 'manual' ? manualPlacements : []
                   const sorted = [...placements].sort((a, b) => (a.camada || 0) - (b.camada || 0) || a.x - b.x || a.z - b.z)
-                  const numbered = sorted.map((p, i) => ({ ...p, _num: i + 1 }))
+                  
+                  // Construir numbered diferente para cada modo
+                  let numbered = []
+                  
+                  if (modoCubagem === 'manual' && sorted.length > 0) {
+                    // Modo manual: usar placements com busca de produto
+                    numbered = sorted.map((p, i) => {
+                      let filaItem = null
+                      
+                      // 1. Tentar por itemIdx (quando carregado de simulação salva)
+                      if (p.itemIdx !== undefined && p.itemIdx >= 0) {
+                        filaItem = filaItens[p.itemIdx]
+                      }
+                      
+                      // 2. Tentar por id do placement
+                      if (!filaItem && p.id) {
+                        filaItem = filaItens.find(f => f.id === p.id)
+                      }
+                      
+                      // 3. Tentar por titulo
+                      if (!filaItem && p.titulo) {
+                        filaItem = filaItens.find(f => f.titulo === p.titulo)
+                      }
+                      
+                      // 4. Buscar no romaneioPaletes se for romaneio
+                      let produto = p.produto || p.produtos?.[0] || filaItem?.produtos?.[0] || filaItem?.produto || ''
+                      if (!produto && filaItem?.metadataRomaneio?.key) {
+                        const romaneioPalete = romaneioPaletes.find(rp => rp.key === filaItem.metadataRomaneio.key)
+                        if (romaneioPalete?.produtos?.length > 0) {
+                          produto = romaneioPalete.produtos[0]
+                        }
+                      }
+                      if (!produto && p.titulo) {
+                        const rackTitulo = String(p.titulo).toUpperCase().trim()
+                        const romaneioPalete = romaneioPaletes.find(rp => String(rp.rack).toUpperCase().trim() === rackTitulo)
+                        if (romaneioPalete?.produtos?.length > 0) {
+                          produto = romaneioPalete.produtos[0]
+                        }
+                      }
+                      
+                      return { ...p, _num: i + 1, produto }
+                    })
+                  } else {
+                    // Modo automático: usar filaItens diretamente
+                    numbered = filaItens.map((item, i) => {
+                      let produto = item.produtos?.[0] || item.produto || ''
+                      
+                      // Buscar no romaneioPaletes se for romaneio
+                      if (!produto && item.metadataRomaneio?.key) {
+                        const romaneioPalete = romaneioPaletes.find(rp => rp.key === item.metadataRomaneio.key)
+                        if (romaneioPalete?.produtos?.length > 0) {
+                          produto = romaneioPalete.produtos[0]
+                        }
+                      }
+                      
+                      return {
+                        id: item.id,
+                        titulo: item.titulo,
+                        cor: ITEM_COLORS[i % ITEM_COLORS.length],
+                        produto,
+                        _num: i + 1,
+                        // Campos necessários para a tabela (modo automático não tem posicionamento)
+                        camada: 0,
+                        w: item.largura || 0,
+                        d: item.comprimento || 0,
+                        alt: item.altura || 0,
+                        x: 0,
+                        z: 0,
+                      }
+                    })
+                  }
                   const folgaLin = Math.max(0, Number(folgaPerimetroCm) || 0) / 100
                   const compCam = caminhaoAtual.comprimento
                   const largCam = caminhaoAtual.largura
@@ -5628,7 +5731,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                   }
 
                   return (
-                  <div className="fixed inset-0 z-[90] bg-white overflow-auto print:block" style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+                  <div className="loading-plan-print fixed inset-0 z-[90] bg-white overflow-auto print:block" style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
                     <div className="max-w-[900px] mx-auto px-6 py-6 print:px-4 print:py-2">
                       {/* ── CABEÇALHO ── */}
                       <div className="flex items-start justify-between mb-4 print:mb-3 border-b-2 border-slate-800 pb-3">
@@ -5698,7 +5801,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                     <span className="inline-block w-3.5 h-3.5 rounded-sm border border-slate-300" style={{ background: p.cor }} />
                                   </td>
                                   <td className="border border-slate-200 px-2 py-1 font-semibold text-slate-700">{p.titulo}</td>
-                                  <td className="border border-slate-200 px-2 py-1 font-mono text-[9px] text-slate-600">{(p.produtos?.[0] || p.produto || '')}</td>
+                                  <td className="border border-slate-200 px-2 py-1 font-mono text-[9px] text-slate-600">{p.produto || ''}</td>
                                   <td className="border border-slate-200 px-2 py-1 text-center font-bold">{p.camada === 0 ? 'Chão' : `Nv.${p.camada}`}</td>
                                   <td className="border border-slate-200 px-2 py-1 text-center font-mono">{(p.w * 100).toFixed(0)}×{(p.d * 100).toFixed(0)}×{(p.alt * 100).toFixed(0)} cm</td>
                                   <td className="border border-slate-200 px-2 py-1 text-center font-mono">{p.x.toFixed(2)}m</td>
@@ -5917,44 +6020,6 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                     </div>
                   </section>
 
-                  <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                        <FaClipboardList className="w-4 h-4" />
-                      </div>
-                      <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Detalhes do Encaixe</p>
-                    </div>
-                    {simulacaoAtual ? (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                          <p className="text-[9px] text-slate-400 font-black uppercase mb-1 text-center">Capacidade/Piso</p>
-                          <p className="text-xl font-black text-slate-800 text-center">{simulacaoAtual.capacidadePorPiso || 0}</p>
-                        </div>
-                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                          <p className="text-[9px] text-slate-400 font-black uppercase mb-1 text-center">Camadas Vert.</p>
-                          <p className="text-xl font-black text-slate-800 text-center">{simulacaoAtual.camadasVerticais}</p>
-                        </div>
-                        <div className="col-span-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                          <div className="flex justify-between items-center text-[10px] font-black text-emerald-700 uppercase tracking-tight">
-                            <span>Ocupação de Área (Piso)</span>
-                            <span>{Math.round((simulacaoAtual.ocupacaoArea || 0) * 100)}%</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-emerald-200 mt-2 overflow-hidden">
-                            <div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" style={{ width: `${Math.min(100, Math.round((simulacaoAtual.ocupacaoArea || 0) * 100))}%` }} />
-                          </div>
-                          
-                          <div className="flex justify-between items-center text-[9px] font-bold text-emerald-600 uppercase tracking-tight mt-3">
-                            <span>Ocupação Volumétrica</span>
-                            <span>{Math.round((simulacaoAtual.ocupacaoVolume || 0) * 100)}%</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-center">
-                        <p className="text-xs text-slate-400 font-medium italic">Selecione itens para ver os resultados.</p>
-                      </div>
-                    )}
-                  </section>
                 </div>
               </div>
             </div>

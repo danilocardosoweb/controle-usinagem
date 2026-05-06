@@ -91,7 +91,20 @@ body {
 /* Print styles for cubagem export */
 @media print {
   @page { size: A4 portrait; margin: 10mm 8mm; }
-  body > *:not([class*="z-[90]"]) { display: none !important; }
+  body:has(.loading-plan-print) * {
+    visibility: hidden !important;
+  }
+  body:has(.loading-plan-print) .loading-plan-print,
+  body:has(.loading-plan-print) .loading-plan-print * {
+    visibility: visible !important;
+  }
+  body:has(.loading-plan-print) .loading-plan-print {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
   .print\:hidden { display: none !important; }
   .print\:block { display: block !important; }
   .page-break-inside-avoid { page-break-inside: avoid; break-inside: avoid; }

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox, FaImage, FaCubes, FaPlay, FaChartLine, FaFileAlt, FaFileExcel, FaPrint, FaRedo, FaBarcode, FaCamera, FaTimes, FaUpload, FaEye, FaTags, FaEdit } from 'react-icons/fa'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox, FaImage, FaCubes, FaPlay, FaChartLine, FaFileAlt, FaFileExcel, FaPrint, FaRedo, FaBarcode, FaCamera, FaTimes, FaUpload, FaEye, FaTags, FaEdit, FaClipboardList } from 'react-icons/fa'
 import { Line } from 'react-chartjs-2'
 import { useNavigate } from 'react-router-dom'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip } from 'chart.js'
@@ -482,6 +482,145 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Estado para modal de inspeção de qualidade
   const [inspecaoAberta, setInspecaoAberta] = useState(false)
   const [apontamentoParaInspecao, setApontamentoParaInspecao] = useState(null)
+
+  // Gerar Folha de Inspeção do pedido atual
+  const gerarFolhaInspecao = () => {
+    const produto = formData.codigoPerfil || '-'
+    const cliente = formData.cliente || '-'
+    const pedidoSeq = formData.ordemTrabalho || '-'
+    const pedidoCli = formData.pedidoCliente || '-'
+    const nroOp = formData.nroOp || '-'
+    const comprimento = formData.comprimentoAcabado || '-'
+    const qtdPedido = formData.qtdPedido || '-'
+    const dtFatura = formData.dtFatura ? new Date(formData.dtFatura).toLocaleDateString('pt-BR') : '-'
+    const dataHoje = new Date().toLocaleDateString('pt-BR')
+    const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    const operador = formData.operador || '-'
+    const perfilLongo = formData.perfilLongo || '-'
+
+    const linhasInspecao = Array.from({ length: 20 }, (_, i) => `
+      <tr>
+        <td class="num">${i + 1}</td>
+        <td></td><td></td><td></td><td></td><td></td><td></td>
+        <td class="obs-col"></td>
+      </tr>`).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Folha de Inspeção — ${pedidoSeq}</title>
+<style>
+  @page { size: A4 portrait; margin: 7mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 8pt; color: #000; margin: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 5px; }
+  .header-title { font-size: 11pt; font-weight: bold; }
+  .header-sub { font-size: 7.5pt; color: #444; }
+  .logo { font-size: 12pt; font-weight: 900; letter-spacing: -1px; color: #1a56db; }
+  .section { border: 1px solid #bbb; border-radius: 3px; margin-bottom: 5px; overflow: hidden; }
+  .section-title { background: #1a56db; color: #fff; font-weight: bold; font-size: 7.5pt; padding: 2px 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+  .info-cell { padding: 2px 6px; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; }
+  .info-cell:nth-child(3n) { border-right: none; }
+  .info-label { font-size: 6.5pt; color: #666; font-weight: bold; text-transform: uppercase; display: block; }
+  .info-value { font-size: 8pt; font-weight: bold; color: #111; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
+  thead th { background: #f0f4ff; border: 1px solid #aaa; padding: 2px 3px; text-align: center; font-size: 7pt; }
+  tbody tr { height: 28px; }
+  tbody td { border: 1px solid #ccc; padding: 0 3px; text-align: center; height: 28px; line-height: 28px; }
+  td.num { background: #f9f9f9; font-weight: bold; width: 22px; }
+  td.obs-col { text-align: left; min-width: 100px; }
+  .footer { margin-top: 6px; border-top: 1px solid #bbb; padding-top: 5px; display: flex; gap: 16px; }
+  .assin { flex: 1; border-top: 1px solid #333; text-align: center; font-size: 7pt; padding-top: 3px; margin-top: 16px; }
+  .badge { display: inline-block; background: #1a56db; color: #fff; border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 5px; }
+  @media print { body { margin: 0; } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="logo">Controle de Usinagem</div>
+      <div class="header-sub">Sistema de Gestão Industrial</div>
+    </div>
+    <div style="text-align:center">
+      <div class="header-title">FOLHA DE INSPEÇÃO DE QUALIDADE</div>
+      <div class="header-sub">Data: ${dataHoje} &nbsp;|&nbsp; Hora: ${horaHoje}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="header-sub">Pedido/Seq</div>
+      <div style="font-size:13pt;font-weight:900;">${pedidoSeq}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Dados do Pedido</div>
+    <div class="info-grid">
+      <div class="info-cell"><span class="info-label">Produto</span><span class="info-value">${produto}</span></div>
+      <div class="info-cell"><span class="info-label">Cliente</span><span class="info-value">${cliente}</span></div>
+      <div class="info-cell"><span class="info-label">Pedido Cliente</span><span class="info-value">${pedidoCli}</span></div>
+      <div class="info-cell"><span class="info-label">Nº OP</span><span class="info-value">${nroOp}</span></div>
+      <div class="info-cell"><span class="info-label">Comprimento (mm)</span><span class="info-value">${comprimento}</span></div>
+      <div class="info-cell"><span class="info-label">Qtd. Pedido</span><span class="info-value">${qtdPedido}</span></div>
+      <div class="info-cell"><span class="info-label">Dt. Entrega</span><span class="info-value">${dtFatura}</span></div>
+      <div class="info-cell"><span class="info-label">Perfil Longo</span><span class="info-value">${perfilLongo}</span></div>
+      <div class="info-cell"><span class="info-label">Operador</span><span class="info-value">${operador}</span></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Registros de Inspeção &nbsp;<span class="badge">NBR 5426 S3</span></div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:28px">#</th>
+          <th style="width:80px">Hora</th>
+          <th>Qtd. Amostrada</th>
+          <th>Qtd. Aprovada</th>
+          <th>Qtd. Reprovada</th>
+          <th>Status (OK / NOK)</th>
+          <th>Dureza (HRB)</th>
+          <th class="obs-col">Observações</th>
+        </tr>
+      </thead>
+      <tbody>${linhasInspecao}</tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Verificações Dimensionais e Visuais</div>
+    <table>
+      <thead>
+        <tr><th style="width:40px">#</th><th>Característica</th><th style="width:90px">Especificação</th><th style="width:80px">Medido</th><th style="width:70px">Status</th><th>Obs.</th></tr>
+      </thead>
+      <tbody>
+        ${['Comprimento acabado (mm)', 'Largura / Espessura (mm)', 'Acabamento superficial', 'Identificação / Gravação', 'Embalagem / Amarrado', 'Ausência de rebarbas'].map((c, i) => `
+        <tr><td class="num">${i+1}</td><td style="text-align:left;padding-left:6px">${c}</td><td></td><td></td><td></td><td></td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    <div style="flex:1">
+      <div class="assin">Inspetor / Qualidade</div>
+    </div>
+    <div style="flex:1">
+      <div class="assin">Supervisor de Produção</div>
+    </div>
+    <div style="flex:1">
+      <div class="assin">Responsável pelo Turno</div>
+    </div>
+  </div>
+</body>
+</html>`
+
+    const win = window.open('', '_blank')
+    if (!win) { alert('Popup bloqueado. Permita popups para este site.'); return }
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 600)
+  }
 
   // Estado para seletor de tamanho de etiqueta
   const [tamanhoEtiqueta, setTamanhoEtiqueta] = useState('100x45')
@@ -3531,6 +3670,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               aria-label="Formulário em branco"
             >
               <FaFileAlt className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              className="p-1.5 rounded text-gray-300 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+              title={formData.ordemTrabalho ? 'Gerar Folha de Inspeção do pedido atual' : 'Selecione um pedido para gerar a Folha de Inspeção'}
+              onClick={gerarFolhaInspecao}
+              aria-label="Gerar Folha de Inspeção"
+            >
+              <FaClipboardList className="w-3.5 h-3.5" />
             </button>
           </div>
           {formData.ordemTrabalho && (
