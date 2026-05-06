@@ -958,6 +958,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [reimpRackBusca, setReimpRackBusca] = useState('')
   const [reimpRackResultado, setReimpRackResultado] = useState(null)
   const [reimpRackEditando, setReimpRackEditando] = useState(false)
+  const [formBrancoAberto, setFormBrancoAberto] = useState(false)
+  const [formBrancoData, setFormBrancoData] = useState({
+    cliente: '', item: '', codigoCliente: '', medida: '', pedidoTecno: '',
+    qtde: '', pallet: '', pedidoCli: '', turno: '', dureza: '',
+    dataProducao: new Date().toLocaleDateString('pt-BR'), lote: '', loteMP: ''
+  })
   const [reimpRackForm, setReimpRackForm] = useState({})
   const [showTimerModal, setShowTimerModal] = useState(false)
   // Modal de visualização da foto da ferramenta
@@ -3510,6 +3516,22 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             >
               <FaPrint className="w-3.5 h-3.5" />
             </button>
+            <button
+              type="button"
+              className="p-1.5 rounded text-gray-300 hover:bg-green-50 hover:text-green-500 transition-colors"
+              title="Preencher e imprimir formulário em branco"
+              onClick={() => {
+                setFormBrancoData({
+                  cliente: '', item: '', codigoCliente: '', medida: '', pedidoTecno: '',
+                  qtde: '', pallet: '', pedidoCli: '', turno: calcularTurno(new Date().toISOString()), dureza: '',
+                  dataProducao: new Date().toLocaleDateString('pt-BR'), lote: '', loteMP: ''
+                })
+                setFormBrancoAberto(true)
+              }}
+              aria-label="Formulário em branco"
+            >
+              <FaFileAlt className="w-3.5 h-3.5" />
+            </button>
           </div>
           {formData.ordemTrabalho && (
             <div className="flex items-center gap-2">
@@ -4423,6 +4445,119 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   Imprimir Formulário
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Formulário em Branco */}
+      {formBrancoAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] px-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl form-compact">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+                <FaFileAlt className="text-green-500" />
+                Formulário em Branco
+              </h2>
+              <button onClick={() => setFormBrancoAberto(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto max-h-[75vh]">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Cliente</label>
+                  <input type="text" value={formBrancoData.cliente} onChange={e => setFormBrancoData(p => ({...p, cliente: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Nome do cliente" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Item (Produto)</label>
+                  <input type="text" value={formBrancoData.item} onChange={e => setFormBrancoData(p => ({...p, item: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Código do produto" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Código Cliente</label>
+                  <input type="text" value={formBrancoData.codigoCliente} onChange={e => setFormBrancoData(p => ({...p, codigoCliente: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Código do cliente" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Medida</label>
+                  <input type="text" value={formBrancoData.medida} onChange={e => setFormBrancoData(p => ({...p, medida: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Ex: 0918" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Pedido Tecno</label>
+                  <input type="text" value={formBrancoData.pedidoTecno} onChange={e => setFormBrancoData(p => ({...p, pedidoTecno: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Ex: 85783/50" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Pedido Cliente</label>
+                  <input type="text" value={formBrancoData.pedidoCli} onChange={e => setFormBrancoData(p => ({...p, pedidoCli: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Ex: 45O0218969" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Qtde</label>
+                  <input type="text" value={formBrancoData.qtde} onChange={e => setFormBrancoData(p => ({...p, qtde: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Quantidade" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Palet</label>
+                  <input type="text" value={formBrancoData.pallet} onChange={e => setFormBrancoData(p => ({...p, pallet: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Ex: USI-1360" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Turno</label>
+                  <input type="text" value={formBrancoData.turno} onChange={e => setFormBrancoData(p => ({...p, turno: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="TB / TC" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Dureza</label>
+                  <input type="text" value={formBrancoData.dureza} onChange={e => setFormBrancoData(p => ({...p, dureza: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Ex: N/A" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Data Produção</label>
+                  <input type="text" value={formBrancoData.dataProducao} onChange={e => setFormBrancoData(p => ({...p, dataProducao: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="DD/MM/AAAA" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Lote</label>
+                  <input type="text" value={formBrancoData.lote} onChange={e => setFormBrancoData(p => ({...p, lote: e.target.value}))}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Lote" />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 p-4 bg-gray-50 border-t border-gray-200">
+              <button onClick={() => setFormBrancoAberto(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-100 text-sm">
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  const html = buildFormularioIdentificacaoHtml({
+                    lote: formBrancoData.lote,
+                    loteMP: formBrancoData.loteMP || '',
+                    cliente: formBrancoData.cliente,
+                    item: formBrancoData.item,
+                    codigoCliente: formBrancoData.codigoCliente,
+                    nomeKit: '', codigoKit: '',
+                    medida: formBrancoData.medida,
+                    pedidoTecno: formBrancoData.pedidoTecno,
+                    pedidoCli: formBrancoData.pedidoCli,
+                    qtde: formBrancoData.qtde,
+                    pallet: formBrancoData.pallet,
+                    dureza: formBrancoData.dureza,
+                    dataProducao: formBrancoData.dataProducao,
+                    dataHoraProducao: '', turno: formBrancoData.turno
+                  })
+                  const printWindow = window.open('', '_blank', 'width=1100,height=800')
+                  printWindow.document.write(html)
+                  printWindow.document.close()
+                  setTimeout(() => { printWindow.print() }, 500)
+                }}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-medium flex items-center justify-center gap-2 text-sm"
+              >
+                <FaPrint className="w-3.5 h-3.5" />
+                Imprimir Formulário
+              </button>
             </div>
           </div>
         </div>
