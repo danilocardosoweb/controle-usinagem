@@ -573,13 +573,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     <table>
       <thead>
         <tr>
-          <th style="width:28px">#</th>
-          <th style="width:80px">Hora</th>
-          <th>Qtd. Amostrada</th>
-          <th>Qtd. Aprovada</th>
-          <th>Qtd. Reprovada</th>
-          <th>Status (OK / NOK)</th>
-          <th>Dureza (HRB)</th>
+          <th style="width:22px">#</th>
+          <th style="width:60px">Hora</th>
+          <th style="width:80px">Qtd. Amostrada</th>
+          <th style="width:65px">Qtd. Aprovada</th>
+          <th style="width:65px">Qtd. Reprovada</th>
+          <th style="width:75px">Medida Encontrada</th>
+          <th style="width:70px">Status (OK / NOK)</th>
           <th class="obs-col">Observações</th>
         </tr>
       </thead>
