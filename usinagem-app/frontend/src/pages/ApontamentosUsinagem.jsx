@@ -490,19 +490,35 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const pedidoSeq = formData.ordemTrabalho || '-'
     const pedidoCli = formData.pedidoCliente || '-'
     const nroOp = formData.nroOp || '-'
-    const comprimento = formData.comprimentoAcabado || '-'
+    const comprimento = formData.comprimentoAcabado ? `${String(formData.comprimentoAcabado).replace(/\D/g,'')} mm` : '-'
     const qtdPedido = formData.qtdPedido || '-'
     const dtFatura = formData.dtFatura ? new Date(formData.dtFatura).toLocaleDateString('pt-BR') : '-'
     const dataHoje = new Date().toLocaleDateString('pt-BR')
     const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     const operador = formData.operador || '-'
     const perfilLongo = formData.perfilLongo || '-'
+    const comprimentoLongo = (() => { const pf = formData.perfilLongo || ''; const resto = String(pf).slice(8); const m = resto.match(/^\d+/); const v = m ? parseInt(m[0], 10) : null; return Number.isFinite(v) ? `${v} mm` : '-' })()
 
     const linhasInspecao = Array.from({ length: 20 }, (_, i) => `
       <tr>
         <td class="num">${i + 1}</td>
-        <td></td><td></td><td></td><td></td><td></td><td></td>
-        <td class="obs-col"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit obs-col" contenteditable="true"></td>
+      </tr>`).join('')
+
+    const linhasDimensional = ['Comprimento acabado (mm)', 'Largura / Espessura (mm)', 'Acabamento superficial', 'Identificação / Gravação', 'Embalagem / Amarrado', 'Ausência de rebarbas'].map((c, i) => `
+      <tr>
+        <td class="num">${i+1}</td>
+        <td style="text-align:left;padding-left:6px">${c}</td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
+        <td class="edit" contenteditable="true"></td>
       </tr>`).join('')
 
     const html = `<!DOCTYPE html>
@@ -514,6 +530,16 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   @page { size: A4 portrait; margin: 7mm; }
   * { box-sizing: border-box; }
   body { font-family: Arial, sans-serif; font-size: 8pt; color: #000; margin: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .toolbar { position: fixed; top: 0; left: 0; right: 0; z-index: 999; background: #1e40af; color: #fff; display: flex; align-items: center; gap: 10px; padding: 8px 16px; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+  .toolbar span { font-size: 10pt; font-weight: bold; flex: 1; }
+  .toolbar button { cursor: pointer; border: none; border-radius: 5px; padding: 6px 16px; font-size: 9pt; font-weight: bold; }
+  .btn-print { background: #fff; color: #1e40af; }
+  .btn-print:hover { background: #dbeafe; }
+  .btn-clear { background: #ef4444; color: #fff; }
+  .btn-clear:hover { background: #b91c1c; }
+  .btn-save { background: #22c55e; color: #fff; }
+  .btn-save:hover { background: #16a34a; }
+  .page { margin-top: 44px; padding: 4px; }
   .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 5px; }
   .header-title { font-size: 11pt; font-weight: bold; }
   .header-sub { font-size: 7.5pt; color: #444; }
@@ -531,13 +557,28 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   tbody td { border: 1px solid #ccc; padding: 0 3px; text-align: center; height: 28px; line-height: 28px; }
   td.num { background: #f9f9f9; font-weight: bold; width: 22px; }
   td.obs-col { text-align: left; min-width: 100px; }
+  td.edit:focus { outline: 2px solid #3b82f6; background: #eff6ff; }
+  td.edit { cursor: text; }
   .footer { margin-top: 6px; border-top: 1px solid #bbb; padding-top: 5px; display: flex; gap: 16px; }
   .assin { flex: 1; border-top: 1px solid #333; text-align: center; font-size: 7pt; padding-top: 3px; margin-top: 16px; }
   .badge { display: inline-block; background: #1a56db; color: #fff; border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 5px; }
-  @media print { body { margin: 0; } }
+  @media print {
+    .toolbar { display: none !important; }
+    .page { margin-top: 0; }
+    td.edit:focus { outline: none; background: transparent; }
+    body { margin: 0; }
+  }
 </style>
 </head>
 <body>
+  <div class="toolbar">
+    <span>📋 Folha de Inspeção — ${pedidoSeq} &nbsp;|&nbsp; Preencha os campos e clique em Salvar ou Imprimir</span>
+    <button class="btn-clear" onclick="limparCampos()">Limpar</button>
+    <button class="btn-save" onclick="salvarFolha()">💾 Salvar</button>
+    <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+  </div>
+
+  <div class="page">
   <div class="header">
     <div>
       <div class="logo">Controle de Usinagem</div>
@@ -547,9 +588,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       <div class="header-title">FOLHA DE INSPEÇÃO DE QUALIDADE</div>
       <div class="header-sub">Data: ${dataHoje} &nbsp;|&nbsp; Hora: ${horaHoje}</div>
     </div>
-    <div style="text-align:right">
+    <div style="text-align:right;padding-right:4px;min-width:100px;">
       <div class="header-sub">Pedido/Seq</div>
-      <div style="font-size:13pt;font-weight:900;">${pedidoSeq}</div>
+      <div style="font-size:12pt;font-weight:900;word-break:break-all;">${pedidoSeq}</div>
     </div>
   </div>
 
@@ -560,7 +601,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       <div class="info-cell"><span class="info-label">Cliente</span><span class="info-value">${cliente}</span></div>
       <div class="info-cell"><span class="info-label">Pedido Cliente</span><span class="info-value">${pedidoCli}</span></div>
       <div class="info-cell"><span class="info-label">Nº OP</span><span class="info-value">${nroOp}</span></div>
-      <div class="info-cell"><span class="info-label">Comprimento (mm)</span><span class="info-value">${comprimento}</span></div>
+      <div class="info-cell"><span class="info-label">Comprimento Acabado</span><span class="info-value">${comprimento}</span></div>
+      <div class="info-cell"><span class="info-label">Comprimento Longo (MP)</span><span class="info-value">${comprimentoLongo}</span></div>
       <div class="info-cell"><span class="info-label">Qtd. Pedido</span><span class="info-value">${qtdPedido}</span></div>
       <div class="info-cell"><span class="info-label">Dt. Entrega</span><span class="info-value">${dtFatura}</span></div>
       <div class="info-cell"><span class="info-label">Perfil Longo</span><span class="info-value">${perfilLongo}</span></div>
@@ -570,7 +612,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
   <div class="section">
     <div class="section-title">Registros de Inspeção &nbsp;<span class="badge">NBR 5426 S3</span></div>
-    <table>
+    <table id="tbl-inspecao">
       <thead>
         <tr>
           <th style="width:22px">#</th>
@@ -589,28 +631,167 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
   <div class="section">
     <div class="section-title">Verificações Dimensionais e Visuais</div>
-    <table>
+    <table id="tbl-dimensional">
       <thead>
-        <tr><th style="width:40px">#</th><th>Característica</th><th style="width:90px">Especificação</th><th style="width:80px">Medido</th><th style="width:70px">Status</th><th>Obs.</th></tr>
+        <tr><th style="width:22px">#</th><th>Característica</th><th style="width:90px">Especificação</th><th style="width:80px">Medido</th><th style="width:70px">Status</th><th>Obs.</th></tr>
       </thead>
-      <tbody>
-        ${['Comprimento acabado (mm)', 'Largura / Espessura (mm)', 'Acabamento superficial', 'Identificação / Gravação', 'Embalagem / Amarrado', 'Ausência de rebarbas'].map((c, i) => `
-        <tr><td class="num">${i+1}</td><td style="text-align:left;padding-left:6px">${c}</td><td></td><td></td><td></td><td></td></tr>`).join('')}
-      </tbody>
+      <tbody>${linhasDimensional}</tbody>
     </table>
   </div>
 
   <div class="footer">
-    <div style="flex:1">
-      <div class="assin">Inspetor / Qualidade</div>
-    </div>
-    <div style="flex:1">
-      <div class="assin">Supervisor de Produção</div>
-    </div>
-    <div style="flex:1">
-      <div class="assin">Responsável pelo Turno</div>
-    </div>
+    <div style="flex:1"><div class="assin">Inspetor / Qualidade</div></div>
+    <div style="flex:1"><div class="assin">Supervisor de Produção</div></div>
+    <div style="flex:1"><div class="assin">Responsável pelo Turno</div></div>
   </div>
+  </div>
+
+  <script>
+    const SUPA_URL = 'https://oykzakzcqjoaeixbxhvb.supabase.co';
+    const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3pha3pjcWpvYWVpeGJ4aHZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNjY2MjgsImV4cCI6MjA3NDc0MjYyOH0.00BmsnzyIHlzcO41aAmIPwy5NXN8Gq6Qaopn6UbdIEc';
+    let folhaIdSalva = null;
+
+    async function salvarFolha() {
+      const btn = document.querySelector('.btn-save');
+      btn.disabled = true;
+      btn.textContent = 'Salvando...';
+      try {
+        const cabecalho = {
+          pedido_seq: '${pedidoSeq}',
+          produto: '${produto}',
+          cliente: '${cliente}',
+          pedido_cliente: '${pedidoCli}',
+          nro_op: '${nroOp}',
+          comprimento_acabado: '${comprimento}',
+          comprimento_longo: '${comprimentoLongo}',
+          qtd_pedido: '${qtdPedido}',
+          perfil_longo: '${perfilLongo}',
+          operador: '${operador}',
+          data_inspecao: new Date().toISOString().split('T')[0],
+          hora_inspecao: new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}),
+          status: 'rascunho'
+        };
+
+        let folhaId = folhaIdSalva;
+        if (!folhaId) {
+          const resC = await fetch(SUPA_URL + '/rest/v1/folhas_inspecao', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Prefer': 'return=representation' },
+            body: JSON.stringify(cabecalho)
+          });
+          if (!resC.ok) throw new Error('Erro ao salvar cabeçalho: ' + await resC.text());
+          const dataC = await resC.json();
+          folhaId = dataC[0].id;
+          folhaIdSalva = folhaId;
+        } else {
+          await fetch(SUPA_URL + '/rest/v1/folhas_inspecao?id=eq.' + folhaId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY },
+            body: JSON.stringify({ updated_at: new Date().toISOString() })
+          });
+          await fetch(SUPA_URL + '/rest/v1/folhas_inspecao_registros?folha_id=eq.' + folhaId, {
+            method: 'DELETE',
+            headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY }
+          });
+          await fetch(SUPA_URL + '/rest/v1/folhas_inspecao_dimensional?folha_id=eq.' + folhaId, {
+            method: 'DELETE',
+            headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY }
+          });
+        }
+
+        const registros = [];
+        document.querySelectorAll('#tbl-inspecao tbody tr').forEach((tr, idx) => {
+          const tds = tr.querySelectorAll('td.edit');
+          registros.push({
+            folha_id: folhaId, linha: idx + 1,
+            hora: tds[0]?.textContent.trim() || null,
+            qtd_amostrada: tds[1]?.textContent.trim() || null,
+            qtd_aprovada: tds[2]?.textContent.trim() || null,
+            qtd_reprovada: tds[3]?.textContent.trim() || null,
+            medida_encontrada: tds[4]?.textContent.trim() || null,
+            status_ok_nok: tds[5]?.textContent.trim() || null,
+            observacoes: tds[6]?.textContent.trim() || null
+          });
+        });
+        const filledReg = registros.filter(r => Object.entries(r).some(([k,v]) => k !== 'folha_id' && k !== 'linha' && v));
+        if (filledReg.length) {
+          const resR = await fetch(SUPA_URL + '/rest/v1/folhas_inspecao_registros', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY },
+            body: JSON.stringify(filledReg)
+          });
+          if (!resR.ok) throw new Error('Erro ao salvar registros: ' + await resR.text());
+        }
+
+        const dimensionais = [];
+        document.querySelectorAll('#tbl-dimensional tbody tr').forEach((tr, idx) => {
+          const tds = tr.querySelectorAll('td.edit');
+          const carac = tr.querySelector('td:nth-child(2)')?.textContent.trim() || '';
+          dimensionais.push({
+            folha_id: folhaId, linha: idx + 1,
+            caracteristica: carac,
+            especificacao: tds[0]?.textContent.trim() || null,
+            medido: tds[1]?.textContent.trim() || null,
+            status: tds[2]?.textContent.trim() || null,
+            observacoes: tds[3]?.textContent.trim() || null
+          });
+        });
+        const filledDim = dimensionais.filter(r => r.especificacao || r.medido || r.status || r.observacoes);
+        if (filledDim.length) {
+          await fetch(SUPA_URL + '/rest/v1/folhas_inspecao_dimensional', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY },
+            body: JSON.stringify(filledDim)
+          });
+        }
+
+        btn.textContent = '✅ Salvo!';
+        btn.style.background = '#15803d';
+        setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Salvar'; btn.style.background = ''; }, 2500);
+      } catch(err) {
+        alert('Erro ao salvar: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '💾 Salvar';
+      }
+    }
+
+    function limparCampos() {
+      if (!confirm('Deseja limpar todos os campos preenchidos?')) return;
+      document.querySelectorAll('td.edit').forEach(td => td.textContent = '');
+    }
+    function formatarHora(td) {
+      const raw = td.textContent.replace(/\D/g, '');
+      if (!raw) return;
+      let h, m;
+      if (raw.length <= 2) { h = raw.padStart(2,'0'); m = '00'; }
+      else if (raw.length === 3) { h = '0' + raw[0]; m = raw.slice(1); }
+      else { h = raw.slice(0,2); m = raw.slice(2,4); }
+      const hh = Math.min(23, parseInt(h,10));
+      const mm = Math.min(59, parseInt(m,10));
+      td.textContent = String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+    }
+    // Aplicar formatação de hora nas células da coluna Hora (2ª coluna de cada linha)
+    document.querySelectorAll('tbody tr').forEach(tr => {
+      const tdHora = tr.querySelectorAll('td.edit')[0];
+      if (!tdHora) return;
+      tdHora.classList.add('hora-col');
+      tdHora.setAttribute('inputmode','numeric');
+      tdHora.addEventListener('blur', () => formatarHora(tdHora));
+      tdHora.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); formatarHora(tdHora); tdHora.blur(); }
+      });
+    });
+    // Tab entre células editáveis
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Tab') return;
+      const cells = Array.from(document.querySelectorAll('td.edit'));
+      const idx = cells.indexOf(document.activeElement);
+      if (idx === -1) return;
+      e.preventDefault();
+      const next = cells[e.shiftKey ? idx - 1 : idx + 1];
+      if (next) { next.focus(); }
+    });
+  </script>
 </body>
 </html>`
 
@@ -619,7 +800,6 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     win.document.write(html)
     win.document.close()
     win.focus()
-    setTimeout(() => win.print(), 600)
   }
 
   // Estado para seletor de tamanho de etiqueta
