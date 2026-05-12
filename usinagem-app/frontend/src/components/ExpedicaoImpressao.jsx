@@ -8,19 +8,40 @@ const fmtDec = (n, dec = 1) => Number(n || 0).toLocaleString('pt-BR', { minimumF
 export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamentos, kitComponentes }) {
   const printRef = useRef()
   const [reimpressaoModalAberto, setReimpressaoModalAberto] = useState(false)
+  const [ordenacao, setOrdenacao] = useState('palete') // 'palete' | 'ferramenta' | 'data'
 
   // Exibe coluna "Nome Descritivo" apenas se o romaneio for de kit
   const temDescricao = !!(romaneio.kit_nome)
   const nomeKit = romaneio.kit_nome || ''
 
-  // Ordenar itens por Palete (rack_ou_pallet) do menor para o maior
   const itensOrdenados = React.useMemo(() => {
-    return [...(itens || [])].sort((a, b) => {
-      const rackA = String(a.rack_ou_pallet || '').toUpperCase()
-      const rackB = String(b.rack_ou_pallet || '').toUpperCase()
-      return rackA.localeCompare(rackB, 'pt-BR', { numeric: true, sensitivity: 'base' })
-    })
-  }, [itens])
+    const lista = [...(itens || [])]
+    if (ordenacao === 'palete') {
+      return lista.sort((a, b) =>
+        String(a.rack_ou_pallet || '').localeCompare(String(b.rack_ou_pallet || ''), 'pt-BR', { numeric: true, sensitivity: 'base' })
+      )
+    }
+    if (ordenacao === 'ferramenta') {
+      return lista.sort((a, b) => {
+        const ferrA = String(a.ferramenta || '').toUpperCase()
+        const ferrB = String(b.ferramenta || '').toUpperCase()
+        if (ferrA !== ferrB) return ferrA.localeCompare(ferrB, 'pt-BR')
+        const compA = Number(a.comprimento_acabado_mm || 0)
+        const compB = Number(b.comprimento_acabado_mm || 0)
+        return compA - compB
+      })
+    }
+    if (ordenacao === 'data') {
+      return lista.sort((a, b) => {
+        const aponA = apontamentos?.find(ap => ap.id === a.apontamento_id)
+        const aponB = apontamentos?.find(ap => ap.id === b.apontamento_id)
+        const dateA = new Date(aponA?.created_at || 0).getTime()
+        const dateB = new Date(aponB?.created_at || 0).getTime()
+        return dateA - dateB
+      })
+    }
+    return lista
+  }, [itens, ordenacao, apontamentos])
 
   const totalPecas = itensOrdenados.reduce((sum, i) => sum + (i.quantidade || 0), 0)
   const pesoTotal = itensOrdenados.reduce((sum, i) => sum + (i.peso_estimado_kg || 0), 0)
@@ -81,6 +102,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
           <div class="header-right">
             <div class="rom-num">${romaneio.numero_romaneio}</div>
             <div class="rom-date">${new Date(romaneio.data_criacao).toLocaleDateString('pt-BR')}</div>
+            <div style="font-size:10px;color:#888;margin-top:4px">Ordenado por: ${{ palete: 'Palete', ferramenta: 'Ferramenta + Comp.', data: 'Data Apontamento' }[ordenacao]}</div>
           </div>
         </div>
 
@@ -236,6 +258,28 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
               )}
             </div>
           )}
+        </div>
+
+        {/* Botões de ordenação */}
+        <div className="px-6 pb-2 flex-shrink-0 flex items-center gap-2">
+          <span className="text-xs text-gray-500 font-medium mr-1">Ordenar por:</span>
+          {[
+            { key: 'palete', label: 'Palete' },
+            { key: 'ferramenta', label: 'Ferramenta + Comp.' },
+            { key: 'data', label: 'Data Apontamento' },
+          ].map(op => (
+            <button
+              key={op.key}
+              onClick={() => setOrdenacao(op.key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                ordenacao === op.key
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+              }`}
+            >
+              {op.label}
+            </button>
+          ))}
         </div>
 
         {/* Tabela com scroll */}
