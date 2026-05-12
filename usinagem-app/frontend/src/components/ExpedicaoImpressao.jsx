@@ -59,6 +59,8 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
           tbody td.center { text-align: center; }
           tbody td.right { text-align: right; }
           tbody td.mono { font-family: 'Consolas', monospace; }
+          tbody td.nowrap { white-space: nowrap; }
+          thead th.nowrap { white-space: nowrap; }
           .summary { display: flex; gap: 0; border: 2px solid #1e3a5f; border-radius: 6px; overflow: hidden; font-size: 11px; margin-bottom: 24px; }
           .summary-cell { flex: 1; padding: 8px 12px; text-align: center; border-right: 1px solid #d1d5db; }
           .summary-cell:last-child { border-right: none; }
@@ -120,7 +122,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
           <thead>
             <tr>
               <th>#</th>
-              <th>Palete</th>
+              <th class="nowrap">Palete</th>
               <th>Produto</th>
               <th>Ferramenta</th>
               <th class="center">Comp.</th>
@@ -137,7 +139,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
             ${itensOrdenados.map((item, idx) => `
               <tr>
                 <td class="center" style="color:#999">${idx + 1}</td>
-                <td><strong>${item.rack_ou_pallet || '-'}</strong></td>
+                <td class="nowrap"><strong>${item.rack_ou_pallet || '-'}</strong></td>
                 <td class="mono">${item.produto || '-'}</td>
                 <td>${item.ferramenta || '-'}</td>
                 <td class="center">${item.comprimento_acabado_mm ? item.comprimento_acabado_mm + 'mm' : '-'}</td>
