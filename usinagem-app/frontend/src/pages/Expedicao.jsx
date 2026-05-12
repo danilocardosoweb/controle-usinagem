@@ -38,8 +38,12 @@ export default function Expedicao() {
   const [filtroProduto, setFiltroProduto] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('ativos')
   const [historicoCliente, setHistoricoCliente] = useState('')
-  const [historicoDataInicio, setHistoricoDataInicio] = useState('')
-  const [historicoDataFim, setHistoricoDataFim] = useState('')
+  const [historicoDataInicio, setHistoricoDataInicio] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return d.toISOString().slice(0, 10)
+  })
+  const [historicoDataFim, setHistoricoDataFim] = useState(() => new Date().toISOString().slice(0, 10))
   
   const [romaneioModalAberto, setRomaneioModalAberto] = useState(false)
   const [conferenciaModalAberto, setConferenciaModalAberto] = useState(false)
@@ -1245,18 +1249,18 @@ export default function Expedicao() {
                 className="px-3 py-2 border border-gray-300 rounded text-sm"
               />
             </div>
-            {(historicoCliente || historicoDataInicio || historicoDataFim) && (
-              <button
+            <button
                 onClick={() => {
                   setHistoricoCliente('')
-                  setHistoricoDataInicio('')
-                  setHistoricoDataFim('')
+                  const d = new Date()
+                  d.setDate(d.getDate() - 30)
+                  setHistoricoDataInicio(d.toISOString().slice(0, 10))
+                  setHistoricoDataFim(new Date().toISOString().slice(0, 10))
                 }}
                 className="ml-auto px-3 py-2 text-xs text-blue-600 font-semibold"
               >
                 Limpar filtros
               </button>
-            )}
           </div>
 
           <div className="bg-white rounded-lg shadow overflow-hidden">
