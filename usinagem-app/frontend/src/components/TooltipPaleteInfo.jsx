@@ -22,6 +22,8 @@ const TooltipPaleteInfo = ({ palete, children, position = 'top' }) => {
     volume: palete.volume || ((palete.largura || 0) * (palete.comprimento || 0) * (palete.altura || 0)),
     quantidade: palete.quantidade || 1,
     quantidadePecas: palete.quantidadePecas || 0,
+    pacotesReais: palete.pacotesReais ?? palete.pacotes ?? null,
+    pacotesTotal: palete.pacotesTotal ?? palete.totalPacotes ?? null,
     peso: palete.pesoPacoteKg || 0,
     metadata: palete.metadataRomaneio || null
   }
@@ -192,6 +194,14 @@ const TooltipPaleteInfo = ({ palete, children, position = 'top' }) => {
                     </span>
                   )}
                 </p>
+                {(paleteInfo.pacotesReais || paleteInfo.pacotesTotal) && (
+                  <p className="text-[11px] text-blue-700">
+                    Pacotes: {paleteInfo.pacotesReais || paleteInfo.pacotesTotal}
+                    {paleteInfo.pacotesReais && paleteInfo.pacotesTotal && paleteInfo.pacotesTotal !== paleteInfo.pacotesReais
+                      ? `/${paleteInfo.pacotesTotal}`
+                      : ''}
+                  </p>
+                )}
               </div>
             </div>
 

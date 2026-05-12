@@ -3,6 +3,7 @@ import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, Fa
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
+import ModalEtiquetaPersonalizada from '../components/ModalEtiquetaPersonalizada'
 import { buildFormularioIdentificacaoHtml, resolverKit } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
@@ -88,6 +89,7 @@ const Relatorios = () => {
   const [printModalAberto, setPrintModalAberto] = useState(false)
   const [apontamentoSelecionado, setApontamentoSelecionado] = useState(null)
   const [impressoesEtiquetasPorApontamento, setImpressoesEtiquetasPorApontamento] = useState({})
+  const [etiquetaPersonalizadaAberta, setEtiquetaPersonalizadaAberta] = useState(false)
   
   // Dados reais do IndexedDB
   const { items: apontamentos } = useSupabase('apontamentos')
@@ -2201,7 +2203,7 @@ const Relatorios = () => {
               </select>
             </div>
             
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button 
                 type="submit" 
                 className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors whitespace-nowrap shadow-sm"
@@ -2214,6 +2216,14 @@ const Relatorios = () => {
                 className="px-6 py-2 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors whitespace-nowrap shadow-sm"
               >
                 Gerar Todos
+              </button>
+              <button 
+                type="button"
+                onClick={() => setEtiquetaPersonalizadaAberta(true)}
+                className="px-6 py-2 bg-purple-600 text-white font-medium rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors whitespace-nowrap shadow-sm flex items-center gap-2"
+              >
+                <span>🏷️</span>
+                <span>Etiqueta Personalizada</span>
               </button>
             </div>
           </div>
@@ -2240,6 +2250,12 @@ const Relatorios = () => {
         onPrintSuccess={(apontamento) => {
           console.log('Impressão realizada com sucesso para:', apontamento)
         }}
+      />
+
+      {/* Modal de Etiqueta Personalizada */}
+      <ModalEtiquetaPersonalizada
+        isOpen={etiquetaPersonalizadaAberta}
+        onClose={() => setEtiquetaPersonalizadaAberta(false)}
       />
     </div>
   )

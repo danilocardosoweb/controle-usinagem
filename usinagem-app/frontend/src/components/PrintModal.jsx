@@ -601,7 +601,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
 
         {/* Content */}
         <div className="p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={`grid gap-6 ${printType === 'etiqueta_personalizada' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3'}`}>
             {/* Coluna Esquerda - Informações e Tipo de Impressão */}
             <div className="space-y-4">
               {/* Informações do Apontamento */}
@@ -669,7 +669,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
                     </div>
                   </label>
 
-                                  </div>
+                </div>
               </div>
             </div>
 

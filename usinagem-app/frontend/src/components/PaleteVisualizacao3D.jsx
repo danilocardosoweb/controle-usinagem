@@ -193,14 +193,26 @@ export function calcularDimensoesPalete(cfg) {
     colunasRotacionadas: cfg.colunas_rotacionadas || [],
   })
 
-  const spanXmm = layout.spanX * 1000 // largura total eixo X (mm)
-  const spanZmm = layout.spanZ * 1000 // profundidade total eixo Z (mm)
+  // Dimensão do estrado PBR base (mínimo físico do palete)
+  const paleteDimsBase = {
+    'PBR_1000x1000': { largX: 1000, profZ: 1000 },
+    'PBR_1080x1080': { largX: 1080, profZ: 1080 },
+    'PBR_1200x1200': { largX: 1200, profZ: 1200 },
+    'PBR_1200x800':  { largX: 1200, profZ: 800  },
+    'PBR_1200x1000': { largX: 1200, profZ: 1000 },
+  }
+  const baseEst = paleteDimsBase[cfg.tipo_palete] || paleteDimsBase['PBR_1200x1000']
+  const spanXmm = Math.max(layout.spanX * 1000, baseEst.largX) // nunca menor que o estrado
+  const spanZmm = Math.max(layout.spanZ * 1000, baseEst.profZ) // nunca menor que o estrado
 
   const ripaAltMm = Number(cfg.ripa_altura_mm) || 30
   const altCamadaMm = pkAltMm + 4 // 0.004m gap
   const altRipaBlocoMm = cfg.ripa_entre_camadas ? (ripaAltMm + 4) : 6
   const altBlocoTotalMm = altRipaBlocoMm + camadasPorBloco * altCamadaMm
-  const altEmpilhadoMm = numBlocos * altBlocoTotalMm + (cfg.ripa_topo ? (ripaAltMm + 4) : 0)
+  const altCamadaFinalMm = (cfg.camada_final_ativa && Number(cfg.camada_final_qtd) > 0)
+    ? (altRipaBlocoMm + altCamadaMm)
+    : 0
+  const altEmpilhadoMm = numBlocos * altBlocoTotalMm + altCamadaFinalMm + (cfg.ripa_topo ? (ripaAltMm + 4) : 0)
   const totalAltMm = 112 + altEmpilhadoMm // 112mm = base PBR
 
   const totalPacotes = pacotesPorCamada * camadasPorBloco * numBlocos
@@ -227,6 +239,7 @@ export const PALETE_CONFIGS = {
   'PBR_1200x1200':  { largX: 1.2,  profZ: 1.2,  nTab: 9, label: 'PBR 1200×1200 mm' },
   'PBR_1200x800':   { largX: 1.2,  profZ: 0.8,  nTab: 7, label: 'PBR 1200×800 mm' },
   'PBR_1200x1000': { largX: 1.2,  profZ: 1.0,  nTab: 7, label: 'PBR 1200×1000 mm' },
+  'PBR_1080x1080':  { largX: 1.08, profZ: 1.08, nTab: 7, label: 'PBR 1080×1080 mm' },
 }
 
 // ─── BASE DO PALETE PBR ────────────────────────────────────────────────────────

@@ -138,6 +138,8 @@ export default function Expedicao() {
   // Identificar racks que já estão em qualquer romaneio ativo (pendente, conferido, expedido)
   // Excluir apenas racks de romaneios cancelados ou com divergência já liberada
   const racksExpedidosSet = useMemo(() => {
+    // Incluir racks de romaneios em qualquer status EXCETO cancelado
+    // Isso bloqueia racks que estão em romaneios pendentes, conferidos ou expedidos
     const romaneiosAtivos = (Array.isArray(romaneios) ? romaneios : [])
       .filter(r => r.status !== 'cancelado')
       .map(r => r.id)
@@ -145,49 +147,44 @@ export default function Expedicao() {
     const itensEmRomaneio = (Array.isArray(romaneioItens) ? romaneioItens : [])
       .filter(item => romaneiosAtivos.includes(item.romaneio_id))
       .map(item => String(item.rack_ou_pallet || '').trim().toUpperCase())
-    
-    // Também incluir racks de apontamentos que foram marcados com romaneio_numero
-    const apontamentosComRomaneio = (Array.isArray(apontamentos) ? apontamentos : [])
-      .filter(a => {
-        const rn = String(a.romaneio_numero || '').trim()
-        return rn.length > 0 && !/^0+$/.test(rn)
-      })
-      .map(a => String(a.rack_acabado || a.rackAcabado || a.rack_ou_pallet || a.rackOuPallet || '').trim().toUpperCase())
       .filter(rack => rack.length > 0)
     
-    return new Set([...itensEmRomaneio, ...apontamentosComRomaneio])
-  }, [romaneios, romaneioItens, apontamentos])
+    console.log('🔍 racksExpedidosSet:', itensEmRomaneio.length, 'racks bloqueados de', romaneiosAtivos.length, 'romaneios ativos (', romaneioItens.length, 'itens carregados)')
+    
+    return new Set(itensEmRomaneio)
+  }, [romaneios, romaneioItens])
 
   const racksProtos = useMemo(() => {
-    // Quando há filtro de cliente ou produto, buscar em todas as datas (ignorar range)
-    const buscarTodasDatas = filtroCliente || filtroProduto
+    // Usar apontamentosParaKits para incluir TODOS os racks sem filtro de data
+    let bloqueados = 0
     
-    return (Array.isArray(apontamentos) ? apontamentos : [])
+    const resultado = (Array.isArray(apontamentosParaKits) ? apontamentosParaKits : [])
       .filter(a => {
         // Filtrar apontamentos de usinagem que têm rack_acabado preenchido
         const rackBase = a.rack_acabado || a.rackAcabado || a.rack_ou_pallet || a.rackOuPallet || ''
         const rackNormalizado = String(rackBase).trim().toUpperCase()
-        const temRack = rackNormalizado.length > 0
-        if (!temRack) return false
+        if (rackNormalizado.length === 0) return false
 
         // Apenas racks que começam com USI
         if (!rackNormalizado.startsWith('USI')) return false
         
         // Excluir racks que já foram expedidos (comparando em maiúsculas)
-        if (racksExpedidosSet.has(rackNormalizado)) return false
-        
-        // Se estiver buscando por cliente ou produto, ignora o range de data
-        if (!buscarTodasDatas) {
-          const dataApontamento = new Date(a.created_at).toISOString().slice(0, 10)
-          if (filtroDataInicio && dataApontamento < filtroDataInicio) return false
-          if (filtroDataFim && dataApontamento > filtroDataFim) return false
+        if (racksExpedidosSet.has(rackNormalizado)) {
+          bloqueados++
+          return false
         }
         
+        // Aplicar filtros de cliente e produto (mas não filtro de data)
         if (filtroCliente && !String(a.cliente || '').toLowerCase().includes(filtroCliente.toLowerCase())) return false
         if (filtroProduto && !String(a.produto || a.codigoPerfil || '').toLowerCase().includes(filtroProduto.toLowerCase())) return false
+        
         return true
       })
-  }, [apontamentos, filtroDataInicio, filtroDataFim, filtroCliente, filtroProduto, racksExpedidosSet])
+    
+    console.log('📊 racksProtos:', resultado.length, 'disponíveis |', bloqueados, 'bloqueados por romaneio')
+    
+    return resultado
+  }, [apontamentosParaKits, filtroCliente, filtroProduto, racksExpedidosSet])
 
   // Apontamentos para Kits: SEM filtro de data, inclui TODOS os racks não expedidos
   const apontamentosParaKitsFiltrados = useMemo(() => {
@@ -207,24 +204,7 @@ export default function Expedicao() {
         return true
       })
     
-    console.log('🎯 apontamentosParaKitsFiltrados:')
-    console.log('  - Total apontamentos recebidos:', apontamentosParaKits.length)
-    console.log('  - Apontamentos com rack não expedido:', resultado.length)
-    console.log('  - Clientes únicos:', new Set(resultado.map(a => a.cliente)).size)
-    
-    // Debug específico para racks TRAMONTINA USI-128x
-    const racksTramontinaTodos = (Array.isArray(apontamentosParaKits) ? apontamentosParaKits : [])
-      .filter(a => {
-        const rack = String(a.rack_acabado || a.rackAcabado || a.rack_ou_pallet || '').trim().toUpperCase()
-        return rack.startsWith('USI-128')
-      })
-    console.log('🔍 Todos USI-128x:', racksTramontinaTodos.map(a => ({
-      rack: a.rack_acabado || a.rack_ou_pallet,
-      cliente: a.cliente,
-      data: a.created_at,
-      romaneio_numero: a.romaneio_numero,
-      noExpedidos: racksExpedidosSet.has(String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase())
-    })))
+    console.log('🎯 kits:', resultado.length, 'apontamentos disponíveis de', apontamentosParaKits.length, 'total')
     
     return resultado
   }, [apontamentosParaKits, racksExpedidosSet])
@@ -253,7 +233,9 @@ export default function Expedicao() {
       const compVal = a.comprimento_acabado_mm || a.comprimentoAcabadoMm
       if (compVal) grupos[rack].comprimentos.add(`${compVal}mm`)
     })
-    return Object.values(grupos)
+    const resultado = Object.values(grupos)
+    console.log('📦 racksAgrupados:', resultado.length, 'racks prontos')
+    return resultado
   }, [racksProtos])
 
   const maquinasMap = useMemo(() => {

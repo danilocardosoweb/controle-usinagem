@@ -7,7 +7,7 @@ const fmt = (n, dec = 0) => Number(n || 0).toLocaleString('pt-BR', { maximumFrac
 const fmtMm = (mm) => mm >= 1000 ? `${fmt(mm / 1000, 3)} m` : `${fmt(mm)} mm`
 
 // ─── Diagrama 2D lateral (vista de frente: X=largura, Y=altura) ───────────────
-function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pecasReais }) {
+function DiagramaLateral({ config, completude }) {
   const { pacotes_por_camada, camadas_por_bloco, num_blocos, largura_pacote_mm, altura_pacote_mm,
     ripa_altura_mm, ripa_entre_camadas, ripa_topo, ripa_vert_comp_mm, ripa_vertical } = config
 
@@ -18,11 +18,8 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
   const ripaVertW = ripa_vertical ? (ripa_vert_comp_mm || 75) : 0
   const pkW = largura_pacote_mm || 300
 
-  // Calcular completude real: amarrados no rack / amarrados esperados no palete
-  const amarradosReais = pcsPorAmarrado > 0 ? Math.floor((pecasReais || 0) / pcsPorAmarrado) : 0
-  const amarradosPalete = pcsPorAmarrado > 0 && pcsPorPalete > 0 ? Math.floor(pcsPorPalete / pcsPorAmarrado) : 0
-  // pct baseado em amarrados (mesma lógica da barra de progresso e do badge da lista)
-  const pct = amarradosPalete > 0 ? Math.min(1, amarradosReais / amarradosPalete) : (completude || 0)
+  // Usar completude calculada pelo pai (já normalizada e baseada na config do palete)
+  const pct = Math.min(1, Math.max(0, completude || 0))
 
   // Dimensões do SVG
   const SVG_W = 520
@@ -35,15 +32,14 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
   const dimsCanonicos = calcularDimensoesPalete(config)
   const labelLargMm = dimsCanonicos?.larguraMm || 0
   const labelAltMm  = dimsCanonicos?.alturaMm || 0
+  const altTotalMm = dimsCanonicos?.alturaMm || 672 // altura total em mm (fonte única)
 
   // Dimensões visuais do SVG (inclui ripas laterais para o desenho)
   const totalLargMm = ripaVertW * 2 + pkW * (pacotes_por_camada || 1)
   const scaleX = drawW / totalLargMm
 
-  // Altura visual do SVG (simplificada para o desenho)
-  const altBloco = pkH + (ripa_entre_camadas ? ripaH : 0)
-  const altTotal = 112 + (camadas_por_bloco || 3) * (num_blocos || 3) * altBloco + (ripa_topo ? ripaH : 0)
-  const scaleY = drawH / altTotal
+  // Altura visual do SVG — usar altura canônica do palete
+  const scaleY = drawH / altTotalMm
 
   const baseH = 112 * scaleY
   const pkHpx = pkH * scaleY
@@ -53,6 +49,10 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
 
   // Contar quantos pacotes são "reais"
   const pacotesConfirmados = Math.round(pct * totalPacotes)
+
+  // Altura estimada real baseada na proporção de preenchimento (para a cota dinâmica)
+  // Usar proporção da altura total para manter consistência com a visualização 3D
+  const altRealMm = Math.round(112 + (altTotalMm - 112) * pct)
 
   const camadas = []
   let yAtual = MARGIN.top + drawH - baseH // começa do topo do palete base
@@ -120,7 +120,7 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
   }
 
   // Ripas laterais verticais
-  const altEmpilhMm = altTotal - 112
+  const altEmpilhMm = altTotalMm - 112
   const ripaVertAlturaPx = altEmpilhMm * scaleY
   const ripaVertY = MARGIN.top + drawH - baseH - ripaVertAlturaPx
 
@@ -161,16 +161,26 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
         {fmtMm(labelLargMm || totalLargMm)} (largura)
       </text>
 
-      {/* Cotas: Altura */}
-      <line x1={MARGIN.left - 14} y1={MARGIN.top} x2={MARGIN.left - 14} y2={MARGIN.top + drawH}
-        stroke="#6b7280" strokeWidth={1} />
-      <line x1={MARGIN.left - 18} y1={MARGIN.top} x2={MARGIN.left - 10} y2={MARGIN.top} stroke="#6b7280" strokeWidth={1} />
-      <line x1={MARGIN.left - 18} y1={MARGIN.top + drawH} x2={MARGIN.left - 10} y2={MARGIN.top + drawH} stroke="#6b7280" strokeWidth={1} />
-      <text x={MARGIN.left - 20} y={MARGIN.top + drawH / 2}
-        textAnchor="middle" fontSize={9} fill="#374151"
-        transform={`rotate(-90, ${MARGIN.left - 20}, ${MARGIN.top + drawH / 2})`}>
-        {fmtMm(labelAltMm || altTotal)} (alt.)
-      </text>
+      {/* Cota Altura dinâmica — mostra a altura real preenchida */}
+      {(() => {
+        const altEmpilhadoReal = (altTotalMm - 112) * pct
+        const yTopo = MARGIN.top + drawH - baseH - (altEmpilhadoReal * scaleY)
+        const yBase = MARGIN.top + drawH
+        const yMid = (yTopo + yBase) / 2
+        return (
+          <>
+            <line x1={MARGIN.left - 14} y1={yTopo} x2={MARGIN.left - 14} y2={yBase}
+              stroke="#6b7280" strokeWidth={1.5} />
+            <line x1={MARGIN.left - 18} y1={yTopo} x2={MARGIN.left - 10} y2={yTopo} stroke="#6b7280" strokeWidth={1.5} />
+            <line x1={MARGIN.left - 18} y1={yBase} x2={MARGIN.left - 10} y2={yBase} stroke="#6b7280" strokeWidth={1.5} />
+            <text x={MARGIN.left - 22} y={yMid}
+              textAnchor="middle" fontSize={10} fill="#374151" fontWeight="500"
+              transform={`rotate(-90, ${MARGIN.left - 22}, ${yMid})`}>
+              {fmtMm(altRealMm)} (alt.)
+            </text>
+          </>
+        )
+      })()}
 
       {/* Badge de completude */}
       <rect x={SVG_W - 80} y={4} width={74} height={20} rx={10}
@@ -183,16 +193,16 @@ function DiagramaLateral({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
 }
 
 // ─── Vista Frontal 2D (comprimento × altura) ────────────────────────────────
-function DiagramaFrontal({ config, completude, pcsPorAmarrado, pcsPorPalete, pecasReais, comprimentoAcabadoMm }) {
+function DiagramaFrontal({ config, completude, comprimentoAcabadoMm }) {
   const { camadas_por_bloco, num_blocos, profundidade_pacote_mm, altura_pacote_mm,
     ripa_altura_mm, ripa_entre_camadas, ripa_topo } = config
 
-  const amarradosReais = pcsPorAmarrado > 0 ? Math.floor((pecasReais || 0) / pcsPorAmarrado) : 0
-  const amarradosPalete = pcsPorAmarrado > 0 && pcsPorPalete > 0 ? Math.floor(pcsPorPalete / pcsPorAmarrado) : 0
-  const pct = amarradosPalete > 0 ? Math.min(1, amarradosReais / amarradosPalete) : (completude || 0)
+  // Usar completude calculada pelo pai (já normalizada e baseada na config do palete)
+  const pct = Math.min(1, Math.max(0, completude || 0))
 
   const dimsCanonicos = calcularDimensoesPalete(config)
   const labelAltMm  = dimsCanonicos?.alturaMm || 0
+  const altTotalMm = dimsCanonicos?.alturaMm || 672 // altura total em mm (fonte única)
   // Comprimento do palete = profundidade do pacote (eixo Z do palete cadastrado)
   const labelCompMm = dimsCanonicos?.comprimentoMm || (profundidade_pacote_mm || 0)
 
@@ -208,13 +218,11 @@ function DiagramaFrontal({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
   const drawW = SVG_W - MARGIN.left - MARGIN.right
   const drawH = SVG_H - MARGIN.top - MARGIN.bottom
 
-  const altBloco = pkH + (ripa_entre_camadas ? ripaH : 0)
-  const altTotal = 112 + totalCamadas * altBloco + (ripa_topo ? ripaH : 0)
   // Usar comprimento real do palete (não apenas o pacote) para escala correta
   const compRealMm = labelCompMm > 0 ? labelCompMm : pkD
   // comprimentoAcabadoMm usado apenas para label informativo (não afeta escala)
   const scaleX = drawW / compRealMm
-  const scaleY = drawH / altTotal
+  const scaleY = drawH / altTotalMm // usar altura canônica
 
   const baseH = 112 * scaleY
   const pkHpx = pkH * scaleY
@@ -222,6 +230,11 @@ function DiagramaFrontal({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
   const pkDpx = compRealMm * scaleX // largura total do desenho = comprimento real
 
   const pacotesConfirmados = Math.round(pct * totalPacotes)
+
+  // Altura real com base na proporção de preenchimento (para cota dinâmica)
+  // Usar proporção da altura total para manter consistência com a visualização 3D
+  const altRealMm = Math.round(112 + (altTotalMm - 112) * pct)
+
   const camadas = []
   let yAtual = MARGIN.top + drawH - baseH
   let pacotesContados = 0
@@ -279,6 +292,26 @@ function DiagramaFrontal({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
     <svg width={SVG_W} height={SVG_H} style={{ width: '100%', height: 'auto' }}>
       <rect x={0} y={0} width={SVG_W} height={SVG_H} fill="#f8fafc" rx={8} />
       {camadas}
+      {/* Cota Altura dinâmica — mostra apenas a altura real preenchida */}
+      {(() => {
+        const altEmpilhadoReal = (altTotalMm - 112) * pct
+        const yTopo = MARGIN.top + drawH - baseH - (altEmpilhadoReal * scaleY)
+        const yBase = MARGIN.top + drawH
+        const yMid = (yTopo + yBase) / 2
+        return (
+          <>
+            <line x1={MARGIN.left - 14} y1={yTopo} x2={MARGIN.left - 14} y2={yBase}
+              stroke="#6b7280" strokeWidth={1.5} />
+            <line x1={MARGIN.left - 18} y1={yTopo} x2={MARGIN.left - 10} y2={yTopo} stroke="#6b7280" strokeWidth={1.5} />
+            <line x1={MARGIN.left - 18} y1={yBase} x2={MARGIN.left - 10} y2={yBase} stroke="#6b7280" strokeWidth={1.5} />
+            <text x={MARGIN.left - 22} y={yMid}
+              textAnchor="middle" fontSize={10} fill="#374151" fontWeight="500"
+              transform={`rotate(-90, ${MARGIN.left - 22}, ${yMid})`}>
+              {fmtMm(altRealMm)} (alt.)
+            </text>
+          </>
+        )
+      })()}
       {/* Base */}
       <rect x={MARGIN.left} y={MARGIN.top + drawH - baseH}
         width={pkDpx} height={baseH}
@@ -302,16 +335,6 @@ function DiagramaFrontal({ config, completude, pcsPorAmarrado, pcsPorPalete, pec
           Material: {fmtMm(comprimentoAcabadoMm)}
         </text>
       )}
-      {/* Cota altura */}
-      <line x1={MARGIN.left - 14} y1={MARGIN.top} x2={MARGIN.left - 14} y2={MARGIN.top + drawH}
-        stroke="#6b7280" strokeWidth={1} />
-      <line x1={MARGIN.left - 18} y1={MARGIN.top} x2={MARGIN.left - 10} y2={MARGIN.top} stroke="#6b7280" strokeWidth={1} />
-      <line x1={MARGIN.left - 18} y1={MARGIN.top + drawH} x2={MARGIN.left - 10} y2={MARGIN.top + drawH} stroke="#6b7280" strokeWidth={1} />
-      <text x={MARGIN.left - 26} y={MARGIN.top + drawH / 2}
-        textAnchor="middle" fontSize={9} fill="#374151"
-        transform={`rotate(-90, ${MARGIN.left - 26}, ${MARGIN.top + drawH / 2})`}>
-        {fmtMm(labelAltMm || altTotal)} (alt.)
-      </text>
       {/* Badge */}
       <rect x={SVG_W - 80} y={4} width={74} height={20} rx={10}
         fill={pct >= 0.99 ? '#16a34a' : pct >= 0.5 ? '#f59e0b' : '#ef4444'} />
@@ -422,6 +445,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
   const [loading, setLoading] = useState(false)
   const [rackSelecionado, setRackSelecionado] = useState(null)
   const [apontamentoRack, setApontamentoRack] = useState(null)
+  const [ferramentaCfgRack, setFerramentaCfgRack] = useState(null)
 
   // Filtros do painel esquerdo
   const [buscaRack, setBuscaRack] = useState('')
@@ -430,7 +454,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
   const [modoFiltro, setModoFiltro] = useState('todos') // 'todos' | 'comRomaneio' | 'semRomaneio'
   const [romaneirosAtivos, setRomaneirosAtivos] = useState([]) // lista de numero_romaneio válidos e ativos
 
-  const SELECT = 'rack_acabado, rack_ou_pallet, produto, quantidade, cliente, pedido_seq, comprimento_acabado_mm, rack_finalizado, romaneio_numero'
+  const SELECT = '*'
 
   // ── Busca principal: todos os romaneios ativos (sem filtro de ferramenta) + racks da ferramenta ──
   const buscarRacks = useCallback(async () => {
@@ -474,9 +498,26 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
       const visto = new Set()
       const porRack = {}
 
+      const parseQuantidade = (row) => {
+        const bruto = row?.quantidade ?? row?.qtd_pc ?? row?.quantidade_pcs ?? row?.quantidade_pecas ?? row?.qtd_pecas ?? row?.qtdPc ?? row?.qtdPecas
+        if (typeof bruto === 'number') return Number.isFinite(bruto) ? bruto : 0
+        const txt = String(bruto || '').trim()
+        if (!txt) return 0
+        // Normalizar separadores pt-BR e remover símbolos
+        const somenteDigitos = txt.replace(/[^0-9]/g, '')
+        if (somenteDigitos) return Number(somenteDigitos)
+        const normalizado = txt.replace(/\./g, '').replace(',', '.')
+        const num = Number(normalizado)
+        return Number.isFinite(num) ? num : 0
+      }
+
       resultados.forEach((res, idx) => {
-        if (res.error) { console.warn('Query erro:', res.error); return }
+        if (res.error) { 
+          console.warn(`Query ${idx} erro:`, res.error)
+          return 
+        }
         const isSoRomaneio = idx === 0 // primeira query = somente romaneios, sem filtro de ferramenta
+        console.log(`Query ${idx} (${isSoRomaneio ? 'romaneios' : 'ferramenta'}): ${(res.data || []).length} registros`)
         ;(res.data || []).forEach(a => {
           const rack = String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase()
           if (!rack) return
@@ -488,7 +529,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
           }
 
           // Deduplicar linha exata
-          const key = `${rack}|${a.produto}|${a.quantidade}`
+          const key = a.id ? `id:${a.id}` : `${rack}|${a.produto}|${a.quantidade}|${a.created_at || ''}`
           if (visto.has(key)) return
           visto.add(key)
 
@@ -521,11 +562,13 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
             porRack[rack].romaneio_numero = romaneioValido
           }
           if (!isSoRomaneio) porRack[rack]._deFerramenta = true
-          porRack[rack].quantidade += Number(a.quantidade || 0)
+          porRack[rack].quantidade += parseQuantidade(a)
         })
       })
 
-      setRacks(Object.values(porRack).sort((a, b) => a.rack.localeCompare(b.rack)))
+      const racksCarregados = Object.values(porRack).sort((a, b) => a.rack.localeCompare(b.rack))
+      console.log(`Total de racks carregados: ${racksCarregados.length}`)
+      setRacks(racksCarregados)
     } catch (e) {
       console.error('Erro ao buscar racks:', e)
     } finally {
@@ -535,17 +578,41 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
 
   useEffect(() => { buscarRacks() }, [buscarRacks])
 
-  // Ao selecionar um rack, buscar detalhes do apontamento
+  // Ao selecionar um rack, buscar detalhes do apontamento e ferramentaCfg do produto
   const selecionarRack = useCallback(async (item) => {
     setRackSelecionado(item)
+    setFerramentaCfgRack(null)
     try {
       const { data } = await supabase.from('apontamentos').select('*')
         .or(`rack_acabado.eq.${item.rack},rack_ou_pallet.eq.${item.rack}`)
         .order('created_at', { ascending: false })
         .limit(1).maybeSingle()
       setApontamentoRack(data)
+
+      // Extrair ferramenta e comprimento do produto do rack para buscar ferramentaCfg correta
+      const produto = String(item.produto || data?.produto || '').trim()
+      if (produto) {
+        // Produto formato: TG2029561367NCNV → ferramenta=TG-2029, comprimento=1367
+        const matchFerr = produto.match(/^([A-Z]{2}[-]?\d{4})/i)
+        const matchComp = produto.match(/(\d{3,5})(?=[A-Z]{2,}$|NCN|NCV|[A-Z]{3,})/i)
+        const ferrProd = matchFerr ? matchFerr[1].replace(/^([A-Z]{2})(\d)/, '$1-$2') : ''
+        const compProd = matchComp ? parseInt(matchComp[1], 10) : 0
+        const compItem = item.comprimento_acabado_mm || 0
+
+        const { data: cfgData } = await supabase.from('ferramentas_cfg')
+          .select('ferramenta, comprimento_mm, pecas_por_amarrado, pcs_por_pallet, pcs_por_caixa, embalagem')
+          .ilike('ferramenta', ferrProd || ferramenta || '')
+          .limit(20)
+        if (cfgData && cfgData.length > 0) {
+          const comp = compItem || compProd
+          const found = cfgData.find(c => comp && Number(c.comprimento_mm) === comp)
+            || cfgData.find(c => !c.comprimento_mm)
+            || cfgData[0]
+          setFerramentaCfgRack(found)
+        }
+      }
     } catch (e) { setApontamentoRack(null) }
-  }, [])
+  }, [ferramenta])
 
   // ── Listas de opções para os selects ──
   const clientesUnicos = useMemo(() =>
@@ -599,28 +666,54 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
     return lista
   }, [racks, modoFiltro, filtroCliente, filtroRomaneio, buscaRack, ferramenta])
 
-  const pcsPorAmarrado = Number(ferramentaCfg?.pecas_por_amarrado || 0)
-  const pcsPorPalete   = Number(ferramentaCfg?.embalagem === 'caixa' ? ferramentaCfg?.pcs_por_caixa : ferramentaCfg?.pcs_por_pallet) || 0
-  const totalPacotesPalete = config
-    ? (config.pacotes_por_camada || 3) * (config.camadas_por_bloco || 3) * (config.num_blocos || 3)
-    : 0
+  // Usar ferramentaCfg do rack selecionado > prop recebida > fallback padrão
+  const ferramentaCfgOuPadrao = ferramentaCfgRack || ferramentaCfg || {
+    pecas_por_amarrado: 10,
+    pcs_por_pallet: 1440,
+    pcs_por_caixa: 1440,
+    embalagem: 'palete',
+  }
+  
+  const pcsPorAmarrado = Number(ferramentaCfgOuPadrao?.pecas_por_amarrado || 0)
+  const pcsPorPalete   = Number(ferramentaCfgOuPadrao?.embalagem === 'caixa' ? ferramentaCfgOuPadrao?.pcs_por_caixa : ferramentaCfgOuPadrao?.pcs_por_pallet) || 0
+  
+  // Usar config se disponível; caso contrário, usar valores padrão
+  const configOuPadrao = config || {
+    pacotes_por_camada: 3,
+    camadas_por_bloco: 3,
+    num_blocos: 3,
+    largura_pacote_mm: 300,
+    profundidade_pacote_mm: 6000,
+    altura_pacote_mm: 100,
+    ripa_altura_mm: 17,
+    ripa_entre_camadas: true,
+    ripa_topo: true,
+    ripa_vertical: true,
+    ripa_vert_comp_mm: 75,
+    orientacao_pacote: 'longitudinal',
+  }
+  
+  const totalPacotesPalete = (configOuPadrao.pacotes_por_camada || 3) * (configOuPadrao.camadas_por_bloco || 3) * (configOuPadrao.num_blocos || 3)
 
   // Informações do rack selecionado
   const pecasRack = rackSelecionado?.quantidade || 0
   const amarradosRack = pcsPorAmarrado > 0 ? Math.floor(pecasRack / pcsPorAmarrado) : 0
   const sobraPecas = pcsPorAmarrado > 0 ? (pecasRack % pcsPorAmarrado) : 0
-  const amarradosPalete = pcsPorAmarrado > 0 && pcsPorPalete > 0 ? Math.floor(pcsPorPalete / pcsPorAmarrado) : 0
+  // Usar totalPacotesPalete (config do palete) como referência de 100%, se disponível
+  const amarradosPalete = config
+    ? totalPacotesPalete
+    : (pcsPorAmarrado > 0 && pcsPorPalete > 0 ? Math.floor(pcsPorPalete / pcsPorAmarrado) : 0)
   const pct = amarradosPalete > 0 ? Math.min(1, amarradosRack / amarradosPalete) : 0
   const completo = pct >= 0.99
 
   // Dimensões calculadas do palete (fonte única de verdade, consistente com aba 3D)
-  const dimsCalc = calcularDimensoesPalete(config)
+  const dimsCalc = calcularDimensoesPalete(configOuPadrao)
   const totalLargMm = dimsCalc?.larguraMm || 0
   const totalProfMm = dimsCalc?.comprimentoMm || 0
   const totalAltMm  = dimsCalc?.alturaMm || 0
-  const nCols = config?.pacotes_por_camada || 1
-  const pkLarg = config?.largura_pacote_mm || 0
-  const pkProf = config?.profundidade_pacote_mm || 0
+  const nCols = configOuPadrao?.pacotes_por_camada || 1
+  const pkLarg = configOuPadrao?.largura_pacote_mm || 0
+  const pkProf = configOuPadrao?.profundidade_pacote_mm || 0
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-gray-50">
@@ -815,11 +908,11 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                     <div>
                       <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Vista Lateral (Largura)</p>
-                      <DiagramaLateral config={config} completude={pct} pcsPorAmarrado={pcsPorAmarrado} pcsPorPalete={pcsPorPalete} pecasReais={pecasRack} />
+                      <DiagramaLateral config={configOuPadrao} completude={pct} />
                     </div>
                     <div>
                       <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Vista Frontal (Comprimento)</p>
-                      <DiagramaFrontal config={config} completude={pct} pcsPorAmarrado={pcsPorAmarrado} pcsPorPalete={pcsPorPalete} pecasReais={pecasRack} comprimentoAcabadoMm={rackSelecionado?.comprimento_acabado_mm || 0} />
+                      <DiagramaFrontal config={configOuPadrao} completude={pct} comprimentoAcabadoMm={rackSelecionado?.comprimento_acabado_mm || 0} />
                     </div>
                   </div>
                   <div className="flex gap-3 mt-2 text-[9px] text-gray-500">
@@ -841,7 +934,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
               </button>
               {secaoPlantaAberta && (
                 <div className="px-3 pb-2 border-t border-gray-100">
-                  <DiagramaPlanta config={config} />
+                  <DiagramaPlanta config={configOuPadrao} />
                 </div>
               )}
             </div>
@@ -876,21 +969,21 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
               <button onClick={() => setSecaoEstruturaAberta(v => !v)}
                 className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
-                <span>Estrutura · {config.pacotes_por_camada}pct × {config.camadas_por_bloco}cam × {config.num_blocos}blocos</span>
+                <span>Estrutura · {configOuPadrao.pacotes_por_camada}pct × {configOuPadrao.camadas_por_bloco}cam × {configOuPadrao.num_blocos}blocos</span>
                 <span className="text-gray-400">{secaoEstruturaAberta ? '▲' : '▼'}</span>
               </button>
               {secaoEstruturaAberta && (
                 <div className="px-3 pb-2 border-t border-gray-100">
                   <div className="grid grid-cols-4 gap-1.5 mt-2 text-xs">
                     {[
-                      { label: 'Pct/cam', value: config.pacotes_por_camada },
-                      { label: 'Cam/bloco', value: config.camadas_por_bloco },
-                      { label: 'Blocos', value: config.num_blocos },
-                      { label: 'Total cam.', value: (config.camadas_por_bloco || 1) * (config.num_blocos || 1) },
+                      { label: 'Pct/cam', value: configOuPadrao.pacotes_por_camada },
+                      { label: 'Cam/bloco', value: configOuPadrao.camadas_por_bloco },
+                      { label: 'Blocos', value: configOuPadrao.num_blocos },
+                      { label: 'Total cam.', value: (configOuPadrao.camadas_por_bloco || 1) * (configOuPadrao.num_blocos || 1) },
                       { label: 'Total pct', value: totalPacotesPalete },
-                      { label: 'Ripa cam.', value: config.ripa_entre_camadas ? `${config.ripa_altura_mm}mm` : 'Não' },
-                      { label: 'Ripa lat.', value: config.ripa_vertical ? `${config.ripa_vert_comp_mm}mm` : 'Não' },
-                      { label: 'Orient.', value: config.orientacao_pacote || 'long.' },
+                      { label: 'Ripa cam.', value: configOuPadrao.ripa_entre_camadas ? `${configOuPadrao.ripa_altura_mm}mm` : 'Não' },
+                      { label: 'Ripa lat.', value: configOuPadrao.ripa_vertical ? `${configOuPadrao.ripa_vert_comp_mm}mm` : 'Não' },
+                      { label: 'Orient.', value: configOuPadrao.orientacao_pacote || 'long.' },
                     ].map(d => (
                       <div key={d.label} className="bg-gray-50 rounded p-1.5 border border-gray-100">
                         <p className="text-[8px] text-gray-400 uppercase">{d.label}</p>

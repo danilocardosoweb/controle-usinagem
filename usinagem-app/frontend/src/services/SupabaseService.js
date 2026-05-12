@@ -303,8 +303,9 @@ class SupabaseService {
     await this.init();
 
     try {
-      // Para tabelas grandes como 'lotes', buscar todos os registros em lotes
-      if (tableName === 'lotes') {
+      // Para tabelas grandes, buscar todos os registros com paginação
+      const tabelasGrandes = ['lotes', 'expedicao_romaneio_itens', 'apontamentos']
+      if (tabelasGrandes.includes(tableName)) {
         let allData = [];
         let from = 0;
         const batchSize = 1000;
@@ -316,20 +317,19 @@ class SupabaseService {
             .range(from, from + batchSize - 1);
 
           if (error) {
-            console.error(`Erro ao buscar lotes (lote ${from}-${from + batchSize - 1}):`, error);
+            console.error(`Erro ao buscar ${tableName} (lote ${from}-${from + batchSize - 1}):`, error);
             return Promise.reject(error);
           }
 
           if (!data || data.length === 0) break;
           
           allData = allData.concat(data);
-          console.log(`📦 Carregados ${allData.length} lotes...`);
           
           if (data.length < batchSize) break; // Último lote
           from += batchSize;
         }
         
-        console.log(`✅ Total de lotes carregados: ${allData.length}`);
+        console.log(`✅ Total de ${tableName} carregados: ${allData.length}`);
         return allData;
       }
 

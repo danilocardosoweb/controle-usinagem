@@ -265,7 +265,7 @@ const packItensNoCaminhao = (filaItens, caminhao, { folgaPerimetroCm = 0, folgaA
   return { boxes, itensSemEspaco }
 }
 
-const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folgaAlturaCm = 0, considerarAltura = true, viewMode = 'isometrico' }) => {
+const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folgaAlturaCm = 0, considerarAltura = true, viewMode = 'isometrico', calcularCompletudePalete }) => {
   const cameraRef = useRef(null)
   const controlsRef = useRef(null)
   const [alertaFechado, setAlertaFechado] = useState(false)
@@ -472,6 +472,9 @@ const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folga
               const itemIdxMatch = box.key.match(/^i(\d+)/)
               const itemIdx = itemIdxMatch ? Number(itemIdxMatch[1]) : 0
               const itemOriginal = filaItens[itemIdx]
+              const completudeTooltip = calcularCompletudePalete(itemOriginal)
+              const pacotesReais = completudeTooltip?.amarradosRack ?? null
+              const pacotesTotal = completudeTooltip?.amarradosPalete ?? itemOriginal?.totalPacotes ?? null
               
               // Criar objeto palete para o tooltip
               const paleteParaTooltip = {
@@ -486,7 +489,9 @@ const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folga
                 quantidade: 1,
                 quantidadePecas: itemOriginal?.quantidadePecas || 0,
                 pesoPacoteKg: itemOriginal?.pesoPacoteKg || 0,
-                metadataRomaneio: itemOriginal?.metadataRomaneio || null
+                metadataRomaneio: itemOriginal?.metadataRomaneio || null,
+                pacotesReais,
+                pacotesTotal
               }
 
               return (
@@ -670,6 +675,7 @@ const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folga
                             <strong>Volume:</strong> ${(paleteParaTooltip.volume || 0).toFixed(3)} m³
                           </div>
                           ${paleteParaTooltip.quantidadePecas > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peças:</strong> ${paleteParaTooltip.quantidadePecas}</div>` : ''}
+                          ${(paleteParaTooltip.pacotesReais || paleteParaTooltip.pacotesTotal) ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Pacotes:</strong> ${paleteParaTooltip.pacotesReais || paleteParaTooltip.pacotesTotal}${paleteParaTooltip.pacotesReais && paleteParaTooltip.pacotesTotal && paleteParaTooltip.pacotesTotal !== paleteParaTooltip.pacotesReais ? `/${paleteParaTooltip.pacotesTotal}` : ''}</div>` : ''}
                           ${paleteParaTooltip.pesoPacoteKg > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peso:</strong> ${paleteParaTooltip.pesoPacoteKg.toFixed(1)} kg</div>` : ''}
                           <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
                             <strong>Origem:</strong> 
@@ -1864,6 +1870,15 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const [activeTab, setActiveTab] = useState(simulacaoId ? 'cubagem' : 'visualizacao')
   const [form, setForm] = useState(FORM_DEFAULT)
   const [msg, setMsg] = useState('')
+  const [msgVisible, setMsgVisible] = useState(false)
+
+  useEffect(() => {
+    if (!msg) { setMsgVisible(false); return }
+    setMsgVisible(true)
+    const hide = setTimeout(() => setMsgVisible(false), 4000)
+    const clear = setTimeout(() => setMsg(''), 4500)
+    return () => { clearTimeout(hide); clearTimeout(clear) }
+  }, [msg])
   
   // Estados para gerenciar modelos de amarrado
   const [modelosAmarrado, setModelosAmarrado] = useState([])
@@ -1944,19 +1959,16 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const salvarNovoModelo = async () => {
     if (!nomeNovoModelo.trim()) {
       setMsg('❌ Informe um nome para o modelo')
-      setTimeout(() => setMsg(''), 3000)
       return
     }
 
     if (!ferramenta) {
       setMsg('❌ Ferramenta não selecionada')
-      setTimeout(() => setMsg(''), 3000)
       return
     }
 
     if (!comprimento) {
       setMsg('❌ Comprimento não informado')
-      setTimeout(() => setMsg(''), 3000)
       return
     }
 
@@ -1993,16 +2005,13 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         } else {
           setMsg('✅ Novo modelo salvo com sucesso!')
         }
-        setTimeout(() => setMsg(''), 4000)
       } else {
         console.error('❌ Erro ao salvar:', resultado.error)
         setMsg(`❌ Erro: ${resultado.error}`)
-        setTimeout(() => setMsg(''), 4000)
       }
     } catch (error) {
       console.error('❌ Exceção ao salvar modelo:', error)
       setMsg(`❌ Erro: ${error.message}`)
-      setTimeout(() => setMsg(''), 4000)
     } finally {
       setSalvandoModelo(false)
     }
@@ -2025,7 +2034,6 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       })
       setShowCarregarModeloModal(false)
       setMsg(`Modelo "${modelo.nome}" carregado!`)
-      setTimeout(() => setMsg(''), 3000)
     } else {
       alert('Erro ao carregar modelo: ' + resultado.error)
     }
@@ -2038,7 +2046,6 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     if (resultado.success) {
       await carregarModelosAmarrado()
       setMsg('Modelo deletado com sucesso!')
-      setTimeout(() => setMsg(''), 3000)
     } else {
       alert('Erro ao deletar modelo: ' + resultado.error)
     }
@@ -2213,7 +2220,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   useEffect(() => {
     if (!open || !ferramenta) return
     fetchConfig()
-  }, [open, ferramenta, comprimento])
+  }, [open, ferramenta, comprimento, activeTab])
 
   useEffect(() => {
     if (!open || (activeTab !== 'cubagem' && activeTab !== 'validacao')) return
@@ -2497,11 +2504,22 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     const altCamada = pkAlt + 0.004
     const altRipaBloco = form.ripa_entre_camadas ? ripaAlt + 0.004 : 0.006
     const altBlocoTotal = altRipaBloco + camadasPorBloco * altCamada
-    const altEmpilhado = numBlocosAtivos * altBlocoTotal + (form.ripa_topo ? ripaAlt + 0.004 : 0)
+    const altCamadaFinal = (form.camada_final_ativa && Number(form.camada_final_qtd) > 0)
+      ? (altRipaBloco + altCamada)
+      : 0
+    const altEmpilhado = numBlocosAtivos * altBlocoTotal + altCamadaFinal + (form.ripa_topo ? ripaAlt + 0.004 : 0)
     const totalAlt = 0.112 + altEmpilhado
-    // Dimensões reais do palete (SEM ripas laterais - são estruturais, não aumentam pegada)
-    const totalLarg = layout.spanX  // Comprimento real do material
-    const totalProf = layout.spanZ   // Largura real do material
+    // Dimensões reais do palete: nunca menor que o estrado PBR base
+    const paleteDimsBase = {
+      'PBR_1000x1000': { largX: 1.0,  profZ: 1.0  },
+      'PBR_1080x1080': { largX: 1.08, profZ: 1.08 },
+      'PBR_1200x1200': { largX: 1.2,  profZ: 1.2  },
+      'PBR_1200x800':  { largX: 1.2,  profZ: 0.8  },
+      'PBR_1200x1000': { largX: 1.2,  profZ: 1.0  },
+    }
+    const baseEst = paleteDimsBase[form.tipo_palete] || paleteDimsBase['PBR_1200x1000']
+    const totalLarg = Math.max(layout.spanX, baseEst.largX)
+    const totalProf = Math.max(layout.spanZ, baseEst.profZ)
     const totalPacotes = pacotesCamada * camadasPorBloco * numBlocosAtivos
     const volume = totalLarg * totalProf * totalAlt
 
@@ -2510,6 +2528,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       spanZ: layout.spanZ,
       totalLarg,
       totalProf,
+      tipoPalete: form.tipo_palete,
       totalAlt,
       totalPacotes,
       volume,
@@ -2535,6 +2554,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     form.ripa_vert_largura_mm,
     form.ripa_vert_comp_mm,
     form.peso_pacote_kg,
+    form.tipo_palete,
   ])
 
   // Sugestão automática de multi-pilha: calcula quantas pilhas cabem no palete
@@ -2542,6 +2562,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     // Dimensões do palete (em mm) baseado no tipo
     const paleteDims = {
       'PBR_1000x1000': { largX: 1000, profZ: 1000 },
+      'PBR_1080x1080': { largX: 1080, profZ: 1080 },
       'PBR_1200x1200': { largX: 1200, profZ: 1200 },
       'PBR_1200x800':  { largX: 1200, profZ: 800 },
       'PBR_1200x1000': { largX: 1200, profZ: 1000 },
@@ -2581,7 +2602,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
   // Calcula completude e altura proporcional para paletes parciais
   const calcularCompletudePalete = useCallback((entrada) => {
-    if (!entrada || !metricsPaleteAtual) return null
+    if (!entrada) return null
     const produto = entrada.produtos?.[0] || ''
     if (!produto) return null
 
@@ -2601,43 +2622,55 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     if (nums.length < qtdDig) nums = nums.padEnd(qtdDig, '0')
     const ferr = `${letras}-${nums}`
 
-    // Buscar config da ferramenta
+    // Buscar configuração de embalagem da ferramenta
     const compMm = entrada.comprimentoAcabadoMm || 0
-    const cfg = ferramentasCfgData.find(c => {
+    const cfgFerramenta = ferramentasCfgData.find(c => {
       if (String(c?.ferramenta || '').toUpperCase() !== ferr) return false
       if (!compMm) return true
       const cc = Number(c?.comprimento_mm || 0)
       return cc ? cc === compMm : true
-    })
-    if (!cfg) return null
+    }) || ferramentasCfgData.find(c => (
+      String(c?.ferramenta || '').toUpperCase() === ferr && !c?.comprimento_mm
+    ))
+    if (!cfgFerramenta) return null
 
-    const porAmarrado = Number(cfg.pecas_por_amarrado || 0)
-    const pcsPalete = Number(cfg.embalagem === 'caixa' ? cfg.pcs_por_caixa : cfg.pcs_por_pallet) || 0
+    const porAmarrado = Number(cfgFerramenta.pecas_por_amarrado || 0)
+    const pcsPalete = Number(cfgFerramenta.embalagem === 'caixa' ? cfgFerramenta.pcs_por_caixa : cfgFerramenta.pcs_por_pallet) || 0
     if (porAmarrado <= 0 || pcsPalete <= 0) return null
 
     const pecasRack = entrada.quantidadePecas || 0
     const amarradosRack = pecasRack / porAmarrado
     const amarradosPalete = pcsPalete / porAmarrado
 
-    // Dados da estrutura do palete
-    const pacotesPorCamada = metricsPaleteAtual.pacotesPorCamada || 1
-    const camadasPorBloco = metricsPaleteAtual.camadasPorBloco || 1
-    const numBlocos = metricsPaleteAtual.numBlocos || 1
-    const totalPacotesPalete = pacotesPorCamada * camadasPorBloco * numBlocos
+    // Buscar estrutura de palete da própria ferramenta/comprimento do item
+    const cfgPalete = paleteConfigData.find(c => (
+      String(c?.ferramenta || '').toUpperCase() === ferr && Number(c?.comprimento_mm || 0) === Number(compMm || 0)
+    )) || paleteConfigData.find(c => (
+      String(c?.ferramenta || '').toUpperCase() === ferr && !c?.comprimento_mm
+    )) || null
 
-    // Usar o menor entre amarrados padrão e pacotes do 3D como referência
-    const refTotal = Math.max(amarradosPalete, totalPacotesPalete)
+    const dimsPalete = cfgPalete ? calcularDimensoesPalete(cfgPalete) : null
+    const pacotesPorCamada = Math.max(1, Number(dimsPalete?.pacotesPorCamada || cfgPalete?.pacotes_por_camada || 1))
+    const camadasPorBloco = Math.max(1, Number(dimsPalete?.camadasPorBloco || cfgPalete?.camadas_por_bloco || 1))
+    const numBlocos = Math.max(1, Number(dimsPalete?.numBlocos || cfgPalete?.num_blocos || 1))
+
+    // Calcular número total de pacotes no palete (fonte única de verdade)
+    const totalPacotesPalete = pacotesPorCamada * camadasPorBloco * numBlocos
+    
+    // Se temos config de palete, usar pacotes como referência; caso contrário usar amarrados da ferramenta
+    const refTotal = Math.max(1, totalPacotesPalete || amarradosPalete)
     const completude = Math.min(1, amarradosRack / refTotal)
 
-    // Calcular altura proporcional: quantas camadas reais o rack preenche
+    // Altura proporcional por camadas preenchidas
     const camadasNecessarias = Math.ceil(amarradosRack / pacotesPorCamada)
     const totalCamadas = camadasPorBloco * numBlocos
     const camadasReais = Math.min(camadasNecessarias, totalCamadas)
 
     // Altura: base palete (0.112m) + proporcional das camadas
-    const altPadrao = metricsPaleteAtual.totalAlt // altura total do palete completo
+    // Usar altura da config do item se disponível; caso contrário usar altura padrão mínima (não a do modal)
+    const altPadrao = Number(dimsPalete?.alturaM) || 0.672 // altura padrão PBR com 3 blocos de 3 camadas (fallback)
     const altBase = 0.112 // altura do palete base PBR
-    const altEmpilhado = altPadrao - altBase
+    const altEmpilhado = Math.max(0, altPadrao - altBase)
     const altProporcional = altBase + (altEmpilhado * (camadasReais / totalCamadas))
 
     return {
@@ -2645,12 +2678,12 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       percentual: Math.round(completude * 100),
       amarradosRack: Math.floor(amarradosRack),
       sobraPecas: Math.round(pecasRack % porAmarrado),
-      amarradosPalete: Math.round(amarradosPalete),
+      amarradosPalete: cfgPalete ? Math.round(totalPacotesPalete) : Math.round(amarradosPalete),
       porAmarrado,
       alturaEstimada: altProporcional,
       completo: completude >= 0.99,
     }
-  }, [metricsPaleteAtual, ferramentasCfgData])
+  }, [metricsPaleteAtual, ferramentasCfgData, paleteConfigData])
 
   // Calcula dimensões do palete a partir de uma config do banco
   // Usa calcularDimensoesPalete (fonte única de verdade) para consistência entre abas
@@ -2727,22 +2760,31 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         const dimsFallback = dimensoesPadraoRomaneio
 
         if (prev[entry.key]) {
-          // Já existe — preservar largura e quantidade editadas pelo usuário
-          // mas sempre corrigir o comprimento se o material tem comprimento real
-          const prevComp = prev[entry.key].comprimento
-          const deveCorrigirComp = compRealM && prevComp !== compRealM
-          if (deveCorrigirComp) {
-            atualizado[entry.key] = { ...prev[entry.key], comprimento: compRealM }
-            mudou = true
-          } else {
-            atualizado[entry.key] = prev[entry.key]
+          // Já existe — preservar largura e quantidade editadas pelo usuário,
+          // mas corrigir comprimento real e altura proporcional automática
+          const proximo = { ...prev[entry.key] }
+          let alterou = false
+
+          if (compRealM && proximo.comprimento !== compRealM) {
+            proximo.comprimento = compRealM
+            alterou = true
           }
+
+          // Sempre usar alturaEstimada (proporcional) se disponível; nunca usar altura padrão 100%
+          if (alturaEstimada && proximo.altura !== alturaEstimada) {
+            proximo.altura = alturaEstimada
+            alterou = true
+          }
+
+          atualizado[entry.key] = proximo
+          if (alterou) mudou = true
         } else {
-          // Novo entry — usar dimensões da config do próprio item, com fallback para config atual
+          // Novo entry — usar altura proporcional (alturaEstimada) sempre que possível
+          // Fallback apenas para largura/comprimento se não houver config do item
           atualizado[entry.key] = {
             largura: dimsDoItem?.largura || dimsFallback.largura || '',
             comprimento: compRealM || dimsDoItem?.comprimento || dimsFallback.comprimento || '',
-            altura: alturaEstimada || dimsDoItem?.altura || dimsFallback.altura || '',
+            altura: alturaEstimada || '', // Sempre usar altura proporcional; nunca altura padrão 100%
             quantidade: '1',
           }
           mudou = true
@@ -2771,7 +2813,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     })
   }, [romaneioPaletes, dimensoesPadraoRomaneio, calcularCompletudePalete, paleteConfigData, buscarPaleteConfig, calcularDimensoesDaConfig])
 
-  // Corrigir itens já na fila que foram adicionados com comprimento incorreto
+  // Corrigir itens já na fila que foram adicionados com dimensões incorretas (sem mínimo do estrado PBR)
   useEffect(() => {
     if (!romaneioPaletes.length) return
     setFilaItens(prev => {
@@ -2779,26 +2821,59 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       const atualizados = prev.map(item => {
         if (item.origem !== 'romaneio' || !item.metadataRomaneio?.key) return item
         const entrada = romaneioPaletes.find(e => e.key === item.metadataRomaneio.key)
-        if (!entrada || !entrada.comprimentoAcabadoMm) return item
-        const compRealM = entrada.comprimentoAcabadoMm / 1000
-        if (Math.abs(item.comprimento - compRealM) < 0.001) return item
+        if (!entrada) return item
+
+        // Recalcular dimensões corretas com mínimo do estrado
+        const produto = entrada.produtos?.[0] || ''
+        const sP = String(produto).toUpperCase()
+        const mP3 = sP.match(/^([A-Z]{3})([A-Z0-9]+)/)
+        const mP2 = sP.match(/^([A-Z]{2})([A-Z0-9]+)/)
+        const mP = mP3 || mP2
+        let dimsCorrigidas = null
+        if (mP) {
+          const letras = mP[1], resto = mP[2], qtdDig = mP3 ? 3 : 4
+          let nums = ''
+          for (const ch of resto) {
+            if (/[0-9]/.test(ch)) nums += ch
+            else if (ch === 'O') nums += '0'
+            if (nums.length === qtdDig) break
+          }
+          if (nums.length < qtdDig) nums = nums.padEnd(qtdDig, '0')
+          const ferrItem = `${letras}-${nums}`
+          const compItem = entrada.comprimentoAcabadoMm || 0
+          const cfgItem = buscarPaleteConfig(ferrItem, compItem)
+          dimsCorrigidas = calcularDimensoesDaConfig(cfgItem)
+        }
+
+        const compRealM = entrada.comprimentoAcabadoMm > 0 ? entrada.comprimentoAcabadoMm / 1000 : null
+        const novoComp = compRealM || (dimsCorrigidas ? parseFloat(dimsCorrigidas.comprimento) : item.comprimento)
+        const novaLarg = dimsCorrigidas ? parseFloat(dimsCorrigidas.largura) : item.largura
+        const novaAlt  = dimsCorrigidas ? parseFloat(dimsCorrigidas.altura)  : item.altura
+
+        const semMudanca =
+          Math.abs(item.comprimento - novoComp) < 0.001 &&
+          Math.abs(item.largura    - novaLarg)  < 0.001 &&
+          Math.abs(item.altura     - novaAlt)   < 0.001
+        if (semMudanca) return item
+
         mudou = true
         return {
           ...item,
-          comprimento: compRealM,
-          volume: item.largura * compRealM * item.altura,
+          largura:    novaLarg,
+          comprimento: novoComp,
+          altura:     novaAlt,
+          volume:     novaLarg * novoComp * novaAlt,
         }
       })
       return mudou ? atualizados : prev
     })
-  }, [romaneioPaletes])
+  }, [romaneioPaletes, buscarPaleteConfig, calcularDimensoesDaConfig])
 
   useEffect(() => {
     if (!manualPlacements.length) return
     setManualPlacements(prev => {
       let mudou = false
       const atualizados = prev.map((p) => {
-        if (p.produto || p.produtos?.[0]) return p
         const rackTitulo = String(p.titulo || '').toUpperCase().trim()
         const filaItem = p.itemIdx !== undefined && p.itemIdx >= 0
           ? filaItens[p.itemIdx]
@@ -2807,9 +2882,27 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
           ? romaneioPaletes.find((rp) => rp.key === filaItem.metadataRomaneio.key)
           : romaneioPaletes.find((rp) => String(rp.rack || '').toUpperCase().trim() === rackTitulo)
         const produto = filaItem?.produtos?.[0] || filaItem?.produto || romaneioPalete?.produtos?.[0] || ''
-        if (!produto) return p
-        mudou = true
-        return { ...p, produto }
+        const alturaAtual = Number(filaItem?.altura) || 0
+
+        const proximo = { ...p }
+        let alterou = false
+
+        if (produto && proximo.produto !== produto) {
+          proximo.produto = produto
+          alterou = true
+        }
+
+        if (alturaAtual > 0 && Math.abs((Number(proximo.alt) || 0) - alturaAtual) > 0.001) {
+          proximo.alt = alturaAtual
+          alterou = true
+        }
+
+        if (alterou) {
+          mudou = true
+          return proximo
+        }
+
+        return p
       })
       return mudou ? atualizados : prev
     })
@@ -3164,7 +3257,6 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       setShowSalvarModal(false)
       const label = isCarga ? `Carga nº ${sim.numero_carga}` : 'Simulação'
       setMsg(`${label} salva com sucesso!`)
-      setTimeout(() => setMsg(''), 3000)
 
       if (isCarga) {
         // Limpar fila e placements — itens agora pertencem à carga
@@ -3314,7 +3406,6 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       setSimulacaoCarregadaId(sim.id)
       setShowCarregarModal(false)
       setMsg(`Simulação "${sim.titulo}" carregada!`)
-      setTimeout(() => setMsg(''), 3000)
     } catch (e) {
       console.error(e)
       setMsg('Erro ao carregar: ' + (e.message || ''))
@@ -4059,6 +4150,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                     {editando
                       ? <select name="tipo_palete" value={form.tipo_palete} onChange={handleChange} className={inputCls}>
                           <option value="PBR_1000x1000">PBR 1000×1000</option>
+                          <option value="PBR_1080x1080">PBR 1080×1080</option>
                           <option value="PBR_1200x1200">PBR 1200×1200</option>
                           <option value="PBR_1200x800">PBR 1200×800</option>
                           <option value="PBR_1200x1000">PBR 1200×1000</option>
@@ -4067,6 +4159,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                           (() => {
                             const map = {
                               PBR_1000x1000: 'PBR 1000×1000 mm',
+                              PBR_1080x1080: 'PBR 1080×1080 mm',
                               PBR_1200x1200: 'PBR 1200×1200 mm',
                               PBR_1200x800: 'PBR 1200×800 mm',
                               PBR_1200x1000: 'PBR 1200×1000 mm',
@@ -5030,6 +5123,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         folgaAlturaCm={folgaAlturaCm}
                         considerarAltura={considerarAltura}
                         viewMode={truckViewMode}
+                        calcularCompletudePalete={calcularCompletudePalete}
                       />
                       
                       {pesoRealCargaKg != null && (
@@ -5156,6 +5250,9 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                       {manualPlacements.map(p => {
                                         // Extrair informações do item original para o tooltip
                                         const itemOriginal = filaItens[p.itemIdx] || {}
+                                        const completudeTooltip = calcularCompletudePalete(itemOriginal)
+                                        const pacotesReais = completudeTooltip?.amarradosRack ?? null
+                                        const pacotesTotal = completudeTooltip?.amarradosPalete ?? itemOriginal?.totalPacotes ?? null
                                         
                                         // Criar objeto palete para o tooltip
                                         const paleteParaTooltip = {
@@ -5170,7 +5267,9 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                           quantidade: 1,
                                           quantidadePecas: itemOriginal?.quantidadePecas || 0,
                                           pesoPacoteKg: itemOriginal?.pesoPacoteKg || 0,
-                                          metadataRomaneio: itemOriginal?.metadataRomaneio || null
+                                          metadataRomaneio: itemOriginal?.metadataRomaneio || null,
+                                          pacotesReais,
+                                          pacotesTotal
                                         }
 
                                         const meshPosition = [
@@ -5339,6 +5438,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                                       <strong>Volume:</strong> ${(paleteParaTooltip.volume || 0).toFixed(3)} m³
                                                     </div>
                                                     ${paleteParaTooltip.quantidadePecas > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peças:</strong> ${paleteParaTooltip.quantidadePecas}</div>` : ''}
+                                                    ${(paleteParaTooltip.pacotesReais || paleteParaTooltip.pacotesTotal) ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Pacotes:</strong> ${paleteParaTooltip.pacotesReais || paleteParaTooltip.pacotesTotal}${paleteParaTooltip.pacotesReais && paleteParaTooltip.pacotesTotal && paleteParaTooltip.pacotesTotal !== paleteParaTooltip.pacotesReais ? `/${paleteParaTooltip.pacotesTotal}` : ''}</div>` : ''}
                                                     ${paleteParaTooltip.pesoPacoteKg > 0 ? `<div style="font-size: 12px; color: #64748b; margin-bottom: 4px;"><strong>Peso:</strong> ${paleteParaTooltip.pesoPacoteKg.toFixed(1)} kg</div>` : ''}
                                                     <div style="font-size: 12px; color: #64748b; margin-bottom: 4px;">
                                                       <strong>Origem:</strong> 
@@ -6164,7 +6264,14 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
         {/* Toast Notification */}
         {msg && (
-          <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div
+            className="fixed bottom-6 right-6 z-50 transition-all duration-500"
+            style={{
+              opacity: msgVisible ? 1 : 0,
+              transform: msgVisible ? 'translateY(0)' : 'translateY(16px)',
+              pointerEvents: msgVisible ? 'auto' : 'none',
+            }}
+          >
             <div className={`px-6 py-3 rounded-lg shadow-xl text-white font-semibold flex items-center gap-3 ${
               msg.includes('atualizado') 
                 ? 'bg-blue-600' 
@@ -6174,6 +6281,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                 ? 'bg-cyan-600'
                 : msg.includes('deletado')
                 ? 'bg-orange-600'
+                : msg.includes('Nenhuma') || msg.includes('Erro')
+                ? 'bg-amber-600'
                 : 'bg-slate-700'
             }`}>
               <span className="text-lg">
@@ -6182,8 +6291,13 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                 {msg.includes('carregado') && '📂'}
                 {msg.includes('deletado') && '🗑️'}
                 {msg.includes('Erro') && '❌'}
+                {msg.includes('Nenhuma') && '⚠️'}
               </span>
               <span>{msg}</span>
+              <button
+                onClick={() => { setMsgVisible(false); setTimeout(() => setMsg(''), 500) }}
+                className="ml-2 text-white/70 hover:text-white transition-colors text-xl leading-none"
+              >×</button>
             </div>
           </div>
         )}
