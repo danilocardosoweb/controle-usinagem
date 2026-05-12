@@ -4,6 +4,7 @@ import ReimpressaoApontamentosModal from './ReimpressaoApontamentosModal'
 
 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR')
 const fmtDec = (n, dec = 1) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '-'
 
 export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamentos, kitComponentes }) {
   const printRef = useRef()
@@ -145,6 +146,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
             <tr>
               <th>#</th>
               <th class="nowrap">Palete</th>
+              <th class="nowrap">Data Apon.</th>
               <th>Produto</th>
               <th>Ferramenta</th>
               <th class="center">Comp.</th>
@@ -162,6 +164,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
               <tr>
                 <td class="center" style="color:#999">${idx + 1}</td>
                 <td class="nowrap"><strong>${item.rack_ou_pallet || '-'}</strong></td>
+                <td class="nowrap">${(() => { const ap = (apontamentos || []).find(a => a.id === item.apontamento_id); return ap?.created_at ? new Date(ap.created_at).toLocaleDateString('pt-BR') : '-' })()}</td>
                 <td class="mono">${item.produto || '-'}</td>
                 <td>${item.ferramenta || '-'}</td>
                 <td class="center">${item.comprimento_acabado_mm ? item.comprimento_acabado_mm + 'mm' : '-'}</td>
@@ -289,6 +292,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
               <tr className="bg-slate-700 text-white text-xs uppercase tracking-wider">
                 <th className="px-3 py-2.5 text-left rounded-tl-lg w-8">#</th>
                 <th className="px-3 py-2.5 text-left">Palete</th>
+                <th className="px-3 py-2.5 text-left whitespace-nowrap">Data Apon.</th>
                 <th className="px-3 py-2.5 text-left">Produto</th>
                 <th className="px-3 py-2.5 text-left">Ferramenta</th>
                 <th className="px-3 py-2.5 text-center">Comp.</th>
@@ -306,6 +310,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
                 <tr key={idx} className="hover:bg-blue-50/40 transition-colors">
                   <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2 font-semibold text-gray-800">{item.rack_ou_pallet || '-'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{fmtDate(apontamentos?.find(a => a.id === item.apontamento_id)?.created_at)}</td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-600">{item.produto || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.ferramenta || '-'}</td>
                   <td className="px-3 py-2 text-center text-gray-700">{item.comprimento_acabado_mm ? `${item.comprimento_acabado_mm}mm` : '-'}</td>
