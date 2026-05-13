@@ -1323,82 +1323,135 @@ const Relatorios = () => {
     switch (baseTipo) {
       case 'folha_inspecao': {
         const rows = buildRows('folha_inspecao')
-        const folhaAtual = { id: null }
-        return (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-xs">
-              <thead className="bg-blue-900 text-white">
-                <tr>
-                  <th className="px-2 py-2 text-left">Data</th>
-                  <th className="px-2 py-2 text-left">Pedido/Seq</th>
-                  <th className="px-2 py-2 text-left">Form#</th>
-                  <th className="px-2 py-2 text-left">Produto</th>
-                  <th className="px-2 py-2 text-left">Cliente</th>
-                  <th className="px-2 py-2 text-left">Ped. Cliente</th>
-                  <th className="px-2 py-2 text-left">NroOP</th>
-                  <th className="px-2 py-2 text-left">Status</th>
-                  <th className="px-2 py-2 text-center">#Linha</th>
-                  <th className="px-2 py-2 text-center">Hora</th>
-                  <th className="px-2 py-2 text-center">Qtd. Amostrada</th>
-                  <th className="px-2 py-2 text-center">Qtd. Aprovada</th>
-                  <th className="px-2 py-2 text-center">Qtd. Reprovada</th>
-                  <th className="px-2 py-2 text-center">Medida Encontrada</th>
-                  <th className="px-2 py-2 text-center">Status OK/NOK</th>
-                  <th className="px-2 py-2 text-left">Observações</th>
-                  <th className="px-2 py-2 text-left">Operador</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-100">
-                {(rows || []).map((r, idx) => {
-                  const novaFolha = r.Pedido_Seq + '|' + r.Formulario !== folhaAtual.id
-                  folhaAtual.id = r.Pedido_Seq + '|' + r.Formulario
-                  return (
-                    <>
-                      {novaFolha && (
-                        <tr key={'sep-' + idx} className="bg-blue-50">
-                          <td colSpan="17" className="px-3 py-1.5 font-bold text-blue-800 text-xs">
-                            📋 {r.Pedido_Seq} &nbsp;|  Formulário #{r.Formulario} &nbsp;—&nbsp; {r.Produto} &nbsp;—&nbsp; {r.Cliente}
+
+        // Agrupar linhas por formulário
+        const grupos = []
+        let grupoAtual = null
+        ;(rows || []).forEach(r => {
+          const chave = r.Pedido_Seq + '|' + r.Formulario
+          if (!grupoAtual || grupoAtual.chave !== chave) {
+            grupoAtual = { chave, header: r, linhas: [] }
+            grupos.push(grupoAtual)
+          }
+          grupoAtual.linhas.push(r)
+        })
+
+        const FolhaInspecaoTabela = () => {
+          const [expandidos, setExpandidos] = useState(() => {
+            const init = {}
+            grupos.forEach(g => { init[g.chave] = true })
+            return init
+          })
+          const toggleTodos = (valor) => {
+            const novo = {}
+            grupos.forEach(g => { novo[g.chave] = valor })
+            setExpandidos(novo)
+          }
+          const toggle = (chave) => setExpandidos(prev => ({ ...prev, [chave]: !prev[chave] }))
+          const todosExpandidos = grupos.every(g => expandidos[g.chave])
+
+          return (
+            <div className="overflow-x-auto">
+              <div className="flex items-center gap-2 mb-2">
+                <button onClick={() => toggleTodos(true)}
+                  className="px-3 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 font-semibold">
+                  ▼ Expandir Todos
+                </button>
+                <button onClick={() => toggleTodos(false)}
+                  className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-semibold">
+                  ▶ Recolher Todos
+                </button>
+                <span className="text-xs text-gray-500">{grupos.length} formulário(s)</span>
+              </div>
+              <table className="min-w-full divide-y divide-gray-200 text-xs">
+                <thead className="bg-blue-900 text-white">
+                  <tr>
+                    <th className="px-2 py-2 w-6"></th>
+                    <th className="px-2 py-2 text-left">Data</th>
+                    <th className="px-2 py-2 text-left">Pedido/Seq</th>
+                    <th className="px-2 py-2 text-left">Form#</th>
+                    <th className="px-2 py-2 text-left">Produto</th>
+                    <th className="px-2 py-2 text-left">Cliente</th>
+                    <th className="px-2 py-2 text-left">Ped. Cliente</th>
+                    <th className="px-2 py-2 text-left">NroOP</th>
+                    <th className="px-2 py-2 text-left">Status</th>
+                    <th className="px-2 py-2 text-center">#Linha</th>
+                    <th className="px-2 py-2 text-center">Hora</th>
+                    <th className="px-2 py-2 text-center">Qtd. Amostrada</th>
+                    <th className="px-2 py-2 text-center">Qtd. Aprovada</th>
+                    <th className="px-2 py-2 text-center">Qtd. Reprovada</th>
+                    <th className="px-2 py-2 text-center">Medida Encontrada</th>
+                    <th className="px-2 py-2 text-center">Status OK/NOK</th>
+                    <th className="px-2 py-2 text-left">Observações</th>
+                    <th className="px-2 py-2 text-left">Operador</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {grupos.length === 0 && (
+                    <tr><td colSpan="18" className="px-6 py-8 text-center text-gray-400">Nenhuma folha encontrada. Use os filtros de Pedido/Seq ou Data.</td></tr>
+                  )}
+                  {grupos.map(grupo => {
+                    const aberto = expandidos[grupo.chave]
+                    const h = grupo.header
+                    const linhasPreenchidas = grupo.linhas.filter(r => r.Linha !== '-').length
+                    return (
+                      <>
+                        {/* Linha cabeçalho do grupo — clicável */}
+                        <tr key={'sep-' + grupo.chave}
+                          className="bg-blue-50 cursor-pointer select-none hover:bg-blue-100"
+                          onClick={() => toggle(grupo.chave)}>
+                          <td className="px-2 py-1.5 text-center text-blue-600 font-bold text-sm">
+                            {aberto ? '▼' : '▶'}
+                          </td>
+                          <td colSpan="17" className="px-2 py-1.5 font-bold text-blue-800 text-xs">
+                            📋 {h.Pedido_Seq} &nbsp;| Formulário #{h.Formulario} &nbsp;—&nbsp; {h.Produto} &nbsp;—&nbsp; {h.Cliente}
+                            <span className="ml-3 font-normal text-blue-500">
+                              {linhasPreenchidas} linha(s) · {h.Status}
+                            </span>
                           </td>
                         </tr>
-                      )}
-                      <tr key={idx} className={`hover:bg-yellow-50 ${r.Status_OK_NOK === 'NOK' ? 'bg-red-50' : ''}`}>
-                        <td className="px-2 py-1 whitespace-nowrap">{r.Data}</td>
-                        <td className="px-2 py-1 whitespace-nowrap font-semibold">{r.Pedido_Seq}</td>
-                        <td className="px-2 py-1 text-center">{r.Formulario}</td>
-                        <td className="px-2 py-1 max-w-[160px] truncate" title={r.Produto}>{r.Produto}</td>
-                        <td className="px-2 py-1 whitespace-nowrap">{r.Cliente}</td>
-                        <td className="px-2 py-1 whitespace-nowrap">{r.Pedido_Cliente}</td>
-                        <td className="px-2 py-1 whitespace-nowrap">{r.NroOP}</td>
-                        <td className="px-2 py-1">
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
-                            r.Status === 'finalizado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                          }`}>{r.Status}</span>
-                        </td>
-                        <td className="px-2 py-1 text-center text-gray-400">{r.Linha}</td>
-                        <td className="px-2 py-1 text-center">{r.Hora}</td>
-                        <td className="px-2 py-1 text-center">{r.Qtd_Amostrada}</td>
-                        <td className="px-2 py-1 text-center text-green-700 font-semibold">{r.Qtd_Aprovada}</td>
-                        <td className="px-2 py-1 text-center text-red-700 font-semibold">{r.Qtd_Reprovada}</td>
-                        <td className="px-2 py-1 text-center">{r.Medida_Encontrada}</td>
-                        <td className="px-2 py-1 text-center">
-                          <span className={`px-1.5 py-0.5 rounded font-bold ${
-                            r.Status_OK_NOK === 'NOK' ? 'bg-red-100 text-red-800' :
-                            r.Status_OK_NOK === 'OK'  ? 'bg-green-100 text-green-800' : ''
-                          }`}>{r.Status_OK_NOK}</span>
-                        </td>
-                        <td className="px-2 py-1 max-w-[200px] truncate" title={r.Observacoes}>{r.Observacoes}</td>
-                        <td className="px-2 py-1 whitespace-nowrap">{r.Operador_Linha}</td>
-                      </tr>
-                    </>
-                  )
-                })}
-                {(!rows || rows.length === 0) && (
-                  <tr><td colSpan="17" className="px-6 py-8 text-center text-gray-400">Nenhuma folha encontrada. Use os filtros de Pedido/Seq ou Data.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )
+                        {/* Linhas de detalhe — só visíveis quando expandido */}
+                        {aberto && grupo.linhas.map((r, idx) => (
+                          <tr key={grupo.chave + '-' + idx}
+                            className={`hover:bg-yellow-50 ${r.Status_OK_NOK === 'NOK' ? 'bg-red-50' : ''}`}>
+                            <td className="px-2 py-1 text-center text-gray-300 text-xs">↳</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{r.Data}</td>
+                            <td className="px-2 py-1 whitespace-nowrap font-semibold">{r.Pedido_Seq}</td>
+                            <td className="px-2 py-1 text-center">{r.Formulario}</td>
+                            <td className="px-2 py-1 max-w-[160px] truncate" title={r.Produto}>{r.Produto}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{r.Cliente}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{r.Pedido_Cliente}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{r.NroOP}</td>
+                            <td className="px-2 py-1">
+                              <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+                                r.Status === 'finalizado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                              }`}>{r.Status}</span>
+                            </td>
+                            <td className="px-2 py-1 text-center text-gray-400">{r.Linha}</td>
+                            <td className="px-2 py-1 text-center">{r.Hora}</td>
+                            <td className="px-2 py-1 text-center">{r.Qtd_Amostrada}</td>
+                            <td className="px-2 py-1 text-center text-green-700 font-semibold">{r.Qtd_Aprovada}</td>
+                            <td className="px-2 py-1 text-center text-red-700 font-semibold">{r.Qtd_Reprovada}</td>
+                            <td className="px-2 py-1 text-center">{r.Medida_Encontrada}</td>
+                            <td className="px-2 py-1 text-center">
+                              <span className={`px-1.5 py-0.5 rounded font-bold ${
+                                r.Status_OK_NOK === 'NOK' ? 'bg-red-100 text-red-800' :
+                                r.Status_OK_NOK === 'OK'  ? 'bg-green-100 text-green-800' : ''
+                              }`}>{r.Status_OK_NOK}</span>
+                            </td>
+                            <td className="px-2 py-1 max-w-[200px] truncate" title={r.Observacoes}>{r.Observacoes}</td>
+                            <td className="px-2 py-1 whitespace-nowrap">{r.Operador_Linha}</td>
+                          </tr>
+                        ))}
+                      </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+        return <FolhaInspecaoTabela />
       }
       case 'inspecao_qualidade': {
         const rows = buildRows('inspecao_qualidade')
