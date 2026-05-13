@@ -1339,7 +1339,7 @@ const Relatorios = () => {
         const FolhaInspecaoTabela = () => {
           const [expandidos, setExpandidos] = useState(() => {
             const init = {}
-            grupos.forEach(g => { init[g.chave] = true })
+            grupos.forEach(g => { init[g.chave] = false })
             return init
           })
           const toggleTodos = (valor) => {
