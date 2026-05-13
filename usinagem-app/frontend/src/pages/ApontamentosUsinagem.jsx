@@ -717,7 +717,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
         // Verifica se as 20 linhas já estão todas preenchidas
         const linhasPreenchidas = registros.filter(r =>
-          r.hora || r.qtd_amostrada || r.qtd_aprovada || r.qtd_reprovada || r.medida_encontrada || r.status_ok_nok
+          r.hora || r.qtd_amostrada || r.qtd_aprovada || r.medida_encontrada || r.status_ok_nok || r.observacoes || r.operador
         ).length;
 
         if (linhasPreenchidas >= NUM_LINHAS) {
@@ -894,7 +894,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             operador: tr.querySelector('.operador-auto')?.textContent.trim() || null
           });
         });
-        const filledReg = registros.filter(r => Object.entries(r).some(([k,v]) => k !== 'folha_id' && k !== 'linha' && v));
+        const filledReg = registros.filter(r =>
+          r.hora || r.qtd_amostrada || r.qtd_aprovada || r.medida_encontrada || r.status_ok_nok || r.observacoes || r.operador
+        );
         if (filledReg.length) {
           const resR = await fetch(SUPA_URL + '/rest/v1/folhas_inspecao_registros', {
             method: 'POST',
