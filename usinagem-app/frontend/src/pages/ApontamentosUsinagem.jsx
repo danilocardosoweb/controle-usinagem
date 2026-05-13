@@ -609,6 +609,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     <button class="btn-new" onclick="novoFormulario()">➕ Novo Formulário</button>
     <button class="btn-clear" onclick="limparCampos()">Limpar</button>
     <button class="btn-save" onclick="salvarFolha()">💾 Salvar</button>
+    <button class="btn-buscar" onclick="buscarFormularioPorPedido()" style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:9pt;">🔍 Buscar Formulário</button>
     <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
   </div>
 
@@ -728,16 +729,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           return;
         }
 
-        if (registros.length === 0 && folha.status === 'rascunho') {
-          // Folha criada mas sem registros ainda
-          folhaIdSalva = folha.id;
-          atualizarTitulo(folhaNumeroAtual);
-          return;
-        }
-
         // Preencher as células com os dados salvos
         folhaIdSalva = folha.id;
         atualizarTitulo(folhaNumeroAtual);
+        if (registros.length === 0) {
+          mostrarAviso('📂 Formulário #' + folhaNumeroAtual + ' carregado (sem registros ainda).', 'info');
+          return;
+        }
         const trs = document.querySelectorAll('#tbl-inspecao tbody tr');
         registros.forEach(reg => {
           const tr = trs[reg.linha - 1];
@@ -752,7 +750,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           if (tds[4]) tds[4].textContent = reg.status_ok_nok || '';
           if (tds[5]) tds[5].textContent = reg.observacoes || '';
           const tdOp = tr.querySelector('.operador-auto');
-          if (tdOp && reg.operador) tdOp.textContent = reg.operador;
+          if (tdOp) tdOp.textContent = reg.operador || '';
         });
 
         // Carregar dimensional
@@ -1014,6 +1012,61 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       const next = cells[e.shiftKey ? idx - 1 : idx + 1];
       if (next) { next.focus(); }
     });
+
+    // ─── BUSCAR FORMULÁRIO POR PEDIDO ────────────────────────────────────────
+    async function buscarFormularioPorPedido() {
+      const pedido = prompt('Digite o Pedido/Seq para buscar o formulário (ex: 85737/10):');
+      if (!pedido || !pedido.trim()) return;
+      const pedidoBusca = pedido.trim();
+      try {
+        mostrarAviso('🔍 Buscando formulário para ' + pedidoBusca + '...', 'info');
+        const res = await fetch(
+          SUPA_URL + '/rest/v1/folhas_inspecao?pedido_seq=eq.' + encodeURIComponent(pedidoBusca)
+          + '&order=folha_numero.desc,created_at.desc&limit=1',
+          { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+        );
+        if (!res.ok) throw new Error();
+        const folhas = await res.json();
+        if (!folhas.length) {
+          mostrarAviso('❌ Nenhum formulário encontrado para ' + pedidoBusca, 'error');
+          return;
+        }
+        const folha = folhas[0];
+        folhaNumeroAtual = folha.folha_numero || 1;
+        folhaIdSalva = folha.id;
+        // Limpar células antes de preencher
+        document.querySelectorAll('#tbl-inspecao tbody tr').forEach(tr => {
+          tr.querySelectorAll('td.edit').forEach(td => td.textContent = '');
+          const rep = tr.querySelector('.reprovada-calc'); if (rep) rep.textContent = '0';
+          const op = tr.querySelector('.operador-auto'); if (op) op.textContent = '';
+        });
+        atualizarTitulo(folhaNumeroAtual);
+        const resReg = await fetch(
+          SUPA_URL + '/rest/v1/folhas_inspecao_registros?folha_id=eq.' + folha.id + '&order=linha.asc',
+          { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+        );
+        const registros = resReg.ok ? await resReg.json() : [];
+        const trs = document.querySelectorAll('#tbl-inspecao tbody tr');
+        registros.forEach(reg => {
+          const tr = trs[reg.linha - 1];
+          if (!tr) return;
+          const tds = tr.querySelectorAll('td.edit');
+          if (tds[0]) tds[0].textContent = reg.hora || '';
+          if (tds[1]) tds[1].textContent = reg.qtd_amostrada || '';
+          if (tds[2]) tds[2].textContent = reg.qtd_aprovada || '';
+          const tdRep = tr.querySelector('.reprovada-calc');
+          if (tdRep) tdRep.textContent = reg.qtd_reprovada || '0';
+          if (tds[3]) tds[3].textContent = reg.medida_encontrada || '';
+          if (tds[4]) tds[4].textContent = reg.status_ok_nok || '';
+          if (tds[5]) tds[5].textContent = reg.observacoes || '';
+          const tdOp = tr.querySelector('.operador-auto');
+          if (tdOp) tdOp.textContent = reg.operador || '';
+        });
+        mostrarAviso('✅ Formulário #' + folhaNumeroAtual + ' de ' + pedidoBusca + ' carregado com ' + registros.length + ' registro(s).', 'success');
+      } catch(e) {
+        mostrarAviso('❌ Erro ao buscar formulário: ' + e.message, 'error');
+      }
+    }
 
     // ─── INICIALIZAR: carregar último formulário ao abrir ─────────────────────────
     carregarUltimaFolha();
