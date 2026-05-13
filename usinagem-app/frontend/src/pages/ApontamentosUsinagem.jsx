@@ -511,7 +511,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         <td class="edit" contenteditable="true"></td>
         <td class="edit" contenteditable="true"></td>
         <td class="edit obs-col" contenteditable="true"></td>
-        <td class="operador-auto" style="text-align:center;background:#f0fdf4;color:#166534;font-size:7pt;padding:0 3px;">${nomeOperador}</td>
+        <td class="operador-auto" style="text-align:center;background:#f0fdf4;color:#166534;font-size:7pt;padding:0 3px;"></td>
       </tr>`).join('')
 
     const linhasDimensional = ['Comprimento acabado (mm)', 'Largura / Espessura (mm)', 'Acabamento superficial', 'Identificação / Gravação', 'Embalagem / Amarrado', 'Ausência de rebarbas'].map((c, i) => `
@@ -982,6 +982,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         tdAprovada.addEventListener('blur',  () => recalcularReprovada(tr));
         tdAprovada.addEventListener('input', () => recalcularReprovada(tr));
       }
+      // Preencher operador automaticamente ao primeiro input na linha
+      tr.querySelectorAll('td.edit').forEach(td => {
+        td.addEventListener('input', () => {
+          const tdOp = tr.querySelector('.operador-auto');
+          if (tdOp && !tdOp.textContent.trim()) {
+            tdOp.textContent = nomeOperador;
+          }
+        });
+      });
     });
 
     // Aplicar formatação de hora nas células da coluna Hora (2ª coluna de cada linha)
