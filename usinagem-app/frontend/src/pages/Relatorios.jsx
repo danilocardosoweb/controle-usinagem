@@ -83,7 +83,8 @@ const Relatorios = () => {
     ferramenta: '', // filtro por ferramenta
     comprimento: '', // filtro por comprimento (ex: "810 mm")
     formato: 'excel',
-    modo: 'detalhado' // para rastreabilidade: detalhado|compacto
+    modo: 'detalhado', // para rastreabilidade: detalhado|compacto
+    pedidoSeq: '' // filtro para folha de inspeção
   }))
   const [filtrosAberto, setFiltrosAberto] = useState(true)
   const [printModalAberto, setPrintModalAberto] = useState(false)
@@ -98,6 +99,8 @@ const Relatorios = () => {
   const { items: maquinasCat } = useSupabase('maquinas')
   const { items: lotesDB } = useSupabase('lotes')
   const { items: inspecoesQualidade } = useSupabase('inspecoes_qualidade')
+  const { items: folhasInspecao } = useSupabase('folhas_inspecao')
+  const { items: folhasInspecaoRegistros } = useSupabase('folhas_inspecao_registros')
   const { items: kitsDB } = useSupabase('expedicao_kits')
   const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
 
@@ -194,7 +197,8 @@ const Relatorios = () => {
     { id: 'produtividade_usinagem', nome: 'Apontamentos - Usinagem: Produtividade (Itens)' },
     { id: 'produtividade_embalagem', nome: 'Apontamentos - Embalagem: Produtividade (Itens)' },
     { id: 'rastreabilidade', nome: 'Rastreabilidade (Amarrados/Lotes)' },
-    { id: 'apontamentos_rack', nome: 'Apontamentos por Rack!Embalagem' }
+    { id: 'apontamentos_rack', nome: 'Apontamentos por Rack!Embalagem' },
+    { id: 'folha_inspecao', nome: 'Folha de Inspeção de Qualidade (por Pedido)' }
   ]
 
   const areaPorTipoRelatorio = (tipo) => {
@@ -422,6 +426,54 @@ const Relatorios = () => {
   const buildRows = (tipo) => {
     const base = tipoBaseRelatorio(tipo)
     switch (base) {
+      case 'folha_inspecao': {
+        const rows = []
+        ;(folhasInspecaoFiltradas || []).sort((a, b) =>
+          (a.data_inspecao || '').localeCompare(b.data_inspecao || '')
+        ).forEach(folha => {
+          const regs = (registrosPorFolha[folha.id] || []).filter(r =>
+            r.hora || r.qtd_amostrada || r.qtd_aprovada || r.qtd_reprovada || r.medida_encontrada || r.status_ok_nok || r.observacoes || r.operador
+          ).sort((a, b) => (a.linha || 0) - (b.linha || 0))
+          if (regs.length === 0) {
+            rows.push({
+              Data: folha.data_inspecao ? new Date(folha.data_inspecao + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
+              Pedido_Seq: folha.pedido_seq || '-',
+              Formulario: folha.folha_numero || 1,
+              Produto: folha.produto || '-',
+              Cliente: folha.cliente || '-',
+              Pedido_Cliente: folha.pedido_cliente || '-',
+              NroOP: folha.nro_op || '-',
+              Status: folha.status || '-',
+              Linha: '-', Hora: '-', Qtd_Amostrada: '-', Qtd_Aprovada: '-',
+              Qtd_Reprovada: '-', Medida_Encontrada: '-', Status_OK_NOK: '-',
+              Observacoes: '-', Operador_Linha: '-'
+            })
+          } else {
+            regs.forEach(r => {
+              rows.push({
+                Data: folha.data_inspecao ? new Date(folha.data_inspecao + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
+                Pedido_Seq: folha.pedido_seq || '-',
+                Formulario: folha.folha_numero || 1,
+                Produto: folha.produto || '-',
+                Cliente: folha.cliente || '-',
+                Pedido_Cliente: folha.pedido_cliente || '-',
+                NroOP: folha.nro_op || '-',
+                Status: folha.status || '-',
+                Linha: r.linha,
+                Hora: r.hora || '-',
+                Qtd_Amostrada: r.qtd_amostrada || '-',
+                Qtd_Aprovada: r.qtd_aprovada || '-',
+                Qtd_Reprovada: r.qtd_reprovada || '-',
+                Medida_Encontrada: r.medida_encontrada || '-',
+                Status_OK_NOK: r.status_ok_nok || '-',
+                Observacoes: r.observacoes || '-',
+                Operador_Linha: r.operador || '-'
+              })
+            })
+          }
+        })
+        return rows
+      }
       case 'inspecao_qualidade': {
         return inspecoesQualidadeFiltradas.map((i) => {
           const apont = i.apontamento_id ? apontamentosPorId[i.apontamento_id] : null
@@ -1112,6 +1164,32 @@ const Relatorios = () => {
     })
   }, [inspecoesQualidade, filtros, apontamentosPorId, maqMap])
 
+  // ─── Folha de Inspeção: filtrar e agrupar ────────────────────────────────
+  const folhasInspecaoFiltradas = useMemo(() => {
+    const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
+    const df = filtros.dataFim ? toISODate(filtros.dataFim) : null
+    const pedidoFiltro = String(filtros.pedidoSeq || '').trim().toLowerCase()
+    return (folhasInspecao || []).filter(f => {
+      if (pedidoFiltro && !String(f.pedido_seq || '').toLowerCase().includes(pedidoFiltro)) return false
+      if (di && f.data_inspecao && f.data_inspecao < di) return false
+      if (df && f.data_inspecao && f.data_inspecao > df) return false
+      if (filtros.operador) {
+        const op = String(f.operador || '').toLowerCase()
+        if (!op.includes(String(filtros.operador).toLowerCase())) return false
+      }
+      return true
+    })
+  }, [folhasInspecao, filtros])
+
+  const registrosPorFolha = useMemo(() => {
+    const map = {}
+    ;(folhasInspecaoRegistros || []).forEach(r => {
+      if (!map[r.folha_id]) map[r.folha_id] = []
+      map[r.folha_id].push(r)
+    })
+    return map
+  }, [folhasInspecaoRegistros])
+
   // Ordena do mais recente para o mais antigo
   const apontamentosOrdenados = useMemo(() => {
     const copia = [...(apontamentosFiltrados || [])]
@@ -1243,6 +1321,85 @@ const Relatorios = () => {
 
     // Renderiza a tabela de acordo com o tipo de relatório
     switch (baseTipo) {
+      case 'folha_inspecao': {
+        const rows = buildRows('folha_inspecao')
+        const folhaAtual = { id: null }
+        return (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-xs">
+              <thead className="bg-blue-900 text-white">
+                <tr>
+                  <th className="px-2 py-2 text-left">Data</th>
+                  <th className="px-2 py-2 text-left">Pedido/Seq</th>
+                  <th className="px-2 py-2 text-left">Form#</th>
+                  <th className="px-2 py-2 text-left">Produto</th>
+                  <th className="px-2 py-2 text-left">Cliente</th>
+                  <th className="px-2 py-2 text-left">Ped. Cliente</th>
+                  <th className="px-2 py-2 text-left">NroOP</th>
+                  <th className="px-2 py-2 text-left">Status</th>
+                  <th className="px-2 py-2 text-center">#Linha</th>
+                  <th className="px-2 py-2 text-center">Hora</th>
+                  <th className="px-2 py-2 text-center">Qtd. Amostrada</th>
+                  <th className="px-2 py-2 text-center">Qtd. Aprovada</th>
+                  <th className="px-2 py-2 text-center">Qtd. Reprovada</th>
+                  <th className="px-2 py-2 text-center">Medida Encontrada</th>
+                  <th className="px-2 py-2 text-center">Status OK/NOK</th>
+                  <th className="px-2 py-2 text-left">Observações</th>
+                  <th className="px-2 py-2 text-left">Operador</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-100">
+                {(rows || []).map((r, idx) => {
+                  const novaFolha = r.Pedido_Seq + '|' + r.Formulario !== folhaAtual.id
+                  folhaAtual.id = r.Pedido_Seq + '|' + r.Formulario
+                  return (
+                    <>
+                      {novaFolha && (
+                        <tr key={'sep-' + idx} className="bg-blue-50">
+                          <td colSpan="17" className="px-3 py-1.5 font-bold text-blue-800 text-xs">
+                            📋 {r.Pedido_Seq} &nbsp;|  Formulário #{r.Formulario} &nbsp;—&nbsp; {r.Produto} &nbsp;—&nbsp; {r.Cliente}
+                          </td>
+                        </tr>
+                      )}
+                      <tr key={idx} className={`hover:bg-yellow-50 ${r.Status_OK_NOK === 'NOK' ? 'bg-red-50' : ''}`}>
+                        <td className="px-2 py-1 whitespace-nowrap">{r.Data}</td>
+                        <td className="px-2 py-1 whitespace-nowrap font-semibold">{r.Pedido_Seq}</td>
+                        <td className="px-2 py-1 text-center">{r.Formulario}</td>
+                        <td className="px-2 py-1 max-w-[160px] truncate" title={r.Produto}>{r.Produto}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{r.Cliente}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{r.Pedido_Cliente}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{r.NroOP}</td>
+                        <td className="px-2 py-1">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+                            r.Status === 'finalizado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                          }`}>{r.Status}</span>
+                        </td>
+                        <td className="px-2 py-1 text-center text-gray-400">{r.Linha}</td>
+                        <td className="px-2 py-1 text-center">{r.Hora}</td>
+                        <td className="px-2 py-1 text-center">{r.Qtd_Amostrada}</td>
+                        <td className="px-2 py-1 text-center text-green-700 font-semibold">{r.Qtd_Aprovada}</td>
+                        <td className="px-2 py-1 text-center text-red-700 font-semibold">{r.Qtd_Reprovada}</td>
+                        <td className="px-2 py-1 text-center">{r.Medida_Encontrada}</td>
+                        <td className="px-2 py-1 text-center">
+                          <span className={`px-1.5 py-0.5 rounded font-bold ${
+                            r.Status_OK_NOK === 'NOK' ? 'bg-red-100 text-red-800' :
+                            r.Status_OK_NOK === 'OK'  ? 'bg-green-100 text-green-800' : ''
+                          }`}>{r.Status_OK_NOK}</span>
+                        </td>
+                        <td className="px-2 py-1 max-w-[200px] truncate" title={r.Observacoes}>{r.Observacoes}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{r.Operador_Linha}</td>
+                      </tr>
+                    </>
+                  )
+                })}
+                {(!rows || rows.length === 0) && (
+                  <tr><td colSpan="17" className="px-6 py-8 text-center text-gray-400">Nenhuma folha encontrada. Use os filtros de Pedido/Seq ou Data.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )
+      }
       case 'inspecao_qualidade': {
         const rows = buildRows('inspecao_qualidade')
         return (
@@ -2127,6 +2284,22 @@ const Relatorios = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
+
+            {filtros.tipoRelatorio === 'folha_inspecao' && (
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-blue-700 mb-1 font-semibold">
+                  📋 Pedido/Seq (Folha de Inspeção)
+                </label>
+                <input
+                  type="text"
+                  name="pedidoSeq"
+                  value={filtros.pedidoSeq}
+                  onChange={handleChange}
+                  placeholder="Ex: 85737/10 — filtra por pedido/seq da folha"
+                  className="w-full px-3 py-2 border-2 border-blue-400 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

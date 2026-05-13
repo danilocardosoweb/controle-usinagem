@@ -499,16 +499,19 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const perfilLongo = formData.perfilLongo || '-'
     const comprimentoLongo = (() => { const pf = formData.perfilLongo || ''; const resto = String(pf).slice(8); const m = resto.match(/^\d+/); const v = m ? parseInt(m[0], 10) : null; return Number.isFinite(v) ? `${v} mm` : '-' })()
 
+    const nomeOperador = (user && user.nome) ? user.nome : (operador !== '-' ? operador : '')
+
     const linhasInspecao = Array.from({ length: 20 }, (_, i) => `
       <tr>
         <td class="num">${i + 1}</td>
-        <td class="edit" contenteditable="true"></td>
-        <td class="edit" contenteditable="true"></td>
-        <td class="edit" contenteditable="true"></td>
-        <td class="edit" contenteditable="true"></td>
+        <td class="edit hora-edit" contenteditable="true"></td>
+        <td class="edit amostrada-edit" contenteditable="true"></td>
+        <td class="edit aprovada-edit" contenteditable="true"></td>
+        <td class="reprovada-calc" style="text-align:center;color:#dc2626;font-weight:bold;background:#fff5f5;">0</td>
         <td class="edit" contenteditable="true"></td>
         <td class="edit" contenteditable="true"></td>
         <td class="edit obs-col" contenteditable="true"></td>
+        <td class="operador-auto" style="text-align:center;background:#f0fdf4;color:#166534;font-size:7pt;padding:0 3px;">${nomeOperador}</td>
       </tr>`).join('')
 
     const linhasDimensional = ['Comprimento acabado (mm)', 'Largura / Espessura (mm)', 'Acabamento superficial', 'Identificação / Gravação', 'Embalagem / Amarrado', 'Ausência de rebarbas'].map((c, i) => `
@@ -539,6 +542,23 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   .btn-clear:hover { background: #b91c1c; }
   .btn-save { background: #22c55e; color: #fff; }
   .btn-save:hover { background: #16a34a; }
+  .btn-new { background: #f59e0b; color: #fff; }
+  .btn-new:hover { background: #d97706; }
+  /* ── Modal de Confirmação Customizado ── */
+  #modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9999; align-items:center; justify-content:center; }
+  #modal-overlay.show { display:flex; }
+  #modal-box { background:#fff; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,.25); padding:32px 28px 24px; max-width:420px; width:90%; text-align:center; animation:modalIn .18s ease; }
+  @keyframes modalIn { from { transform:scale(.9); opacity:0; } to { transform:scale(1); opacity:1; } }
+  #modal-icon { font-size:2.4rem; margin-bottom:10px; line-height:1; }
+  #modal-title { font-size:12pt; font-weight:900; color:#111; margin-bottom:6px; }
+  #modal-msg { font-size:9.5pt; color:#444; margin-bottom:22px; line-height:1.5; }
+  .modal-btns { display:flex; gap:10px; justify-content:center; }
+  .modal-btns button { border:none; border-radius:7px; padding:9px 28px; font-size:9.5pt; font-weight:bold; cursor:pointer; transition:opacity .15s; }
+  .modal-btns button:hover { opacity:.85; }
+  #modal-btn-confirm { background:#ef4444; color:#fff; }
+  #modal-btn-confirm.green { background:#22c55e; }
+  #modal-btn-confirm.blue { background:#2563eb; }
+  #modal-btn-cancel { background:#e5e7eb; color:#374151; }
   .page { margin-top: 44px; padding: 4px; }
   .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 5px; }
   .header-title { font-size: 11pt; font-weight: bold; }
@@ -571,8 +591,22 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 </style>
 </head>
 <body>
+  <!-- Modal de Confirmação Customizado -->
+  <div id="modal-overlay">
+    <div id="modal-box">
+      <div id="modal-icon"></div>
+      <div id="modal-title"></div>
+      <div id="modal-msg"></div>
+      <div class="modal-btns">
+        <button id="modal-btn-confirm">Confirmar</button>
+        <button id="modal-btn-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toolbar">
-    <span>📋 Folha de Inspeção — ${pedidoSeq} &nbsp;|&nbsp; Preencha os campos e clique em Salvar ou Imprimir</span>
+    <span id="toolbar-title">📋 Folha de Inspeção — ${pedidoSeq} &nbsp;|&nbsp; Carregando...</span>
+    <button class="btn-new" onclick="novoFormulario()">➕ Novo Formulário</button>
     <button class="btn-clear" onclick="limparCampos()">Limpar</button>
     <button class="btn-save" onclick="salvarFolha()">💾 Salvar</button>
     <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
@@ -623,6 +657,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           <th style="width:75px">Medida Encontrada</th>
           <th style="width:70px">Status (OK / NOK)</th>
           <th class="obs-col">Observações</th>
+          <th style="width:90px;background:#dcfce7;color:#166534">Operador</th>
         </tr>
       </thead>
       <tbody>${linhasInspecao}</tbody>
@@ -649,7 +684,153 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   <script>
     const SUPA_URL = 'https://oykzakzcqjoaeixbxhvb.supabase.co';
     const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3pha3pjcWpvYWVpeGJ4aHZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNjY2MjgsImV4cCI6MjA3NDc0MjYyOH0.00BmsnzyIHlzcO41aAmIPwy5NXN8Gq6Qaopn6UbdIEc';
+    const PEDIDO_SEQ = '${pedidoSeq}';
+    const NUM_LINHAS = 20;
     let folhaIdSalva = null;
+    let folhaNumeroAtual = 1;
+
+    // ─── CARREGAR ÚLTIMA FOLHA AO ABRIR ───────────────────────────────────────
+    async function carregarUltimaFolha() {
+      try {
+        // Busca a folha mais recente (status rascunho ou finalizado) para esse pedido_seq
+        const res = await fetch(
+          SUPA_URL + '/rest/v1/folhas_inspecao?pedido_seq=eq.' + encodeURIComponent(PEDIDO_SEQ)
+          + '&order=folha_numero.desc,created_at.desc&limit=1',
+          { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+        );
+        if (!res.ok) throw new Error();
+        const folhas = await res.json();
+        if (!folhas.length) {
+          atualizarTitulo(1);
+          return;
+        }
+        const folha = folhas[0];
+        folhaNumeroAtual = folha.folha_numero || 1;
+
+        // Busca os registros salvos desta folha
+        const resReg = await fetch(
+          SUPA_URL + '/rest/v1/folhas_inspecao_registros?folha_id=eq.' + folha.id + '&order=linha.asc',
+          { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+        );
+        const registros = resReg.ok ? await resReg.json() : [];
+
+        // Verifica se as 20 linhas já estão todas preenchidas
+        const linhasPreenchidas = registros.filter(r =>
+          r.hora || r.qtd_amostrada || r.qtd_aprovada || r.qtd_reprovada || r.medida_encontrada || r.status_ok_nok
+        ).length;
+
+        if (linhasPreenchidas >= NUM_LINHAS) {
+          // Formulário cheio — abre novo automaticamente
+          folhaIdSalva = null;
+          folhaNumeroAtual = folhaNumeroAtual + 1;
+          atualizarTitulo(folhaNumeroAtual);
+          mostrarAviso('⚠️ Formulário anterior estava completo. Novo formulário criado automaticamente.', 'warning');
+          return;
+        }
+
+        if (registros.length === 0 && folha.status === 'rascunho') {
+          // Folha criada mas sem registros ainda
+          folhaIdSalva = folha.id;
+          atualizarTitulo(folhaNumeroAtual);
+          return;
+        }
+
+        // Preencher as células com os dados salvos
+        folhaIdSalva = folha.id;
+        atualizarTitulo(folhaNumeroAtual);
+        const trs = document.querySelectorAll('#tbl-inspecao tbody tr');
+        registros.forEach(reg => {
+          const tr = trs[reg.linha - 1];
+          if (!tr) return;
+          const tds = tr.querySelectorAll('td.edit');
+          if (tds[0]) tds[0].textContent = reg.hora || '';
+          if (tds[1]) tds[1].textContent = reg.qtd_amostrada || '';
+          if (tds[2]) tds[2].textContent = reg.qtd_aprovada || '';
+          const tdRep = tr.querySelector('.reprovada-calc');
+          if (tdRep) tdRep.textContent = reg.qtd_reprovada || '0';
+          if (tds[3]) tds[3].textContent = reg.medida_encontrada || '';
+          if (tds[4]) tds[4].textContent = reg.status_ok_nok || '';
+          if (tds[5]) tds[5].textContent = reg.observacoes || '';
+          const tdOp = tr.querySelector('.operador-auto');
+          if (tdOp && reg.operador) tdOp.textContent = reg.operador;
+        });
+
+        // Carregar dimensional
+        const resDim = await fetch(
+          SUPA_URL + '/rest/v1/folhas_inspecao_dimensional?folha_id=eq.' + folha.id + '&order=linha.asc',
+          { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+        );
+        const dimensionais = resDim.ok ? await resDim.json() : [];
+        const trsDim = document.querySelectorAll('#tbl-dimensional tbody tr');
+        dimensionais.forEach(dim => {
+          const tr = trsDim[dim.linha - 1];
+          if (!tr) return;
+          const tds = tr.querySelectorAll('td.edit');
+          if (tds[0]) tds[0].textContent = dim.especificacao || '';
+          if (tds[1]) tds[1].textContent = dim.medido || '';
+          if (tds[2]) tds[2].textContent = dim.status || '';
+          if (tds[3]) tds[3].textContent = dim.observacoes || '';
+        });
+
+        mostrarAviso('📂 Formulário #' + folhaNumeroAtual + ' carregado com ' + linhasPreenchidas + ' linha(s) preenchida(s).', 'info');
+      } catch(e) {
+        atualizarTitulo(1);
+      }
+    }
+
+    function atualizarTitulo(num) {
+      document.getElementById('toolbar-title').innerHTML =
+        '📋 Folha de Inspeção — ${pedidoSeq} &nbsp;|&nbsp; <strong>Formulário #' + num + '</strong>';
+    }
+
+    // ─── MODAL CUSTOMIZADO ────────────────────────────────────────────────────
+    function modalConfirmar({ icone, titulo, mensagem, labelOk = 'Confirmar', corOk = 'red' }) {
+      return new Promise(resolve => {
+        const overlay = document.getElementById('modal-overlay');
+        document.getElementById('modal-icon').textContent  = icone || '⚠️';
+        document.getElementById('modal-title').textContent = titulo || '';
+        document.getElementById('modal-msg').textContent   = mensagem || '';
+        const btnOk = document.getElementById('modal-btn-confirm');
+        btnOk.textContent = labelOk;
+        btnOk.className = corOk === 'green' ? 'green' : corOk === 'blue' ? 'blue' : '';
+        overlay.classList.add('show');
+        const fechar = (res) => { overlay.classList.remove('show'); resolve(res); };
+        btnOk.onclick    = () => fechar(true);
+        document.getElementById('modal-btn-cancel').onclick = () => fechar(false);
+        overlay.onclick  = (e) => { if (e.target === overlay) fechar(false); };
+      });
+    }
+
+    function mostrarAviso(msg, tipo) {
+      const div = document.createElement('div');
+      const cores = {
+        warning: 'background:#fef9c3;color:#854d0e;border:1px solid #fde047;',
+        error:   'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;',
+        success: 'background:#dcfce7;color:#166534;border:1px solid #86efac;',
+      };
+      div.style.cssText = 'position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:10000;padding:10px 22px;border-radius:8px;font-size:10pt;font-weight:bold;box-shadow:0 2px 10px rgba(0,0,0,.2);'
+        + (cores[tipo] || 'background:#dbeafe;color:#1e3a5f;border:1px solid #93c5fd;');
+      div.textContent = msg;
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 4000);
+    }
+
+    // ─── NOVO FORMULÁRIO ──────────────────────────────────────────────────────
+    async function novoFormulario() {
+      const ok = await modalConfirmar({
+        icone: '➕',
+        titulo: 'Novo Formulário',
+        mensagem: 'Iniciar um novo formulário? O formulário atual permanecerá salvo no histórico.',
+        labelOk: 'Sim, novo formulário',
+        corOk: 'blue'
+      });
+      if (!ok) return;
+      folhaIdSalva = null;
+      folhaNumeroAtual = folhaNumeroAtual + 1;
+      document.querySelectorAll('td.edit').forEach(td => td.textContent = '');
+      atualizarTitulo(folhaNumeroAtual);
+      mostrarAviso('✅ Novo formulário #' + folhaNumeroAtual + ' iniciado.', 'info');
+    }
 
     async function salvarFolha() {
       const btn = document.querySelector('.btn-save');
@@ -669,7 +850,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           operador: '${operador}',
           data_inspecao: new Date().toISOString().split('T')[0],
           hora_inspecao: new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}),
-          status: 'rascunho'
+          status: 'rascunho',
+          folha_numero: folhaNumeroAtual
         };
 
         let folhaId = folhaIdSalva;
@@ -707,10 +889,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             hora: tds[0]?.textContent.trim() || null,
             qtd_amostrada: tds[1]?.textContent.trim() || null,
             qtd_aprovada: tds[2]?.textContent.trim() || null,
-            qtd_reprovada: tds[3]?.textContent.trim() || null,
-            medida_encontrada: tds[4]?.textContent.trim() || null,
-            status_ok_nok: tds[5]?.textContent.trim() || null,
-            observacoes: tds[6]?.textContent.trim() || null
+            qtd_reprovada: tr.querySelector('.reprovada-calc')?.textContent.trim() || null,
+            medida_encontrada: tds[3]?.textContent.trim() || null,
+            status_ok_nok: tds[4]?.textContent.trim() || null,
+            observacoes: tds[5]?.textContent.trim() || null,
+            operador: tr.querySelector('.operador-auto')?.textContent.trim() || null
           });
         });
         const filledReg = registros.filter(r => Object.entries(r).some(([k,v]) => k !== 'folha_id' && k !== 'linha' && v));
@@ -749,14 +932,21 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         btn.style.background = '#15803d';
         setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Salvar'; btn.style.background = ''; }, 2500);
       } catch(err) {
-        alert('Erro ao salvar: ' + err.message);
+        mostrarAviso('❌ Erro ao salvar: ' + err.message, 'error');
         btn.disabled = false;
         btn.textContent = '💾 Salvar';
       }
     }
 
-    function limparCampos() {
-      if (!confirm('Deseja limpar todos os campos preenchidos?')) return;
+    async function limparCampos() {
+      const ok = await modalConfirmar({
+        icone: '🗑️',
+        titulo: 'Limpar campos',
+        mensagem: 'Todos os campos preenchidos serão apagados da tela. Essa ação não apaga o que já foi salvo no sistema.',
+        labelOk: 'Sim, limpar campos',
+        corOk: 'red'
+      });
+      if (!ok) return;
       document.querySelectorAll('td.edit').forEach(td => td.textContent = '');
     }
     function formatarHora(td) {
@@ -770,9 +960,33 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       const mm = Math.min(59, parseInt(m,10));
       td.textContent = String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
     }
+    // Lógica automática: Qtd. Reprovada = Amostrada - Aprovada
+    function recalcularReprovada(tr) {
+      const amostrada = parseFloat(tr.querySelector('.amostrada-edit')?.textContent.trim()) || 0;
+      const aprovada  = parseFloat(tr.querySelector('.aprovada-edit')?.textContent.trim()) || 0;
+      const rep = tr.querySelector('.reprovada-calc');
+      if (rep) {
+        const val = Math.max(0, amostrada - aprovada);
+        rep.textContent = val;
+        rep.style.color = val > 0 ? '#dc2626' : '#166534';
+      }
+    }
+    document.querySelectorAll('#tbl-inspecao tbody tr').forEach(tr => {
+      const tdAmostrada = tr.querySelector('.amostrada-edit');
+      const tdAprovada  = tr.querySelector('.aprovada-edit');
+      if (tdAmostrada) {
+        tdAmostrada.addEventListener('blur',  () => recalcularReprovada(tr));
+        tdAmostrada.addEventListener('input', () => recalcularReprovada(tr));
+      }
+      if (tdAprovada) {
+        tdAprovada.addEventListener('blur',  () => recalcularReprovada(tr));
+        tdAprovada.addEventListener('input', () => recalcularReprovada(tr));
+      }
+    });
+
     // Aplicar formatação de hora nas células da coluna Hora (2ª coluna de cada linha)
-    document.querySelectorAll('tbody tr').forEach(tr => {
-      const tdHora = tr.querySelectorAll('td.edit')[0];
+    document.querySelectorAll('#tbl-inspecao tbody tr').forEach(tr => {
+      const tdHora = tr.querySelector('.hora-edit');
       if (!tdHora) return;
       tdHora.classList.add('hora-col');
       tdHora.setAttribute('inputmode','numeric');
@@ -791,6 +1005,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       const next = cells[e.shiftKey ? idx - 1 : idx + 1];
       if (next) { next.focus(); }
     });
+
+    // ─── INICIALIZAR: carregar último formulário ao abrir ─────────────────────────
+    carregarUltimaFolha();
   </script>
 </body>
 </html>`
