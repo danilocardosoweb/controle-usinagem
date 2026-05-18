@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
 import Login from './pages/Login'
@@ -16,12 +17,15 @@ import PCP from './pages/PCP'
 import ManualUsuario from './pages/ManualUsuario'
 import Expedicao from './pages/Expedicao'
 import MontagemPalete from './pages/MontagemPalete'
+import ChecklistInicioTurno from './pages/ChecklistInicioTurnoPage'
+import AdminMaquinasPage from './pages/AdminMaquinasPage'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import ToastContainer from './components/ToastContainer'
 
 function App() {
   const { user, login, loading: authLoading } = useAuth()
+  const navigate = useNavigate()
   
   // Verificar se o usuário está autenticado
   const isAuthenticated = !!user
@@ -39,8 +43,16 @@ function App() {
   }
   
   // Função para autenticação
-  const handleLogin = (username, password) => {
-    return login(username, password)
+  const handleLogin = async (username, password) => {
+    const result = await login(username, password)
+    
+    // Se for primeiro login do dia, redireciona para checklist
+    if (result.success && result.primeiroLoginDoDia) {
+      console.log('App: Redirecionando para checklist de início de turno')
+      navigate('/checklist-inicio-turno', { replace: true })
+    }
+    
+    return result
   }
 
   return (
@@ -75,6 +87,11 @@ function App() {
             <Configuracoes />
           </ProtectedRoute>
         } />
+        <Route path="admin-maquinas" element={
+          <ProtectedRoute allowedRoles={['admin', 'gerente']}>
+            <AdminMaquinasPage />
+          </ProtectedRoute>
+        } />
         <Route path="pedidos" element={<Pedidos />} />
         <Route path="carteira-encomendas" element={<Navigate to="/pedidos" replace />} />
       </Route>
@@ -83,6 +100,13 @@ function App() {
       <Route path="/montagem-palete" element={
         isAuthenticated 
           ? <MontagemPalete /> 
+          : <Navigate to="/login" replace />
+      } />
+      
+      {/* Checklist de Início de Turno - Tela fullscreen para tablet */}
+      <Route path="/checklist-inicio-turno" element={
+        isAuthenticated 
+          ? <ChecklistInicioTurno /> 
           : <Navigate to="/login" replace />
       } />
       

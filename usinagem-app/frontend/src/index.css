@@ -111,4 +111,115 @@ body {
   svg { max-width: 100% !important; height: auto !important; }
   table { page-break-inside: auto; }
   tr { page-break-inside: avoid; break-inside: avoid; }
+
+  /* Impressão do modal de Ordem de Produção */
+  body:has(.op-print-modal) > *:not(.op-print-modal) {
+    display: none !important;
+  }
+  .op-print-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    background: white !important;
+    z-index: 9999 !important;
+    overflow: visible !important;
+    padding: 8mm !important;
+  }
+  .op-print-modal .print\:hidden { display: none !important; }
+}
+
+/* ===============================
+   ANIMAÇÕES DO CHECKLIST
+   =============================== */
+
+/* Animação de entrada suave */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animação de escala para botões */
+@keyframes pulse-scale {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+/* Animação de bounce para ícones de sucesso */
+@keyframes success-bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+/* Animação de slide in */
+@keyframes slideInFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Classes utilitárias de animação */
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+.animate-success-bounce {
+  animation: success-bounce 0.5s ease-in-out;
+}
+
+.animate-slide-in-top {
+  animation: slideInFromTop 0.2s ease-out forwards;
+}
+
+/* Delay utilities */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+  /* Aumenta área de toque em dispositivos móveis */
+  button, 
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Remove hover effects em touch */
+  .hover\:bg-gray-100:active {
+    background-color: rgb(243 244 246);
+  }
+}
+
+/* Optimização para tablets fixos na máquina */
+@media screen and (min-width: 768px) and (max-width: 1366px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+/* Prevenir seleção de texto em botões (melhor UX touch) */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }

@@ -78,6 +78,20 @@ export function AuthProvider({ children }) {
       // Registrar login na auditoria
       await auditoriaService.registrarLogin(userData);
       
+      // Verificar se é o primeiro login do dia (checklist obrigatório)
+      const hoje = new Date().toISOString().split('T')[0];
+      const ultimoChecklist = localStorage.getItem(`checklist_${userData.id}_${hoje}`);
+      
+      // Se não fez checklist hoje, retorna flag para redirecionar
+      if (!ultimoChecklist) {
+        console.log('AuthContext: Primeiro login do dia - checklist pendente');
+        return { 
+          success: true, 
+          primeiroLoginDoDia: true,
+          redirectTo: '/checklist-inicio-turno'
+        };
+      }
+      
       return { success: true };
       
     } catch (error) {
@@ -96,11 +110,29 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Função para marcar checklist como feito
+  const marcarChecklistFeito = () => {
+    if (user) {
+      const hoje = new Date().toISOString().split('T')[0];
+      localStorage.setItem(`checklist_${user.id}_${hoje}`, 'true');
+      localStorage.setItem(`checklist_data_${user.id}`, new Date().toISOString());
+    }
+  };
+
+  // Verificar se checklist está pendente
+  const verificarChecklistPendente = () => {
+    if (!user) return false;
+    const hoje = new Date().toISOString().split('T')[0];
+    return !localStorage.getItem(`checklist_${user.id}_${hoje}`);
+  };
+
   const value = {
     user,
     login,
     logout,
-    loading
+    loading,
+    marcarChecklistFeito,
+    verificarChecklistPendente
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

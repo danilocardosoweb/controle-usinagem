@@ -3,6 +3,7 @@ import { FaArrowUp, FaArrowDown, FaEdit, FaSave, FaTimes, FaPlus, FaTrash, FaClo
 import supabaseService from '../services/SupabaseService'
 import auditoriaService from '../services/AuditoriaService'
 import { useAuth } from '../contexts/AuthContext'
+import OrdensProducaoPanel from '../components/OrdensProducaoPanel'
 
 const PCP = () => {
   const { user } = useAuth()
@@ -722,6 +723,13 @@ const PCP = () => {
           >
             Finalização Manual
           </button>
+          <button
+            type="button"
+            className={`px-4 py-2 text-sm font-medium transition-colors border-l border-gray-200 ${abaAtiva === 'ordens' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            onClick={() => setAbaAtiva('ordens')}
+          >
+            Ordens de Produção
+          </button>
         </div>
       </div>
 
@@ -1189,6 +1197,10 @@ const PCP = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {abaAtiva === 'ordens' && (
+        <OrdensProducaoPanel />
       )}
 
       {abaAtiva === 'finalizacao' && (

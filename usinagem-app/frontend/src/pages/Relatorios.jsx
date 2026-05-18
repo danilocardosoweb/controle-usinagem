@@ -4,6 +4,7 @@ import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
 import ModalEtiquetaPersonalizada from '../components/ModalEtiquetaPersonalizada'
+import RelatorioChecklist from '../components/RelatorioChecklist'
 import { buildFormularioIdentificacaoHtml, resolverKit } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
@@ -91,6 +92,7 @@ const Relatorios = () => {
   const [apontamentoSelecionado, setApontamentoSelecionado] = useState(null)
   const [impressoesEtiquetasPorApontamento, setImpressoesEtiquetasPorApontamento] = useState({})
   const [etiquetaPersonalizadaAberta, setEtiquetaPersonalizadaAberta] = useState(false)
+  const [abaAtiva, setAbaAtiva] = useState('producao') // 'producao' ou 'checklist'
   
   // Dados reais do IndexedDB
   const { items: apontamentos } = useSupabase('apontamentos')
@@ -2103,6 +2105,43 @@ const Relatorios = () => {
         </span>
       </div>
 
+      {/* Tabs de Navegação */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setAbaAtiva('producao')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+              abaAtiva === 'producao'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <FaIndustry className="w-4 h-4" />
+              Produção
+            </div>
+          </button>
+          <button
+            onClick={() => setAbaAtiva('checklist')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+              abaAtiva === 'checklist'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <FaCheckCircle className="w-4 h-4" />
+              Checklist
+            </div>
+          </button>
+        </nav>
+      </div>
+
+      {/* Conteúdo da Aba Ativa */}
+      {abaAtiva === 'checklist' ? (
+        <RelatorioChecklist />
+      ) : (
+        <>
       {/* Cards de Indicadores Inteligentes */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
@@ -2483,6 +2522,8 @@ const Relatorios = () => {
         isOpen={etiquetaPersonalizadaAberta}
         onClose={() => setEtiquetaPersonalizadaAberta(false)}
       />
+        </>
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { FaCog, FaChartBar, FaClipboardList, FaTools, FaFileAlt, FaTachometerAlt, FaBars, FaTimes, FaClock, FaTasks, FaCogs, FaBoxOpen, FaWarehouse, FaQuestionCircle, FaTruck, FaCubes } from 'react-icons/fa'
+import { FaCog, FaChartBar, FaClipboardList, FaTools, FaFileAlt, FaTachometerAlt, FaBars, FaTimes, FaClock, FaTasks, FaCogs, FaBoxOpen, FaWarehouse, FaQuestionCircle, FaTruck, FaCubes, FaClipboardCheck, FaIndustry } from 'react-icons/fa'
 import { useAuth } from '../contexts/AuthContext'
 import logoTecno from '../assets/LogoTecno.png'
 import logoTecnoSemFundo from '../assets/LogoTecnoRedeSocial-SemFundo.png'
@@ -11,6 +11,7 @@ const Sidebar = ({ isOpen, onToggle, onClose, isMobile }) => {
   const { user } = useAuth()
 
   const allMenuItems = [
+    { path: '/checklist-inicio-turno', name: 'Checklist Início Turno', icon: <FaClipboardCheck />, roles: ['admin', 'supervisor', 'operador'], destacado: true, cor: 'emerald' },
     { path: '/dashboard', name: 'Dashboard', icon: <FaTachometerAlt />, roles: ['admin', 'supervisor', 'operador'] },
     { path: '/pedidos', name: 'Pedidos e Produtos', icon: <FaFileAlt />, roles: ['admin', 'supervisor', 'operador'] },
     { path: '/apontamentos-usinagem', name: 'Apontamentos de Usinagem', icon: <FaClipboardList />, roles: ['admin', 'supervisor', 'operador'] },
@@ -22,6 +23,7 @@ const Sidebar = ({ isOpen, onToggle, onClose, isMobile }) => {
     { path: '/montagem-palete', name: 'Montagem do Palete', icon: <FaCubes />, roles: ['admin', 'supervisor', 'operador'], external: true },
     { path: '/previsao-trabalho', name: 'Previsão Trab.', icon: <FaClock />, roles: ['admin', 'supervisor', 'operador'] },
     { path: '/pcp', name: 'PCP', icon: <FaTasks />, roles: ['admin', 'supervisor'] },
+    { path: '/admin-maquinas', name: 'Admin Máquinas', icon: <FaIndustry />, roles: ['admin', 'gerente'] },
     { path: '/configuracoes', name: 'Configurações', icon: <FaCog />, roles: ['admin'] },
     { path: '/manual', name: 'Manual do Usuário', icon: <FaQuestionCircle />, roles: ['admin', 'supervisor', 'operador'] },
   ]
@@ -138,15 +140,24 @@ const Sidebar = ({ isOpen, onToggle, onClose, isMobile }) => {
                 className={({ isActive }) =>
                   `flex items-center ${(menuRecolhido && !isMobile) ? 'justify-center' : 'space-x-3'} py-2 px-3 rounded-lg transition-all duration-200 ${
                     isActive 
-                      ? 'bg-blue-700 text-white shadow-md' 
-                      : 'text-blue-100 hover:bg-blue-700 hover:text-white'
+                      ? item.destacado 
+                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-300' 
+                        : 'bg-blue-700 text-white shadow-md'
+                      : item.destacado
+                        ? 'bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500 hover:text-white border border-emerald-400/30'
+                        : 'text-blue-100 hover:bg-blue-700 hover:text-white'
                   }`
                 }
                 title={item.name}
               >
-                <div className="text-lg flex-shrink-0">{item.icon}</div>
+                <div className={`text-lg flex-shrink-0 ${item.destacado ? 'animate-pulse' : ''}`}>{item.icon}</div>
                 {((!menuRecolhido) || isMobile) && (
                   <span className="font-medium truncate">{item.name}</span>
+                )}
+                {item.destacado && ((!menuRecolhido) || isMobile) && (
+                  <span className="ml-auto text-[10px] bg-emerald-400 text-emerald-900 px-1.5 py-0.5 rounded font-bold">
+                    NOVO
+                  </span>
                 )}
               </NavLink>
             )

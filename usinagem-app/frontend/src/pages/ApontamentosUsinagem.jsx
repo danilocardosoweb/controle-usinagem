@@ -1420,9 +1420,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         quantidade: encontrado.quantidade || '',
         rack_acabado: encontrado.rack_acabado || encontrado.rackAcabado || '',
         dureza_material: encontrado.dureza_material || '',
+        ocorrencias_anomalias: encontrado.ocorrencias_anomalias || '',
         lote: encontrado.lote || '',
         lote_externo: encontrado.lote_externo || encontrado.loteExterno || '',
         codigo_produto_cliente: encontrado.codigo_produto_cliente || encontrado.codigoProdutoCliente || '',
+        inicio: encontrado.inicio || encontrado.data_inicio || encontrado.data_inicio_producao || '',
+        fim: encontrado.fim || encontrado.data_fim || '',
+        turno: encontrado.turno || '',
       })
       setReimpRackEditando(false)
     }
@@ -1526,6 +1530,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [origemManual, setOrigemManual] = useState('')
   const [comprimentoRefugo, setComprimentoRefugo] = useState('')
   const [durezaMaterial, setDurezaMaterial] = useState('')
+  const [ocorrenciasAnomalias, setOcorrenciasAnomalias] = useState('')
   const [finalizarRack, setFinalizarRack] = useState(true)
   const [editandoRack, setEditandoRack] = useState(false)
   const [alertaExcessoAberto, setAlertaExcessoAberto] = useState(false)
@@ -3067,6 +3072,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     setQtdRefugo('')
     setComprimentoRefugo('')
     setDurezaMaterial('')
+    setOcorrenciasAnomalias('')
     setConfirmarAberto(true)
   }
 
@@ -3156,6 +3162,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       rack_ou_pallet: rackOuPallet || '',
       rack_acabado: formData.rack_acabado || '',
       dureza_material: durezaMaterial || '',
+      ocorrencias_anomalias: ocorrenciasAnomalias || '',
       rack_finalizado: finalizarRack || false,
       // Guardar seleção de lotes internos/externos na coluna padronizada
       lotes_externos: (formData.lotesExternos && formData.lotesExternos.length ? [...formData.lotesExternos] : []),
@@ -3730,7 +3737,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         return
       }
 
-      const apontamento = linha.original
+      // linha.original pode ser diretamente o apontamento ou um objeto com .original
+      const apontamento = linha.original?.original || linha.original
       
       if (tipo === 'formulario') {
         // Imprimir formulário de identificação
@@ -3757,6 +3765,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const dataHoraProducao = apontamento.inicio
           || apontamento.data_inicio
           || apontamento.dataInicio
+          || apontamento.data_inicio_producao
           || apontamento.dataFim
           || apontamento.data_fim
           || ''
@@ -6788,6 +6797,19 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 <label className="block text-sm text-gray-700 mb-1">Dureza do Material</label>
                 <input type="text" className="input-field input-field-sm" placeholder="Ex.: HRC 45-50" value={durezaMaterial} onChange={(e)=>setDurezaMaterial(e.target.value)} />
               </div>
+              <div>
+                <label className="block text-sm text-gray-700 mb-1 flex items-center gap-2">
+                  <span>Ocorrências / Anomalias</span>
+                  <span className="text-xs text-amber-600 font-medium">(opcional)</span>
+                </label>
+                <textarea 
+                  className="input-field input-field-sm w-full" 
+                  placeholder="Descreva aqui qualquer ocorrência, anomalia ou problema encontrado durante a produção..."
+                  value={ocorrenciasAnomalias} 
+                  onChange={(e)=>setOcorrenciasAnomalias(e.target.value)}
+                  rows={3}
+                />
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="btn-outline" onClick={()=>setConfirmarAberto(false)}>Cancelar</button>
@@ -6986,7 +7008,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       {buscaAberta && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black bg-opacity-30" onClick={() => setBuscaAberta(false)}></div>
-          <div className="relative bg-white rounded-lg shadow-lg w-full max-w-7xl p-4 form-compact mx-4">
+          <div className="relative bg-white rounded-lg shadow-lg w-full max-w-[90vw] p-4 form-compact mx-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-gray-800">Buscar Pedido</h3>
               <button className="text-sm text-gray-600 hover:text-gray-900" onClick={() => setBuscaAberta(false)}>Fechar</button>
@@ -7005,18 +7027,18 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="text-left px-3 py-2">Pedido/Seq</th>
-                    <th className="text-left px-3 py-2">Ferramenta</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap">Pedido/Seq</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap">Ferramenta</th>
                     <th className="text-left px-3 py-2">Produto</th>
-                    <th className="text-left px-3 py-2">Comprimento</th>
-                    <th className="text-left px-3 py-2">Comp. Longo</th>
-                    <th className="text-left px-3 py-2">Cliente</th>
-                    <th className="text-left px-3 py-2">Pedido.Cliente</th>
-                    <th className="text-left px-3 py-2">Data Entrega</th>
-                    <th className="text-right px-3 py-2">Qtd. Pedido</th>
-                    <th className="text-right px-3 py-2">Apontado</th>
-                    <th className="text-right px-3 py-2">Saldo</th>
-                    <th className="text-right px-3 py-2">Faturado</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap">Comprimento</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap min-w-[100px]">Comp. Longo</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap min-w-[120px]">Cliente</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap">Pedido.Cliente</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap">Data Entrega</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Qtd. Pedido</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Apontado</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Saldo</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Faturado</th>
                     <th className="text-left px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -7034,17 +7056,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                           </span>
                         ) : o.id}
                       </td>
-                      <td className="px-3 py-2">{o.ferramenta}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{o.ferramenta}</td>
                       <td className="px-3 py-2">
                         {o._generico ? <span className="text-amber-700 font-medium italic">{o.descricao}</span> : o.codigoPerfil}
                       </td>
-                      <td className="px-3 py-2">{o._generico ? '-' : Number(o.comprimentoAcabado || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-3 py-2">{o._generico ? '-' : extrairComprimentoPerfilLongo(o.perfilLongo || '')}</td>
-                      <td className="px-3 py-2">{o.cliente}</td>
-                      <td className="px-3 py-2">{o.pedidoCliente}</td>
-                      <td className="px-3 py-2">{o.dtFatura ? new Date(o.dtFatura).toLocaleDateString('pt-BR') : '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{o._generico ? '-' : Number(o.comprimentoAcabado || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{o._generico ? '-' : extrairComprimentoPerfilLongo(o.perfilLongo || '')}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{o.cliente}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{o.pedidoCliente}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{o.dtFatura ? new Date(o.dtFatura).toLocaleDateString('pt-BR') : '-'}</td>
                       {/* Qtd. Pedido */}
-                      <td className="px-3 py-2 text-right font-semibold">
+                      <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
                         {o._generico ? (
                           <span className="text-gray-400 text-xs italic">-</span>
                         ) : (
@@ -7054,7 +7076,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                         )}
                       </td>
                       {/* Apontado */}
-                      <td className="px-3 py-2 text-right font-semibold">
+                      <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
                         {o._generico ? (
                           <span className="text-gray-400 text-xs italic">-</span>
                         ) : (
@@ -7064,7 +7086,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                         )}
                       </td>
                       {/* Saldo */}
-                      <td className="px-3 py-2 text-right font-semibold">
+                      <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
                         {o._generico ? (
                           <span className="text-gray-400 text-xs italic">livre</span>
                         ) : (
@@ -7074,7 +7096,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                         )}
                       </td>
                       {/* Faturado */}
-                      <td className="px-3 py-2 text-right font-semibold">
+                      <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
                         {o._generico ? (
                           <span className="text-gray-400 text-xs italic">-</span>
                         ) : (
@@ -7083,7 +7105,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
                         <button
                           type="button"
                           className="btn-secondary py-1 px-2"
