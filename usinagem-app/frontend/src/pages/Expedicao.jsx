@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaTruck, FaBarcode, FaCheckCircle, FaBox, FaClipboardList, FaHistory, FaPrint, FaPlus, FaSearch, FaFilter, FaDownload, FaTimes, FaCheck, FaExclamationTriangle, FaTrash, FaCubes, FaTruckLoading, FaCalendarAlt, FaUser, FaFolderOpen, FaSync, FaExternalLinkAlt, FaShippingFast, FaUndo, FaBoxes, FaEdit } from 'react-icons/fa'
 import { supabase } from '../config/supabase'
@@ -66,6 +66,7 @@ export default function Expedicao() {
   const [apontamentoParaCorrigir, setApontamentoParaCorrigir] = useState(null)
   const [buscaRackCorrecao, setBuscaRackCorrecao] = useState('')
   const [resultadoBuscaCorrecao, setResultadoBuscaCorrecao] = useState([])
+  const [apontamentosCorrecaoSelecionados, setApontamentosCorrecaoSelecionados] = useState([])
 
   // Simulações de cubagem
   const [simulacoesSalvas, setSimulacoesSalvas] = useState([])
@@ -76,6 +77,41 @@ export default function Expedicao() {
   const [confirmDeleteSim, setConfirmDeleteSim] = useState(null)
   const [confirmLiberarSim, setConfirmLiberarSim] = useState(null)
   const [confirmExpedirSim, setConfirmExpedirSim] = useState(null)
+  const [operacaoDialog, setOperacaoDialog] = useState(null)
+  const dialogResolveRef = useRef(null)
+
+  const abrirDialogOperacao = (config) => new Promise((resolve) => {
+    dialogResolveRef.current = resolve
+    setOperacaoDialog({
+      tipo: 'info',
+      titulo: 'Aviso',
+      mensagem: '',
+      textoConfirmar: 'OK',
+      textoCancelar: 'Cancelar',
+      mostrarCancelar: false,
+      ...config,
+    })
+  })
+
+  const fecharDialogOperacao = (resultado) => {
+    const resolver = dialogResolveRef.current
+    dialogResolveRef.current = null
+    setOperacaoDialog(null)
+    if (resolver) resolver(resultado)
+  }
+
+  const avisarOperacao = (config) => abrirDialogOperacao({
+    mostrarCancelar: false,
+    textoConfirmar: 'OK',
+    ...config,
+  })
+
+  const confirmarOperacao = (config) => abrirDialogOperacao({
+    mostrarCancelar: true,
+    textoConfirmar: 'Confirmar',
+    textoCancelar: 'Cancelar',
+    ...config,
+  })
 
   const carregarSimulacoes = async () => {
     setLoadingSims(true)
@@ -142,19 +178,19 @@ export default function Expedicao() {
   // Identificar racks que já estão em qualquer romaneio ativo (pendente, conferido, expedido)
   // Excluir apenas racks de romaneios cancelados ou com divergência já liberada
   const racksExpedidosSet = useMemo(() => {
-    // Incluir racks de romaneios em qualquer status EXCETO cancelado
-    // Isso bloqueia racks que estão em romaneios pendentes, conferidos ou expedidos
-    const romaneiosAtivos = (Array.isArray(romaneios) ? romaneios : [])
-      .filter(r => r.status !== 'cancelado')
-      .map(r => r.id)
-    
+    const romaneiosAtivos = new Set(
+      (Array.isArray(romaneios) ? romaneios : [])
+        .filter(r => r.status !== 'cancelado')
+        .map(r => String(r.id))
+    )
+
     const itensEmRomaneio = (Array.isArray(romaneioItens) ? romaneioItens : [])
-      .filter(item => romaneiosAtivos.includes(item.romaneio_id))
+      .filter(item => romaneiosAtivos.has(String(item.romaneio_id)))
       .map(item => String(item.rack_ou_pallet || '').trim().toUpperCase())
       .filter(rack => rack.length > 0)
-    
-    console.log('🔍 racksExpedidosSet:', itensEmRomaneio.length, 'racks bloqueados de', romaneiosAtivos.length, 'romaneios ativos (', romaneioItens.length, 'itens carregados)')
-    
+
+    console.log('🔍 racksExpedidosSet:', itensEmRomaneio.length, 'racks bloqueados de', romaneiosAtivos.size, 'romaneios ativos (', Array.isArray(romaneioItens) ? romaneioItens.length : 0, 'itens carregados)')
+
     return new Set(itensEmRomaneio)
   }, [romaneios, romaneioItens])
 
@@ -333,7 +369,11 @@ export default function Expedicao() {
 
   const criarRomaneio = async () => {
     if (racksParaRomaneio.length === 0) {
-      alert('Selecione pelo menos um rack')
+      await avisarOperacao({
+        tipo: 'warning',
+        titulo: 'Nenhum rack selecionado',
+        mensagem: 'Selecione pelo menos um rack para criar o romaneio.',
+      })
       return
     }
 
@@ -455,7 +495,11 @@ export default function Expedicao() {
         }
       }
 
-      alert(`✅ Romaneio ${numeroRomaneio} criado com sucesso!`)
+      await avisarOperacao({
+        tipo: 'success',
+        titulo: 'Romaneio criado',
+        mensagem: `Romaneio ${numeroRomaneio} criado com sucesso.`,
+      })
       setRomaneioModalAberto(false)
       setRacksParaRomaneio([])
       await loadRomaneios()
@@ -464,7 +508,11 @@ export default function Expedicao() {
       window.location.reload()
     } catch (erro) {
       console.error('Erro ao criar romaneio:', erro)
-      alert('Erro ao criar romaneio: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao criar romaneio',
+        mensagem: erro.message,
+      })
     }
   }
 
@@ -483,7 +531,11 @@ export default function Expedicao() {
       if (error) throw error
       setItensConferencia(itens || [])
     } catch (erro) {
-      alert('Erro ao carregar itens: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao carregar itens',
+        mensagem: erro.message,
+      })
     }
   }
 
@@ -498,7 +550,11 @@ export default function Expedicao() {
       setRomaneioSelecionado(romaneio)
       setImpressaoModalAberto(true)
     } catch (erro) {
-      alert('Erro ao carregar romaneio: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao carregar romaneio',
+        mensagem: erro.message,
+      })
     }
   }
 
@@ -535,7 +591,12 @@ export default function Expedicao() {
       const msg = `⚠️ ${itensDivergentes.length} item(s) não conferido(s):\n\n` +
         itensDivergentes.map(i => `• ${i.rack_ou_pallet}${itensNaoEncontrados[i.id] ? ' — NÃO ENCONTRADO' : ''}`).join('\n') +
         '\n\nItens não encontrados serão liberados para um próximo romaneio.\nDeseja finalizar assim mesmo?'
-      if (!window.confirm(msg)) return
+      if (!await confirmarOperacao({
+        tipo: 'warning',
+        titulo: 'Finalizar com divergência?',
+        mensagem: msg,
+        textoConfirmar: 'Finalizar assim mesmo',
+      })) return
     }
 
     try {
@@ -573,14 +634,22 @@ export default function Expedicao() {
       const msgFinal = temDivergencia
         ? `✅ Conferência finalizada com ${itensDivergentes.length} divergência(s). Itens não encontrados foram liberados para novo romaneio.`
         : '✅ Conferência finalizada com sucesso!'
-      alert(msgFinal)
+      await avisarOperacao({
+        tipo: 'success',
+        titulo: 'Conferência finalizada',
+        mensagem: msgFinal,
+      })
       setConferenciaModalAberto(false)
       setRomaneioSelecionado(null)
       await loadRomaneios()
       await loadRomaneioItens()
     } catch (erro) {
       console.error('Erro ao finalizar conferência:', erro)
-      alert('Erro: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro na conferência',
+        mensagem: erro.message,
+      })
     }
   }
 
@@ -588,9 +657,12 @@ export default function Expedicao() {
     const linha1 = `Romaneio: ${romaneio.numero_romaneio}`
     const linha2 = romaneio.cliente ? `Cliente: ${romaneio.cliente}` : ''
     const linha3 = `Racks: ${romaneio.total_racks} | Peças: ${romaneio.total_pecas}`
-    const confirmado = window.confirm(
-      `Confirmar expedição?\n\n${linha1}${linha2 ? '\n' + linha2 : ''}\n${linha3}\n\nEsta ação irá marcar o romaneio como EXPEDIDO.`
-    )
+    const confirmado = await confirmarOperacao({
+      tipo: 'primary',
+      titulo: 'Confirmar expedição',
+      mensagem: `${linha1}${linha2 ? '\n' + linha2 : ''}\n${linha3}\n\nEsta ação irá marcar o romaneio como EXPEDIDO.`,
+      textoConfirmar: 'Expedir romaneio',
+    })
     if (!confirmado) return
 
     try {
@@ -599,22 +671,36 @@ export default function Expedicao() {
         .update({ status: 'expedido', data_expedicao: new Date().toISOString(), usuario_expedicao: user?.nome })
         .eq('id', romaneio.id)
 
-      alert(`✅ Romaneio ${romaneio.numero_romaneio} expedido com sucesso!`)
+      await avisarOperacao({
+        tipo: 'success',
+        titulo: 'Romaneio expedido',
+        mensagem: `Romaneio ${romaneio.numero_romaneio} expedido com sucesso.`,
+      })
       await loadRomaneios()
     } catch (erro) {
-      alert('Erro: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao expedir',
+        mensagem: erro.message,
+      })
     }
   }
 
   const deletarRomaneio = async (romaneio) => {
-    const conf1 = window.confirm(
-      `⚠️ ATENÇÃO — AÇÃO IRREVERSÍVEL\n\nVocê está prestes a DELETAR permanentemente:\n\nRomaneio: ${romaneio.numero_romaneio}\nCliente: ${romaneio.cliente || '-'}\nStatus: ${romaneio.status?.toUpperCase()}\n\nTodos os itens também serão deletados.\n\nDeseja continuar?`
-    )
+    const conf1 = await confirmarOperacao({
+      tipo: 'danger',
+      titulo: 'Deletar romaneio?',
+      mensagem: `Você está prestes a deletar permanentemente:\n\nRomaneio: ${romaneio.numero_romaneio}\nCliente: ${romaneio.cliente || '-'}\nStatus: ${romaneio.status?.toUpperCase()}\n\nTodos os itens também serão deletados.`,
+      textoConfirmar: 'Continuar',
+    })
     if (!conf1) return
 
-    const conf2 = window.confirm(
-      `Confirmação final:\n\nDigite OK para deletar o romaneio ${romaneio.numero_romaneio} permanentemente.\n\nEsta ação NÃO pode ser desfeita.`
-    )
+    const conf2 = await confirmarOperacao({
+      tipo: 'danger',
+      titulo: 'Confirmação final',
+      mensagem: `Confirme a exclusão permanente do romaneio ${romaneio.numero_romaneio}.\n\nEsta ação NÃO pode ser desfeita.`,
+      textoConfirmar: 'Deletar permanentemente',
+    })
     if (!conf2) return
 
     try {
@@ -632,14 +718,22 @@ export default function Expedicao() {
 
       await loadRomaneios()
     } catch (erro) {
-      alert('Erro ao deletar: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao deletar',
+        mensagem: erro.message,
+      })
     }
   }
 
   // Buscar apontamentos para correção
   const buscarApontamentosParaCorrecao = async () => {
     if (!buscaRackCorrecao.trim()) {
-      alert('Digite um rack para buscar')
+      await avisarOperacao({
+        tipo: 'warning',
+        titulo: 'Informe uma busca',
+        mensagem: 'Digite um rack, cliente, produto ou romaneio para buscar.',
+      })
       return
     }
     
@@ -647,11 +741,118 @@ export default function Expedicao() {
     const encontrados = (Array.isArray(apontamentos) ? apontamentos : [])
       .filter(a => {
         const rack = String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase()
-        return rack.includes(termo)
+        const cliente = String(a.cliente || '').trim().toUpperCase()
+        const produto = String(a.produto || a.codigoPerfil || '').trim().toUpperCase()
+        const romaneioNumero = String(a.romaneio_numero || '').trim().toUpperCase()
+        return rack.includes(termo) || cliente.includes(termo) || produto.includes(termo) || romaneioNumero.includes(termo)
       })
     
     setResultadoBuscaCorrecao(encontrados)
+    setApontamentosCorrecaoSelecionados([])
     console.log('🔍 Apontamentos encontrados para correção:', encontrados.length, encontrados)
+  }
+
+  const toggleSelecionarCorrecao = (apontamentoId) => {
+    const id = String(apontamentoId)
+    setApontamentosCorrecaoSelecionados(prev => (
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    ))
+  }
+
+  const selecionarTodosCorrecao = () => {
+    const ids = (Array.isArray(resultadoBuscaCorrecao) ? resultadoBuscaCorrecao : []).map(a => String(a.id))
+    setApontamentosCorrecaoSelecionados(prev => (
+      prev.length === ids.length ? [] : ids
+    ))
+  }
+
+  const liberarPaletesSelecionados = async () => {
+    const selecionados = (Array.isArray(resultadoBuscaCorrecao) ? resultadoBuscaCorrecao : [])
+      .filter(a => apontamentosCorrecaoSelecionados.includes(String(a.id)))
+
+    if (selecionados.length === 0) {
+      await avisarOperacao({
+        tipo: 'warning',
+        titulo: 'Nenhum palete selecionado',
+        mensagem: 'Selecione pelo menos um palete para liberar.',
+      })
+      return
+    }
+
+    const resumo = selecionados
+      .map(a => `• ${String(a.rack_acabado || a.rack_ou_pallet || '-').trim()} | ${String(a.cliente || '-').trim()} | ${String(a.produto || a.codigoPerfil || '-').trim()}`)
+      .join('\n')
+
+    const confirmado = await confirmarOperacao({
+      tipo: 'warning',
+      titulo: 'Liberar paletes selecionados',
+      mensagem:
+        `Você está prestes a liberar ${selecionados.length} palete(s) para novo romaneio.\n\n` +
+        `Isso irá:\n` +
+        `- remover o vínculo com o romaneio atual\n` +
+        `- estornar a baixa de estoque correspondente, se existir\n` +
+        `- devolver o palete para "Racks Prontos"\n\n` +
+        `Paletes selecionados:\n${resumo}`,
+      textoConfirmar: 'Liberar paletes',
+    })
+    if (!confirmado) return
+
+    try {
+      const agora = new Date().toISOString()
+      const liberadosSemBaixa = []
+
+      for (const apontamento of selecionados) {
+        const rack = String(apontamento.rack_acabado || apontamento.rack_ou_pallet || '').trim()
+        const produto = String(apontamento.produto || apontamento.codigoPerfil || '').trim()
+        const lote = String(apontamento.lote_externo || apontamento.loteExterno || apontamento.lote || '').trim()
+        const fluxoId = apontamento.exp_fluxo_id ?? apontamento.fluxo_id ?? null
+
+        const { error: erroApt } = await supabaseService.supabase
+          .from('apontamentos')
+          .update({ romaneio_numero: null })
+          .eq('id', apontamento.id)
+        if (erroApt) throw erroApt
+
+        if (fluxoId && lote) {
+          const { error: erroBaixa } = await supabaseService.supabase
+            .from('exp_estoque_baixas')
+            .update({
+              estornado: true,
+              estornado_em: agora,
+              estornado_por: user?.nome || 'Sistema',
+              motivo_estorno: `Correção de expedição - palete ${rack || '-'} do cliente ${apontamento.cliente || '-'} liberado manualmente`,
+            })
+            .eq('fluxo_id', fluxoId)
+            .eq('lote_codigo', lote)
+            .eq('estornado', false)
+          if (erroBaixa) throw erroBaixa
+        } else {
+          liberadosSemBaixa.push(rack || produto || String(apontamento.id))
+        }
+      }
+
+      const avisoBaixa = liberadosSemBaixa.length
+        ? `\n\nAtenção: ${liberadosSemBaixa.length} palete(s) foram liberados sem estorno automático de estoque, porque não havia vínculo único suficiente.`
+        : ''
+
+      await avisarOperacao({
+        tipo: 'success',
+        titulo: 'Paletes liberados',
+        mensagem: `${selecionados.length} palete(s) liberado(s) com sucesso.${avisoBaixa}`,
+      })
+      setApontamentosCorrecaoSelecionados([])
+      await loadApontamentosParaKits()
+      await loadRomaneios()
+      await loadRomaneioItens()
+      window.location.reload()
+    } catch (erro) {
+      console.error('Erro ao liberar paletes:', erro)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao liberar paletes',
+        mensagem: erro.message,
+      })
+    }
   }
 
   const abrirCorrecaoApontamento = (apontamento) => {
@@ -659,12 +860,16 @@ export default function Expedicao() {
     setCorrecaoApontamentoAberto(true)
   }
 
-  const handleSucessoCorrecao = () => {
+  const handleSucessoCorrecao = async () => {
     setCorrecaoApontamentoAberto(false)
     setApontamentoParaCorrigir(null)
     // Recarregar a busca
     buscarApontamentosParaCorrecao()
-    alert('✅ Correção salva com sucesso!')
+    await avisarOperacao({
+      tipo: 'success',
+      titulo: 'Correção salva',
+      mensagem: 'Correção salva com sucesso.',
+    })
   }
 
   // Voltar romaneio um passo atrás no fluxo:
@@ -676,11 +881,15 @@ export default function Expedicao() {
     const isPendente = romaneio.status === 'pendente'
 
     if (isConferido) {
-      const confirmado = window.confirm(
-        `Desfazer conferência do romaneio ${romaneio.numero_romaneio}?\n\n` +
-        `O romaneio voltará para status PENDENTE.\n` +
-        `Os racks permanecerão reservados neste romaneio e poderão ser conferidos novamente.`
-      )
+      const confirmado = await confirmarOperacao({
+        tipo: 'warning',
+        titulo: 'Desfazer conferência?',
+        mensagem:
+          `Romaneio: ${romaneio.numero_romaneio}\n\n` +
+          `O romaneio voltará para status PENDENTE.\n` +
+          `Os racks permanecerão reservados neste romaneio e poderão ser conferidos novamente.`,
+        textoConfirmar: 'Desfazer conferência',
+      })
       if (!confirmado) return
       try {
         await supabaseService.supabase
@@ -695,13 +904,21 @@ export default function Expedicao() {
         await loadRomaneios()
         await loadRomaneioItens()
       } catch (erro) {
-        alert('Erro ao desfazer conferência: ' + erro.message)
+        await avisarOperacao({
+          tipo: 'error',
+          titulo: 'Erro ao desfazer conferência',
+          mensagem: erro.message,
+        })
       }
     } else if (isPendente) {
-      const confirmado = window.confirm(
-        `Cancelar o romaneio ${romaneio.numero_romaneio}?\n\n` +
-        `Os racks voltarão a ficar DISPONÍVEIS para um novo romaneio.`
-      )
+      const confirmado = await confirmarOperacao({
+        tipo: 'danger',
+        titulo: 'Cancelar romaneio?',
+        mensagem:
+          `Romaneio: ${romaneio.numero_romaneio}\n\n` +
+          `Os racks voltarão a ficar DISPONÍVEIS para um novo romaneio.`,
+        textoConfirmar: 'Cancelar romaneio',
+      })
       if (!confirmado) return
       try {
         // 1. Buscar itens do romaneio para liberar os apontamentos
@@ -733,31 +950,40 @@ export default function Expedicao() {
         await loadRomaneios()
         window.location.reload()
       } catch (erro) {
-        alert('Erro ao cancelar romaneio: ' + erro.message)
+        await avisarOperacao({
+          tipo: 'error',
+          titulo: 'Erro ao cancelar romaneio',
+          mensagem: erro.message,
+        })
       }
     }
   }
 
   const restaurarRomaneio = async (romaneio) => {
-    const conf1 = window.confirm(
-      `🔄 RESTAURAR RACKS\n\n` +
-      `Romaneio: ${romaneio.numero_romaneio}\n` +
-      `Cliente: ${romaneio.cliente || '-'}\n` +
-      `Racks: ${romaneio.total_racks}\n` +
-      `Peças: ${romaneio.total_pecas}\n\n` +
-      `Esta ação irá:\n` +
-      `• Excluir o romaneio permanentemente\n` +
-      `• Remover as baixas de estoque associadas\n` +
-      `• Restaurar os racks para a lista de "Racks Prontos"\n\n` +
-      `Deseja continuar?`
-    )
+    const conf1 = await confirmarOperacao({
+      tipo: 'danger',
+      titulo: 'Restaurar racks?',
+      mensagem:
+        `Romaneio: ${romaneio.numero_romaneio}\n` +
+        `Cliente: ${romaneio.cliente || '-'}\n` +
+        `Racks: ${romaneio.total_racks}\n` +
+        `Peças: ${romaneio.total_pecas}\n\n` +
+        `Esta ação irá:\n` +
+        `- excluir o romaneio permanentemente\n` +
+        `- remover as baixas de estoque associadas\n` +
+        `- restaurar os racks para a lista de "Racks Prontos"`,
+      textoConfirmar: 'Continuar',
+    })
     if (!conf1) return
 
-    const conf2 = window.confirm(
-      `⚠️ CONFIRMAÇÃO FINAL\n\n` +
-      `Digite OK para confirmar a restauração do romaneio ${romaneio.numero_romaneio}.\n\n` +
-      `Os racks voltarão a ficar disponíveis para novo romaneio.`
-    )
+    const conf2 = await confirmarOperacao({
+      tipo: 'danger',
+      titulo: 'Confirmação final',
+      mensagem:
+        `Confirme a restauração do romaneio ${romaneio.numero_romaneio}.\n\n` +
+        `Os racks voltarão a ficar disponíveis para novo romaneio.`,
+      textoConfirmar: 'Restaurar racks',
+    })
     if (!conf2) return
 
     try {
@@ -810,14 +1036,22 @@ export default function Expedicao() {
         .eq('id', romaneio.id)
       if (erroRom) throw erroRom
 
-      alert(`✅ Romaneio ${romaneio.numero_romaneio} restaurado com sucesso!\n\nOs racks voltaram a ficar disponíveis na aba "Racks Prontos".`)
+      await avisarOperacao({
+        tipo: 'success',
+        titulo: 'Romaneio restaurado',
+        mensagem: `Romaneio ${romaneio.numero_romaneio} restaurado com sucesso.\n\nOs racks voltaram a ficar disponíveis na aba "Racks Prontos".`,
+      })
       await loadRomaneios()
       await loadRomaneioItens()
       // Recarregar apontamentos para atualizar a lista de racks disponíveis
       window.location.reload()
     } catch (erro) {
       console.error('Erro ao restaurar:', erro)
-      alert('Erro ao restaurar romaneio: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao restaurar romaneio',
+        mensagem: erro.message,
+      })
     }
   }
 
@@ -870,7 +1104,11 @@ export default function Expedicao() {
       XLSX.utils.book_append_sheet(wb, ws, 'Romaneio')
       XLSX.writeFile(wb, `${romaneio.numero_romaneio}.xlsx`)
     } catch (erro) {
-      alert('Erro ao exportar: ' + erro.message)
+      await avisarOperacao({
+        tipo: 'error',
+        titulo: 'Erro ao exportar',
+        mensagem: erro.message,
+      })
     }
   }
 
@@ -902,8 +1140,92 @@ export default function Expedicao() {
       })
   }, [romaneios, filtroStatus, historicoCliente, historicoDataInicio, historicoDataFim])
 
+  const dialogTone = {
+    success: {
+      icon: <FaCheckCircle />,
+      iconClass: 'bg-green-100 text-green-700',
+      buttonClass: 'bg-green-600 hover:bg-green-700 focus:ring-green-300',
+    },
+    error: {
+      icon: <FaExclamationTriangle />,
+      iconClass: 'bg-red-100 text-red-700',
+      buttonClass: 'bg-red-600 hover:bg-red-700 focus:ring-red-300',
+    },
+    warning: {
+      icon: <FaExclamationTriangle />,
+      iconClass: 'bg-amber-100 text-amber-700',
+      buttonClass: 'bg-amber-600 hover:bg-amber-700 focus:ring-amber-300',
+    },
+    danger: {
+      icon: <FaTrash />,
+      iconClass: 'bg-red-100 text-red-700',
+      buttonClass: 'bg-red-600 hover:bg-red-700 focus:ring-red-300',
+    },
+    primary: {
+      icon: <FaTruck />,
+      iconClass: 'bg-blue-100 text-blue-700',
+      buttonClass: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-300',
+    },
+    info: {
+      icon: <FaClipboardList />,
+      iconClass: 'bg-slate-100 text-slate-700',
+      buttonClass: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-300',
+    },
+  }
+  const dialogAtual = operacaoDialog ? (dialogTone[operacaoDialog.tipo] || dialogTone.info) : dialogTone.info
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
+      {operacaoDialog && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 px-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex items-start gap-4 border-b border-gray-100 px-6 py-5">
+              <div className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg ${dialogAtual.iconClass}`}>
+                {dialogAtual.icon}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-xl font-bold text-gray-900">{operacaoDialog.titulo}</h3>
+                {operacaoDialog.subtitulo && (
+                  <p className="mt-1 text-sm font-medium text-gray-500">{operacaoDialog.subtitulo}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fecharDialogOperacao(false)}
+                className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Fechar"
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-6 py-5">
+              <p className="whitespace-pre-line text-[15px] leading-6 text-gray-700">
+                {operacaoDialog.mensagem}
+              </p>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4 sm:flex-row sm:justify-end">
+              {operacaoDialog.mostrarCancelar && (
+                <button
+                  type="button"
+                  onClick={() => fecharDialogOperacao(false)}
+                  className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 font-semibold text-gray-700 transition hover:bg-gray-100"
+                >
+                  {operacaoDialog.textoCancelar}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => fecharDialogOperacao(true)}
+                className={`rounded-lg px-5 py-2.5 font-semibold text-white shadow-sm transition focus:outline-none focus:ring-4 ${dialogAtual.buttonClass}`}
+              >
+                {operacaoDialog.textoConfirmar}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -1112,7 +1434,7 @@ export default function Expedicao() {
                 Correção de Apontamentos
               </h3>
               <p className="text-sm text-gray-600 mb-4">
-                Busque apontamentos pelo Rack Acabado (ex: USI-1246) para corrigir informações como Lote Externo, Pedido Cliente, etc.
+                Busque por rack, cliente, produto ou romaneio para corrigir informações e, se necessário, liberar paletes para novo romaneio.
               </p>
               
               <div className="flex gap-3 mb-6">
@@ -1120,7 +1442,7 @@ export default function Expedicao() {
                   type="text"
                   value={buscaRackCorrecao}
                   onChange={(e) => setBuscaRackCorrecao(e.target.value)}
-                  placeholder="Digite o rack (ex: USI-1246)..."
+                  placeholder="Digite rack, cliente, produto ou romaneio..."
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                   onKeyPress={(e) => e.key === 'Enter' && buscarApontamentosParaCorrecao()}
                 />
@@ -1133,44 +1455,85 @@ export default function Expedicao() {
               </div>
 
               {resultadoBuscaCorrecao.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Rack</th>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Produto</th>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Cliente</th>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Lote Externo</th>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Pedido Cliente</th>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {resultadoBuscaCorrecao.map((apt) => (
-                        <tr key={apt.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 font-semibold text-gray-800">{apt.rack_acabado || apt.rack_ou_pallet || '-'}</td>
-                          <td className="px-4 py-2 text-sm text-gray-600">{apt.produto || '-'}</td>
-                          <td className="px-4 py-2 text-sm text-gray-600">{apt.cliente || '-'}</td>
-                          <td className="px-4 py-2 text-sm text-gray-600">{apt.lote_externo || '-'}</td>
-                          <td className="px-4 py-2 text-sm text-gray-600">{apt.pedido_cliente || '-'}</td>
-                          <td className="px-4 py-2">
-                            <button
-                              onClick={() => abrirCorrecaoApontamento(apt)}
-                              className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded flex items-center gap-1"
-                            >
-                              <FaEdit /> Corrigir
-                            </button>
-                          </td>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={selecionarTodosCorrecao}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                    >
+                      {apontamentosCorrecaoSelecionados.length === resultadoBuscaCorrecao.length ? 'Desmarcar todos' : 'Selecionar todos'}
+                    </button>
+                    <button
+                      onClick={liberarPaletesSelecionados}
+                      disabled={apontamentosCorrecaoSelecionados.length === 0}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center gap-2"
+                    >
+                      <FaCheck /> Liberar paletes selecionados
+                    </button>
+                    <span className="text-sm text-gray-500">
+                      {apontamentosCorrecaoSelecionados.length} selecionado(s)
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={resultadoBuscaCorrecao.length > 0 && apontamentosCorrecaoSelecionados.length === resultadoBuscaCorrecao.length}
+                              onChange={selecionarTodosCorrecao}
+                            />
+                          </th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Rack</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Produto</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Cliente</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Romaneio</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Lote Externo</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Pedido Cliente</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Ação</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {resultadoBuscaCorrecao.map((apt) => {
+                          const id = String(apt.id)
+                          const selecionado = apontamentosCorrecaoSelecionados.includes(id)
+                          return (
+                            <tr key={apt.id} className={`hover:bg-gray-50 ${selecionado ? 'bg-green-50' : ''}`}>
+                              <td className="px-4 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selecionado}
+                                  onChange={() => toggleSelecionarCorrecao(apt.id)}
+                                />
+                              </td>
+                              <td className="px-4 py-2 font-semibold text-gray-800">{apt.rack_acabado || apt.rack_ou_pallet || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-600">{apt.produto || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-600">{apt.cliente || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-600">{apt.romaneio_numero || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-600">{apt.lote_externo || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-600">{apt.pedido_cliente || '-'}</td>
+                              <td className="px-4 py-2">
+                                <button
+                                  onClick={() => abrirCorrecaoApontamento(apt)}
+                                  className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded flex items-center gap-1"
+                                >
+                                  <FaEdit /> Corrigir
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               
               {buscaRackCorrecao && resultadoBuscaCorrecao.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
-                  Nenhum apontamento encontrado para o rack "{buscaRackCorrecao}"
+                  Nenhum apontamento encontrado para "{buscaRackCorrecao}"
                 </div>
               )}
             </div>
