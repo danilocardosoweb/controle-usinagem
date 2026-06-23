@@ -1,3 +1,90 @@
+const TURNO_B_INICIO_MIN = 6 * 60 + 30
+const TURNO_B_FIM_MIN = 16 * 60 + 10
+const TURNO_C_INICIO_MIN = 16 * 60 + 10
+const TURNO_C_FIM_MIN = 1 * 60 + 20
+
+const pad2 = (valor) => String(valor).padStart(2, '0')
+
+export const TURNOS_PRODUCAO = {
+  TB: {
+    id: 'TB',
+    nome: 'Turno B',
+    inicio: '06:30',
+    fim: '16:10',
+    inicioMinutos: TURNO_B_INICIO_MIN,
+    fimMinutos: TURNO_B_FIM_MIN
+  },
+  TC: {
+    id: 'TC',
+    nome: 'Turno C',
+    inicio: '16:10',
+    fim: '01:20',
+    inicioMinutos: TURNO_C_INICIO_MIN,
+    fimMinutos: TURNO_C_FIM_MIN
+  }
+}
+
+export const formatarDataInputLocal = (data = new Date()) => (
+  `${data.getFullYear()}-${pad2(data.getMonth() + 1)}-${pad2(data.getDate())}`
+)
+
+const parseDataOperacional = (dataRef) => {
+  const [ano, mes, dia] = String(dataRef || '').split('-').map(Number)
+  if (!ano || !mes || !dia) return null
+  return new Date(ano, mes - 1, dia, 0, 0, 0, 0)
+}
+
+export const getDataOperacionalAtual = (agora = new Date()) => {
+  const data = new Date(agora)
+  const totalMinutos = data.getHours() * 60 + data.getMinutes()
+  if (totalMinutos < TURNO_B_INICIO_MIN) {
+    data.setDate(data.getDate() - 1)
+  }
+  return data
+}
+
+export const getDataOperacionalAtualInput = (agora = new Date()) => (
+  formatarDataInputLocal(getDataOperacionalAtual(agora))
+)
+
+export const getJanelaProducao = (dataRef, turno = '') => {
+  const base = parseDataOperacional(dataRef)
+  if (!base) return { inicio: null, fim: null, label: '' }
+
+  const criarData = (diaOffset, horas, minutos) => (
+    new Date(base.getFullYear(), base.getMonth(), base.getDate() + diaOffset, horas, minutos, 0, 0)
+  )
+
+  if (turno === 'TB') {
+    return {
+      inicio: criarData(0, 6, 30),
+      fim: criarData(0, 16, 10),
+      label: 'Turno B: 06:30 as 16:10'
+    }
+  }
+
+  if (turno === 'TC') {
+    return {
+      inicio: criarData(0, 16, 10),
+      fim: criarData(1, 1, 21),
+      label: 'Turno C: 16:10 as 01:20 do dia seguinte'
+    }
+  }
+
+  return {
+    inicio: criarData(0, 6, 30),
+    fim: criarData(1, 1, 21),
+    label: 'Dia operacional: 06:30 as 01:20 do dia seguinte'
+  }
+}
+
+export const estaNaJanelaProducao = (valorData, janela) => {
+  if (!valorData || !janela?.inicio || !janela?.fim) return false
+  const data = new Date(valorData)
+  if (Number.isNaN(data.getTime())) return false
+  return data >= janela.inicio && data < janela.fim
+}
+
 export const calcularTurno = (dataHora) => {
   if (!dataHora) return ''
   try {
@@ -8,13 +95,9 @@ export const calcularTurno = (dataHora) => {
 
     // TB: 06:30 às 16:10
     // TC: 16:11 às 01:30
-    const tb_inicio = 6 * 60 + 30
-    const tb_fim = 16 * 60 + 10
-    const tc_inicio = 16 * 60 + 11
-
-    if (totalMinutos >= tb_inicio && totalMinutos <= tb_fim) {
+    if (totalMinutos >= TURNO_B_INICIO_MIN && totalMinutos < TURNO_B_FIM_MIN) {
       return 'TB'
-    } else if (totalMinutos >= tc_inicio || totalMinutos <= 1 * 60 + 30) {
+    } else if (totalMinutos >= TURNO_C_INICIO_MIN || totalMinutos <= TURNO_C_FIM_MIN) {
       return 'TC'
     }
     return ''

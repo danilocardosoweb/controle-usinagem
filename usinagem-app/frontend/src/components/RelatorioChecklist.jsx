@@ -47,16 +47,27 @@ const RelatorioChecklist = () => {
       if (filtros.operador) {
         query = query.ilike('operador_nome', `%${filtros.operador}%`);
       }
-      if (filtros.turno) {
+      if (filtros.turno && filtros.turno !== '') {
         query = query.eq('turno', filtros.turno);
       }
-      if (filtros.status) {
+      if (filtros.status && filtros.status !== '') {
         query = query.eq('status', filtros.status);
       }
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Erro na query Supabase:', error);
+        throw error;
+      }
+      
+      console.log(`✅ Checklists carregados: ${data?.length || 0} registros`, {
+        periodo: filtros.periodo,
+        dataInicio,
+        dataFim,
+        filtros
+      });
+      
       setChecklists(data || []);
     } catch (error) {
       console.error('Erro ao carregar checklists:', error);
@@ -285,6 +296,14 @@ const RelatorioChecklist = () => {
         </div>
         
         <div className="flex items-center gap-2">
+          <button
+            onClick={carregarChecklists}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+            title="Recarregar dados do servidor"
+          >
+            <FaFilter className="w-4 h-4" />
+            Recarregar
+          </button>
           <button
             onClick={() => setMostrarFiltros(!mostrarFiltros)}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"

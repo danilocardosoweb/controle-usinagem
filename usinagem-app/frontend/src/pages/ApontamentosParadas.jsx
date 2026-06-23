@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { calcularTurno } from '../utils/formularioIdentificacao'
+import { calcularTurno, estaNaJanelaProducao, getJanelaProducao } from '../utils/formularioIdentificacao'
 import { useSupabase } from '../hooks/useSupabase'
 import { useAuth } from '../contexts/AuthContext'
 import { FaEdit } from 'react-icons/fa'
@@ -197,19 +197,12 @@ const ApontamentosParadas = () => {
       observacoes: p.observacoes || ''
     }))
     
-    // Aplicar filtro de data (janela operacional 06:30-01:30)
+    // Aplicar filtro de data por dia operacional/turno.
     if (filtroData) {
-      const janelaInicio = new Date(`${filtroData}T06:30:00`)
-      const janelaFim = new Date(`${filtroData}T01:30:00`)
-      janelaFim.setDate(janelaFim.getDate() + 1)
+      const janela = getJanelaProducao(filtroData, filtroTurno)
 
       norm = norm.filter(p => {
-        if (!p.inicio) return false
-        const inicioDate = new Date(p.inicio)
-        if (Number.isNaN(inicioDate.getTime())) return false
-        if (inicioDate < janelaInicio) return false
-        if (inicioDate > janelaFim) return false
-        return true
+        return estaNaJanelaProducao(p.inicio, janela)
       })
     }
     
@@ -218,7 +211,7 @@ const ApontamentosParadas = () => {
       norm = norm.filter(p => p.usuario === filtroOperador)
     }
 
-    if (filtroTurno) {
+    if (filtroTurno && !filtroData) {
       norm = norm.filter(p => calcularTurno(p.inicio) === filtroTurno)
     }
     
@@ -462,9 +455,9 @@ const ApontamentosParadas = () => {
                 value={filtroTurno}
                 onChange={(e) => setFiltroTurno(e.target.value)}
               >
-                <option value="">Todos</option>
+                <option value="">Dia operacional completo</option>
                 <option value="TB">TB (06:30-16:10)</option>
-                <option value="TC">TC (16:01-01:30)</option>
+                <option value="TC">TC (16:10-01:20)</option>
               </select>
             </div>
             <div className="flex items-center gap-2">

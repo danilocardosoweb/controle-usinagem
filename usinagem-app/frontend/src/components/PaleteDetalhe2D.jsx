@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../config/supabase'
-import { calcularDimensoesPalete } from './PaleteVisualizacao3D'
+import { calcularDimensoesPalete, resolverEstruturaVertical } from './PaleteVisualizacao3D'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n, dec = 0) => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: dec, minimumFractionDigits: dec })
@@ -8,10 +8,12 @@ const fmtMm = (mm) => mm >= 1000 ? `${fmt(mm / 1000, 3)} m` : `${fmt(mm)} mm`
 
 // ─── Diagrama 2D lateral (vista de frente: X=largura, Y=altura) ───────────────
 function DiagramaLateral({ config, completude }) {
-  const { pacotes_por_camada, camadas_por_bloco, num_blocos, largura_pacote_mm, altura_pacote_mm,
+  const { pacotes_por_camada, largura_pacote_mm, altura_pacote_mm,
     ripa_altura_mm, ripa_entre_camadas, ripa_topo, ripa_vert_comp_mm, ripa_vertical } = config
 
-  const totalCamadas = (camadas_por_bloco || 3) * (num_blocos || 3)
+  const estruturaVertical = resolverEstruturaVertical(config)
+  const totalCamadas = estruturaVertical.totalCamadas
+  const blocosCamadas = estruturaVertical.camadasPorBlocoDistribuidas
   const totalPacotes = (pacotes_por_camada || 3) * totalCamadas
   const pkH = altura_pacote_mm || 100
   const ripaH = ripa_entre_camadas ? (ripa_altura_mm || 17) : 0
@@ -58,8 +60,9 @@ function DiagramaLateral({ config, completude }) {
   let yAtual = MARGIN.top + drawH - baseH // começa do topo do palete base
   let pacotesContados = 0
 
-  for (let b = 0; b < (num_blocos || 3); b++) {
-    for (let c = 0; c < (camadas_por_bloco || 3); c++) {
+  for (let b = 0; b < blocosCamadas.length; b++) {
+    const camadasNoBloco = blocosCamadas[b]
+    for (let c = 0; c < camadasNoBloco; c++) {
       yAtual -= pkHpx
 
       for (let p = 0; p < (pacotes_por_camada || 3); p++) {
@@ -83,7 +86,7 @@ function DiagramaLateral({ config, completude }) {
       }
 
       // Ripa entre camadas
-      if ((ripa_entre_camadas && ripaH > 0) && (c < (camadas_por_bloco || 3) - 1 || b < (num_blocos || 3) - 1)) {
+      if ((ripa_entre_camadas && ripaH > 0) && (c < camadasNoBloco - 1 || b < blocosCamadas.length - 1)) {
         yAtual -= ripaHpx
         camadas.push(
           <rect
@@ -95,7 +98,7 @@ function DiagramaLateral({ config, completude }) {
         )
       }
     }
-    if (b < (num_blocos || 3) - 1 && ripa_entre_camadas && ripaH > 0) {
+    if (b < blocosCamadas.length - 1 && ripa_entre_camadas && ripaH > 0) {
       yAtual -= ripaHpx
       camadas.push(
         <rect key={`ripa-bloco-${b}`}
@@ -194,7 +197,7 @@ function DiagramaLateral({ config, completude }) {
 
 // ─── Vista Frontal 2D (comprimento × altura) ────────────────────────────────
 function DiagramaFrontal({ config, completude, comprimentoAcabadoMm }) {
-  const { camadas_por_bloco, num_blocos, profundidade_pacote_mm, altura_pacote_mm,
+  const { profundidade_pacote_mm, altura_pacote_mm,
     ripa_altura_mm, ripa_entre_camadas, ripa_topo } = config
 
   // Usar completude calculada pelo pai (já normalizada e baseada na config do palete)
@@ -209,7 +212,9 @@ function DiagramaFrontal({ config, completude, comprimentoAcabadoMm }) {
   const pkD = profundidade_pacote_mm || 6000
   const pkH = altura_pacote_mm || 100
   const ripaH = ripa_entre_camadas ? (ripa_altura_mm || 17) : 0
-  const totalCamadas = (camadas_por_bloco || 3) * (num_blocos || 3)
+  const estruturaVertical = resolverEstruturaVertical(config)
+  const totalCamadas = estruturaVertical.totalCamadas
+  const blocosCamadas = estruturaVertical.camadasPorBlocoDistribuidas
   const totalPacotes = totalCamadas // 1 pacote por camada nessa vista (profundidade × altura)
 
   const SVG_W = 520
@@ -239,8 +244,9 @@ function DiagramaFrontal({ config, completude, comprimentoAcabadoMm }) {
   let yAtual = MARGIN.top + drawH - baseH
   let pacotesContados = 0
 
-  for (let b = 0; b < (num_blocos || 3); b++) {
-    for (let c = 0; c < (camadas_por_bloco || 3); c++) {
+  for (let b = 0; b < blocosCamadas.length; b++) {
+    const camadasNoBloco = blocosCamadas[b]
+    for (let c = 0; c < camadasNoBloco; c++) {
       yAtual -= pkHpx
       pacotesContados++
       const cheio = pacotesContados <= pacotesConfirmados
@@ -254,7 +260,7 @@ function DiagramaFrontal({ config, completude, comprimentoAcabadoMm }) {
           strokeWidth={0.8} rx={2}
         />
       )
-      if (ripa_entre_camadas && ripaH > 0 && (c < (camadas_por_bloco || 3) - 1 || b < (num_blocos || 3) - 1)) {
+      if (ripa_entre_camadas && ripaH > 0 && (c < camadasNoBloco - 1 || b < blocosCamadas.length - 1)) {
         yAtual -= ripaHpx
         camadas.push(
           <rect key={`ripa-${b}-${c}`}
@@ -265,7 +271,7 @@ function DiagramaFrontal({ config, completude, comprimentoAcabadoMm }) {
         )
       }
     }
-    if (b < (num_blocos || 3) - 1 && ripa_entre_camadas && ripaH > 0) {
+    if (b < blocosCamadas.length - 1 && ripa_entre_camadas && ripaH > 0) {
       yAtual -= ripaHpx
       camadas.push(
         <rect key={`ripa-bloco-${b}`}
@@ -680,6 +686,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
   // Usar config se disponível; caso contrário, usar valores padrão
   const configOuPadrao = config || {
     pacotes_por_camada: 3,
+    pacotes_por_altura: 9,
     camadas_por_bloco: 3,
     num_blocos: 3,
     largura_pacote_mm: 300,
@@ -693,7 +700,8 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
     orientacao_pacote: 'longitudinal',
   }
   
-  const totalPacotesPalete = (configOuPadrao.pacotes_por_camada || 3) * (configOuPadrao.camadas_por_bloco || 3) * (configOuPadrao.num_blocos || 3)
+  const estruturaVertical = resolverEstruturaVertical(configOuPadrao)
+  const totalPacotesPalete = (configOuPadrao.pacotes_por_camada || 3) * estruturaVertical.totalCamadas
 
   // Informações do rack selecionado
   const pecasRack = rackSelecionado?.quantidade || 0
@@ -969,17 +977,17 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
               <button onClick={() => setSecaoEstruturaAberta(v => !v)}
                 className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
-                <span>Estrutura · {configOuPadrao.pacotes_por_camada}pct × {configOuPadrao.camadas_por_bloco}cam × {configOuPadrao.num_blocos}blocos</span>
+                <span>Estrutura · {configOuPadrao.pacotes_por_camada} largura × {estruturaVertical.totalCamadas} altura · {estruturaVertical.numBlocos} blocos</span>
                 <span className="text-gray-400">{secaoEstruturaAberta ? '▲' : '▼'}</span>
               </button>
               {secaoEstruturaAberta && (
                 <div className="px-3 pb-2 border-t border-gray-100">
                   <div className="grid grid-cols-4 gap-1.5 mt-2 text-xs">
                     {[
-                      { label: 'Pct/cam', value: configOuPadrao.pacotes_por_camada },
-                      { label: 'Cam/bloco', value: configOuPadrao.camadas_por_bloco },
-                      { label: 'Blocos', value: configOuPadrao.num_blocos },
-                      { label: 'Total cam.', value: (configOuPadrao.camadas_por_bloco || 1) * (configOuPadrao.num_blocos || 1) },
+                      { label: 'Pct/larg.', value: configOuPadrao.pacotes_por_camada },
+                      { label: 'Pct/altura', value: estruturaVertical.totalCamadas },
+                      { label: 'Blocos', value: estruturaVertical.numBlocos },
+                      { label: 'Distrib.', value: estruturaVertical.camadasPorBlocoDistribuidas.join('+') },
                       { label: 'Total pct', value: totalPacotesPalete },
                       { label: 'Ripa cam.', value: configOuPadrao.ripa_entre_camadas ? `${configOuPadrao.ripa_altura_mm}mm` : 'Não' },
                       { label: 'Ripa lat.', value: configOuPadrao.ripa_vertical ? `${configOuPadrao.ripa_vert_comp_mm}mm` : 'Não' },

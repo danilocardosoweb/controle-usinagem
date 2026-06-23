@@ -15,6 +15,11 @@ const AutocompleteCodigoCliente = ({
   const [codigoTecnoAnterior, setCodigoTecnoAnterior] = useState('')
   const inputRef = useRef(null)
   const sugestoesRef = useRef(null)
+  const codigoTecnoAtualRef = useRef(codigoTecno)
+
+  useEffect(() => {
+    codigoTecnoAtualRef.current = codigoTecno
+  }, [codigoTecno])
 
   // Buscar sugestões quando código Tecno muda
   useEffect(() => {
@@ -55,6 +60,7 @@ const AutocompleteCodigoCliente = ({
     setCarregando(true)
     try {
       const resultados = await BuscaCodigoClienteService.buscarCodigosClientePorTecno(codigo)
+      if (String(codigoTecnoAtualRef.current || '') !== String(codigo || '')) return
       setSugestoes(resultados)
       
       // Se não tem valor digitado e há sugestões, mostrar a primeira como preferencial

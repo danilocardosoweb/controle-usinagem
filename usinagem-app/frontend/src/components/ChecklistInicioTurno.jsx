@@ -325,10 +325,6 @@ export default function ChecklistInicioTurno({
             </div>
             
             <div className="flex flex-wrap items-center gap-2">
-              <div className="bg-blue-50 px-2 py-1 rounded-lg flex items-center gap-2 border border-blue-100">
-                <span className="text-[10px] text-blue-500 uppercase font-bold">Máquina:</span>
-                <p className="font-bold text-xs text-blue-800">{maquina}</p>
-              </div>
               <div className="bg-indigo-50 px-2 py-1 rounded-lg flex items-center gap-2 border border-indigo-100">
                 <span className="text-[10px] text-indigo-500 uppercase font-bold">Operador:</span>
                 <p className="font-bold text-xs text-indigo-800">{operador}</p>

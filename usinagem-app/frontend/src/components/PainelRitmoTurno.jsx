@@ -1,61 +1,31 @@
 import { useMemo, useState, useEffect } from 'react'
 import { FaClock, FaChartLine, FaCheckCircle, FaExclamationTriangle, FaArrowUp, FaSkullCrossbones, FaInfoCircle, FaSmile } from 'react-icons/fa'
-
-function totalMinutos(h, m) {
-  return h * 60 + m
-}
+import { calcularTurno, estaNaJanelaProducao, getDataOperacionalAtualInput, getJanelaProducao, TURNOS_PRODUCAO } from '../utils/formularioIdentificacao'
 
 function getTurnoAtualInfo(agora = new Date()) {
-  const totalMin = agora.getHours() * 60 + agora.getMinutes()
+  const idTurno = calcularTurno(agora)
+  if (!idTurno) return null
 
-  // TB: 06:30 - 16:10
-  const tbInicio = totalMinutos(6, 30)
-  const tbFim = totalMinutos(16, 10)
+  const dataOperacional = getDataOperacionalAtualInput(agora)
+  const janela = getJanelaProducao(dataOperacional, idTurno)
+  if (!janela.inicio || !janela.fim) return null
 
-  // TC: 16:11 - 01:30
-  const tcInicio = totalMinutos(16, 11)
-  const tcFim = totalMinutos(1, 30)
+  const totalTurnoMin = Math.max(0, Math.round((janela.fim.getTime() - janela.inicio.getTime()) / 60000))
+  const decorrMin = Math.max(0, Math.min(totalTurnoMin, Math.round((agora.getTime() - janela.inicio.getTime()) / 60000)))
+  const restanteMin = Math.max(0, totalTurnoMin - decorrMin)
+  const turno = TURNOS_PRODUCAO[idTurno]
 
-  if (totalMin >= tbInicio && totalMin <= tbFim) {
-    const totalTurnoMin = tbFim - tbInicio
-    const decorrMin = totalMin - tbInicio
-    const restanteMin = totalTurnoMin - decorrMin
-    return {
-      id: 'TB',
-      nome: 'Turno B',
-      totalHoras: totalTurnoMin / 60,
-      decorrMinutos: decorrMin,
-      restanteMinutos: restanteMin,
-      horaInicio: `06:30`,
-      horaFim: `16:10`,
-      inicioDia: new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 6, 30, 0),
-      fimDia: new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 16, 10, 0)
-    }
-  } else if (totalMin >= tcInicio || totalMin <= tcFim) {
-    const totalTurnoMin = (24 * 60 - tcInicio) + tcFim
-    let decorrMin = totalMin >= tcInicio ? totalMin - tcInicio : (24 * 60 - tcInicio) + totalMin
-    const restanteMin = totalTurnoMin - decorrMin
-
-    const agora2 = new Date(agora)
-    let diaInicio = new Date(agora2.getFullYear(), agora2.getMonth(), agora2.getDate(), 16, 11, 0)
-    let diaFim = new Date(agora2.getFullYear(), agora2.getMonth(), agora2.getDate() + 1, 1, 30, 0)
-    if (totalMin <= tcFim) {
-      diaInicio = new Date(agora2.getFullYear(), agora2.getMonth(), agora2.getDate() - 1, 16, 11, 0)
-      diaFim = new Date(agora2.getFullYear(), agora2.getMonth(), agora2.getDate(), 1, 30, 0)
-    }
-    return {
-      id: 'TC',
-      nome: 'Turno C',
-      totalHoras: totalTurnoMin / 60,
-      decorrMinutos: decorrMin,
-      restanteMinutos: restanteMin,
-      horaInicio: `16:11`,
-      horaFim: `01:30`,
-      inicioDia: diaInicio,
-      fimDia: diaFim
-    }
+  return {
+    id: idTurno,
+    nome: turno?.nome || idTurno,
+    totalHoras: totalTurnoMin / 60,
+    decorrMinutos: decorrMin,
+    restanteMinutos: restanteMin,
+    horaInicio: turno?.inicio || '',
+    horaFim: turno?.fim || '',
+    inicioDia: janela.inicio,
+    fimDia: janela.fim
   }
-  return null
 }
 
 export default function PainelRitmoTurno({ apontamentos = [], metaDiaria = 20000, turnos = [], teoricoPcsHora = 0 }) {
@@ -77,10 +47,9 @@ export default function PainelRitmoTurno({ apontamentos = [], metaDiaria = 20000
 
   const apontamentosTurno = useMemo(() => {
     if (!turnoAtual || !turnoAtual.inicioDia) return []
+    const janela = { inicio: turnoAtual.inicioDia, fim: turnoAtual.fimDia }
     return (apontamentos || []).filter(a => {
-      if (!a.inicio) return false
-      const dt = new Date(a.inicio)
-      return dt >= turnoAtual.inicioDia && dt <= turnoAtual.fimDia
+      return estaNaJanelaProducao(a.inicio, janela) || estaNaJanelaProducao(a.created_at, janela)
     })
   }, [apontamentos, turnoAtual])
 
@@ -176,7 +145,7 @@ export default function PainelRitmoTurno({ apontamentos = [], metaDiaria = 20000
     return (
       <div className="bg-gray-50 border border-gray-200 rounded-md p-2 flex items-center gap-2 text-xs text-gray-400 w-full mb-2">
         <FaClock className="shrink-0" />
-        <span>Fora do horário de turno (TB: 06:30–16:10 | TC: 16:11–01:30)</span>
+        <span>Fora do horário de turno (TB: 06:30-16:10 | TC: 16:10-01:20)</span>
       </div>
     )
   }

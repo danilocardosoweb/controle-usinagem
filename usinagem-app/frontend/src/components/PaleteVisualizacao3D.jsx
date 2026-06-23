@@ -159,6 +159,43 @@ export function calcularLayoutColunas({ pacotesPorCamada = 1, orientacaoPacote =
   }
 }
 
+export function limparMetadataAltura(descricao = '') {
+  return String(descricao || '')
+    .replace(/\s*\[\[PACOTES_ALTURA:\d+\]\]\s*/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+export function montarDescricaoComAltura(descricao = '', pacotesPorAltura = 1) {
+  const descricaoLimpa = limparMetadataAltura(descricao)
+  const altura = Math.max(1, Math.floor(Number(pacotesPorAltura) || 1))
+  return `${descricaoLimpa}${descricaoLimpa ? ' ' : ''}[[PACOTES_ALTURA:${altura}]]`
+}
+
+export function resolverEstruturaVertical(cfg = {}) {
+  const camadasPorBlocoLegado = Math.max(1, Math.floor(Number(cfg.camadas_por_bloco) || 1))
+  const numBlocosSolicitado = Math.max(1, Math.floor(Number(cfg.num_blocos) || 1))
+  const alturaMarcada = String(cfg.descricao_montagem || '').match(/\[\[PACOTES_ALTURA:(\d+)\]\]/i)
+  const alturaInformada = Math.floor(Number(cfg.pacotes_por_altura) || Number(alturaMarcada?.[1]) || 0)
+  const totalCamadas = Math.max(1, alturaInformada > 0
+    ? alturaInformada
+    : camadasPorBlocoLegado * numBlocosSolicitado)
+  const numBlocos = Math.min(numBlocosSolicitado, totalCamadas)
+  const camadasBase = Math.floor(totalCamadas / numBlocos)
+  const camadasExtras = totalCamadas % numBlocos
+  const camadasPorBlocoDistribuidas = Array.from(
+    { length: numBlocos },
+    (_, indice) => camadasBase + (indice < camadasExtras ? 1 : 0)
+  )
+
+  return {
+    totalCamadas,
+    numBlocos,
+    camadasPorBloco: camadasPorBlocoLegado,
+    camadasPorBlocoDistribuidas,
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONVENÇÃO DE EIXOS
 //   X → largura  (lado a lado dos pacotes na camada)
@@ -177,8 +214,8 @@ export function calcularDimensoesPalete(cfg) {
   if (pkLargMm <= 0 || pkProfMm <= 0 || pkAltMm <= 0) return null
 
   const pacotesPorCamada = Math.max(1, Number(cfg.pacotes_por_camada) || 1)
-  const camadasPorBloco  = Math.max(1, Number(cfg.camadas_por_bloco) || 1)
-  const numBlocos         = Math.max(1, Number(cfg.num_blocos) || 1)
+  const estruturaVertical = resolverEstruturaVertical(cfg)
+  const { totalCamadas, numBlocos, camadasPorBlocoDistribuidas } = estruturaVertical
 
   const gapMm = 10 // GAP_ENTRE_PACOTES = 0.01m = 10mm
   const pkLarg = pkLargMm / 1000
@@ -208,14 +245,13 @@ export function calcularDimensoesPalete(cfg) {
   const ripaAltMm = Number(cfg.ripa_altura_mm) || 30
   const altCamadaMm = pkAltMm + 4 // 0.004m gap
   const altRipaBlocoMm = cfg.ripa_entre_camadas ? (ripaAltMm + 4) : 6
-  const altBlocoTotalMm = altRipaBlocoMm + camadasPorBloco * altCamadaMm
   const altCamadaFinalMm = (cfg.camada_final_ativa && Number(cfg.camada_final_qtd) > 0)
     ? (altRipaBlocoMm + altCamadaMm)
     : 0
-  const altEmpilhadoMm = numBlocos * altBlocoTotalMm + altCamadaFinalMm + (cfg.ripa_topo ? (ripaAltMm + 4) : 0)
+  const altEmpilhadoMm = (numBlocos * altRipaBlocoMm) + (totalCamadas * altCamadaMm) + altCamadaFinalMm + (cfg.ripa_topo ? (ripaAltMm + 4) : 0)
   const totalAltMm = 112 + altEmpilhadoMm // 112mm = base PBR
 
-  const totalPacotes = pacotesPorCamada * camadasPorBloco * numBlocos
+  const totalPacotes = pacotesPorCamada * totalCamadas
   const volumeM3 = (spanXmm / 1000) * (spanZmm / 1000) * (totalAltMm / 1000)
 
   return {
@@ -228,7 +264,9 @@ export function calcularDimensoesPalete(cfg) {
     volumeM3,
     totalPacotes,
     pacotesPorCamada,
-    camadasPorBloco,
+    pacotesPorAltura: totalCamadas,
+    camadasPorBloco: estruturaVertical.camadasPorBloco,
+    camadasPorBlocoDistribuidas,
     numBlocos,
   }
 }
@@ -490,6 +528,7 @@ function RipasTransversais({ yPos, ripaAlt, ripaLarg, comprimento, posicoes, eix
 
 function PaleteCompleto({
   pacotesPorCamada,
+  pacotesPorAltura,
   numBlocos,
   camadasPorBloco,
   pkLargX, pkAltY, pkProfZ,
@@ -554,17 +593,28 @@ function PaleteCompleto({
   // Cada camada de pacotes tem altura pkAltY (sem ripa entre camadas individuais)
   const altCamada  = pkAltY + 0.004   // pequeno gap entre camadas do mesmo bloco
   // Cada bloco = camadasPorBloco × altCamada
-  const altBloco   = camadasPorBloco * altCamada
   // Entre blocos fica a ripa transversal
   const altRipaBloco = ripaEntreBlocos ? ripaAlt + 0.004 : 0.006
-  // Altura total de um bloco + sua ripa inferior
-  const altBlocoTotal = altRipaBloco + altBloco
+  const estruturaVertical = resolverEstruturaVertical({
+    pacotes_por_altura: pacotesPorAltura,
+    camadas_por_bloco: camadasPorBloco,
+    num_blocos: numBlocos,
+  })
+  const blocosCamadas = estruturaVertical.camadasPorBlocoDistribuidas
+  const totalCamadas = estruturaVertical.totalCamadas
+  const numBlocosAtivos = estruturaVertical.numBlocos
+  const alturasAntesDoBloco = blocosCamadas.map((_, indice) => (
+    blocosCamadas
+      .slice(0, indice)
+      .reduce((total, camadas) => total + altRipaBloco + camadas * altCamada, 0)
+  ))
 
   // Altura da camada final (se ativa)
   const altCamadaFinal = (camadaFinalAtiva && camadaFinalQtd > 0) ? (altRipaBloco + altCamada) : 0
 
   // Altura total empilhada para ripas verticais (inclui camada final)
-  const altEmpilhado = numBlocos * altBlocoTotal + altCamadaFinal + (ripaTopo ? ripaAlt + 0.004 : 0)
+  const alturaBlocos = numBlocosAtivos * altRipaBloco + totalCamadas * altCamada
+  const altEmpilhado = alturaBlocos + altCamadaFinal + (ripaTopo ? ripaAlt + 0.004 : 0)
   const yEmpMeio     = altBase + altEmpilhado / 2
 
   // Helper para calcular posições Z das ripas entre camadas
@@ -691,9 +741,9 @@ function PaleteCompleto({
         <group key={`pilha-${piIdx}`} position={[pilhaOff.dx, 0, pilhaOff.dz]}>
 
       {/* ── BLOCOS ── */}
-      {Array.from({ length: numBlocos }, (_, bi) => {
+      {blocosCamadas.map((camadasNoBloco, bi) => {
         // Y base do bloco (ripas ficam embaixo, pacotes empilham acima)
-        const yBlocoBase = altBase + bi * altBlocoTotal
+        const yBlocoBase = altBase + alturasAntesDoBloco[bi]
 
         return (
           <React.Fragment key={bi}>
@@ -710,7 +760,7 @@ function PaleteCompleto({
             )}
 
             {/* Camadas de pacotes dentro do bloco */}
-            {Array.from({ length: camadasPorBloco }, (_, ci) => {
+            {Array.from({ length: camadasNoBloco }, (_, ci) => {
               const yBase = yBlocoBase + altRipaBloco + ci * altCamada
               const yPk   = yBase + pkAltY / 2
               return (
@@ -759,7 +809,7 @@ function PaleteCompleto({
       {/* ── CAMADA FINAL (AJUSTE DE ALTURA) ── */}
       {camadaFinalAtiva && camadaFinalQtd > 0 && (() => {
         // Posição Y da camada final: após todos os blocos + ripa entre blocos
-        const yCamadaFinal = altBase + numBlocos * altBlocoTotal + altRipaBloco
+        const yCamadaFinal = altBase + alturaBlocos + altRipaBloco
         const yPkFinal = yCamadaFinal + pkAltY / 2
 
         // Quantidade de pacotes na camada final (limitado ao máximo de colunas disponíveis)
@@ -806,7 +856,7 @@ function PaleteCompleto({
       {ripaTopo && (() => {
         // Altura base: se tiver camada final, incluir ela no cálculo
         const altExtra = (camadaFinalAtiva && camadaFinalQtd > 0) ? (altRipaBloco + altCamada) : 0
-        const yUltimo = altBase + numBlocos * altBlocoTotal + altExtra
+        const yUltimo = altBase + alturaBlocos + altExtra
         return (
           <RipasTransversais
             yPos={yUltimo + ripaAlt / 2}
@@ -1060,14 +1110,14 @@ const DENSIDADE_MADEIRA_KG_M3 = 600
 const PESO_BASE_PALETE = { PBR_1200x1000: 25, PBR_1000x1000: 22, CHEP_1200x1000: 30, default: 25 }
 
 // ─── OVERLAY INFO ─────────────────────────────────────────────────────────────
-function InfoOverlay({ pacotesPorCamada, numBlocos, camadasPorBloco, pkLargMm, pkAltMm, pkProfMm, cor, totalLargMm, totalAltMm, totalProfMm, cubagem, ripaVertical, ripaAlturaMm,
+function InfoOverlay({ pacotesPorCamada, pacotesPorAltura, numBlocos, camadasPorBloco, pkLargMm, pkAltMm, pkProfMm, cor, totalLargMm, totalAltMm, totalProfMm, cubagem, ripaVertical, ripaAlturaMm,
   ripaEntreBlocos, numRipasPorCamada, ripaTopo, numRipasLateral, ripaAltMm, ripaLargMm, ripaCompMm, ripaVertCompMm, ripaVertLargMm,
   pesoPacoteKg, tipoPalete, orientacaoPacote }) {
   // Na orientação transversal: totalLarg = comprimento do perfil, totalProf = largura do bloco
   const isTransversal = orientacaoPacote === 'transversal'
   const labelDimLarg = isTransversal ? 'Comp' : 'Largura'
   const labelDimProf = isTransversal ? 'Largura' : 'Prof'
-  const totalCamadas = numBlocos * camadasPorBloco
+  const totalCamadas = Math.max(1, Number(pacotesPorAltura) || (numBlocos * camadasPorBloco))
   const totalPacotes = pacotesPorCamada * totalCamadas
 
   // Ripas entre camadas: (num_ripas × num_interfaces) — cada bloco tem 1 camada base + 1 topo opcional
@@ -1132,7 +1182,7 @@ function InfoOverlay({ pacotesPorCamada, numBlocos, camadasPorBloco, pkLargMm, p
       </div>
 
       <div>Pacote: <b>{pkLargMm}mm</b> × <b>{pkAltMm}mm</b> × <b>{pkProfMm}mm</b></div>
-      <div>{pacotesPorCamada} pct/camada · {camadasPorBloco} cam/bloco · {numBlocos} blocos</div>
+      <div>{pacotesPorCamada} pct/largura · {totalCamadas} pct/altura · {numBlocos} blocos</div>
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 6, paddingTop: 6, fontWeight: 700 }}>
         Total: <span style={{ color: '#34d399' }}>{totalPacotes} pacotes</span> <span style={{ fontWeight: 400, fontSize: 10 }}>({totalCamadas} cam)</span>
       </div>
@@ -1206,6 +1256,7 @@ function InfoOverlay({ pacotesPorCamada, numBlocos, camadasPorBloco, pkLargMm, p
 const PaleteVisualizacao3D = ({
   // Estrutura: pacotes × camadas × blocos
   pacotesPorCamada     = 3,
+  pacotesPorAltura     = undefined,
   camadasPorBloco      = 3,
   numBlocos            = 3,
   // Dimensões do PACOTE em mm (milímetros)
@@ -1310,8 +1361,14 @@ const PaleteVisualizacao3D = ({
   const profundidadeRenderMm = amarradoOverrides?.comprimentoMm ?? _profundidadePacoteMm
 
   // Suporte legado: se receber numCamadas sem camadasPorBloco/numBlocos
+  const estruturaVertical = resolverEstruturaVertical({
+    pacotes_por_altura: pacotesPorAltura,
+    camadas_por_bloco: camadasPorBloco,
+    num_blocos: numBlocos,
+  })
   const _camadasPorBloco = camadasPorBloco
-  const _numBlocos       = numBlocos
+  const _numBlocos       = estruturaVertical.numBlocos
+  const _pacotesPorAltura = estruturaVertical.totalCamadas
   const _ripaEntreBlocos = ripaEntreBlocos ?? ripaEntreCamadas ?? true
 
   // Converte mm → metros (dividir por 1000)
@@ -1340,10 +1397,9 @@ const PaleteVisualizacao3D = ({
   const spanZ           = layoutColunas.spanZ
   const altCamada      = pkAltY + 0.004
   const altRipaBloco   = _ripaEntreBlocos ? ripaAlt + 0.004 : 0.006
-  const altBlocoTotal  = altRipaBloco + _camadasPorBloco * altCamada
   // Altura da camada final (se ativa)
   const altCamadaFinal = (camadaFinalAtiva && camadaFinalQtd > 0) ? (altRipaBloco + altCamada) : 0
-  const altEmpilhado   = _numBlocos * altBlocoTotal + altCamadaFinal + (ripaTopo ? ripaAlt + 0.004 : 0)
+  const altEmpilhado   = (_numBlocos * altRipaBloco) + (_pacotesPorAltura * altCamada) + altCamadaFinal + (ripaTopo ? ripaAlt + 0.004 : 0)
   const altTotal       = 0.112 + altEmpilhado
   const cDist          = Math.max(spanX, altTotal, spanZ + (ripaVertical ? ripaVertComp * 2 : 0)) * 1.9
   const camPos         = [cDist * 0.85, cDist * 0.65, cDist * 1.05]
@@ -1366,6 +1422,7 @@ const PaleteVisualizacao3D = ({
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#020617' }}>
       <InfoOverlay
         pacotesPorCamada={pacotesPorCamada}
+        pacotesPorAltura={_pacotesPorAltura}
         numBlocos={_numBlocos}
         camadasPorBloco={_camadasPorBloco}
         pkLargMm={_larguraPacoteMm}
@@ -1422,6 +1479,7 @@ const PaleteVisualizacao3D = ({
 
           <PaleteCompleto
             pacotesPorCamada={pacotesPorCamada}
+            pacotesPorAltura={_pacotesPorAltura}
             numBlocos={_numBlocos}
             camadasPorBloco={_camadasPorBloco}
             pkLargX={pkLargX} pkAltY={pkAltY} pkProfZ={pkProfZ}

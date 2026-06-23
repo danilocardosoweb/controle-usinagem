@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Edges, OrbitControls, PerspectiveCamera, Html, Line } from '@react-three/drei'
 import { DoubleSide } from 'three'
 import { FaTimes, FaCubes, FaSave, FaEdit, FaTruckLoading, FaPlus, FaTrash, FaClipboardList, FaSearch, FaSync, FaExclamationTriangle, FaBan, FaRulerCombined, FaBoxOpen, FaDownload, FaUpload, FaPrint, FaCalendarAlt, FaUser, FaCheck, FaFolderOpen, FaChevronLeft, FaChevronRight, FaLevelDownAlt, FaShare, FaTrashAlt } from 'react-icons/fa'
-import PaleteVisualizacao3D, { PALETE_CONFIGS, calcularLayoutColunas, calcularDimensoesPalete } from './PaleteVisualizacao3D'
+import PaleteVisualizacao3D, { PALETE_CONFIGS, calcularLayoutColunas, calcularDimensoesPalete, resolverEstruturaVertical, limparMetadataAltura, montarDescricaoComAltura } from './PaleteVisualizacao3D'
 import AmarradoVisualizacao3D from './AmarradoVisualizacao3D'
 import PaleteDetalhe2D from './PaleteDetalhe2D'
 import TooltipPaleteInfo from './TooltipPaleteInfo'
@@ -809,7 +809,7 @@ const TruckPreview3D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folga
 }
 
 // ─── EDITOR 2D MANUAL DE CUBAGEM (com suporte a camadas/empilhamento) ────────
-const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folgaAlturaCm = 0, considerarAltura = true, onPlacementsChange, initialPlacements }) => {
+const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, folgaAlturaCm = 0, considerarAltura = true, onPlacementsChange, initialPlacements, onRequestClear }) => {
   const svgRef = useRef(null)
   // placements agora inclui: orientacaoFuros ('longitudinal'|'lateral'), acessoBloqueado (boolean)
   const [placements, setPlacements] = useState([]) // { id, itemIdx, x, z, w, d, rotated, cor, titulo, alt, camada, orientacaoFuros, acessoBloqueado }
@@ -1376,7 +1376,10 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
 
               {placements.length > 0 && (
                 <button
-                  onClick={() => { if(window.confirm('Remover todos os paletes da carga?')) { setPlacements([]); setSelectedId(null) } }}
+                  onClick={() => {
+                    const clear = () => { setPlacements([]); setSelectedId(null) }
+                    onRequestClear ? onRequestClear(clear) : clear()
+                  }}
                   className="col-span-2 flex items-center justify-center gap-2 py-2 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 transition-all shadow-sm"
                   title="Limpar toda a carga"
                 >
@@ -1390,7 +1393,10 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
         
         {!selectedId && placements.length > 0 && (
           <button
-            onClick={() => { if(window.confirm('Remover todos os paletes da carga?')) { setPlacements([]); setSelectedId(null) } }}
+            onClick={() => {
+              const clear = () => { setPlacements([]); setSelectedId(null) }
+              onRequestClear ? onRequestClear(clear) : clear()
+            }}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 transition-all shadow-sm"
             title="Limpar toda a carga"
           >
@@ -1702,6 +1708,7 @@ const FORM_DEFAULT = {
   // ========== SEÇÃO 1: PALETE ==========
   tipo_palete:           'PBR_1200x1000',
   pacotes_por_camada:    3,
+  pacotes_por_altura:    9,
   camadas_por_bloco:     3,
   num_blocos:            3,
 
@@ -1861,6 +1868,77 @@ const Chip = ({ children, color = 'gray' }) => {
   )
 }
 
+const ActionDialog = ({ dialog, onClose }) => {
+  if (!dialog) return null
+
+  const isDanger = dialog.variant === 'danger'
+  const isSuccess = dialog.variant === 'success'
+  const isWarning = dialog.variant === 'warning'
+  const accent = isDanger
+    ? 'bg-red-600 hover:bg-red-700'
+    : isSuccess
+      ? 'bg-emerald-600 hover:bg-emerald-700'
+      : isWarning
+        ? 'bg-amber-500 hover:bg-amber-600'
+        : 'bg-blue-600 hover:bg-blue-700'
+  const iconTone = isDanger
+    ? 'bg-red-50 text-red-600 border-red-100'
+    : isSuccess
+      ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+      : isWarning
+        ? 'bg-amber-50 text-amber-600 border-amber-100'
+        : 'bg-blue-50 text-blue-600 border-blue-100'
+
+  const handleConfirm = () => {
+    const action = dialog.onConfirm
+    onClose()
+    action?.()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl border border-white/70">
+        <div className="p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center flex-shrink-0 ${iconTone}`}>
+              {isDanger ? <FaTrashAlt /> : isSuccess ? <FaCheck /> : isWarning ? <FaExclamationTriangle /> : <FaClipboardList />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-lg font-black text-slate-900 leading-tight">{dialog.title}</h3>
+                <button onClick={onClose} className="text-slate-400 hover:text-slate-700 transition-colors">
+                  <FaTimes />
+                </button>
+              </div>
+              {dialog.subtitle && (
+                <p className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">{dialog.subtitle}</p>
+              )}
+              <p className="mt-3 text-sm leading-6 text-slate-600 whitespace-pre-line">{dialog.message}</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col-reverse sm:flex-row gap-2 bg-slate-50 border-t border-slate-100 p-4">
+          {dialog.type === 'confirm' && (
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-100 transition-colors"
+            >
+              {dialog.cancelLabel || 'Cancelar'}
+            </button>
+          )}
+          <button
+            onClick={dialog.type === 'confirm' ? handleConfirm : onClose}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-white text-sm font-black transition-colors shadow-sm ${accent}`}
+          >
+            {dialog.confirmLabel || 'OK'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClose, onActiveTabChange, simulacaoId, onSimulacaoLoaded }) => {
   const open = true
   const [config, setConfig] = useState(null)
@@ -1871,6 +1949,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const [form, setForm] = useState(FORM_DEFAULT)
   const [msg, setMsg] = useState('')
   const [msgVisible, setMsgVisible] = useState(false)
+  const [operationDialog, setOperationDialog] = useState(null)
 
   useEffect(() => {
     if (!msg) { setMsgVisible(false); return }
@@ -1879,6 +1958,14 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     const clear = setTimeout(() => setMsg(''), 4500)
     return () => { clearTimeout(hide); clearTimeout(clear) }
   }, [msg])
+
+  const showOperationDialog = useCallback((dialog) => {
+    setOperationDialog(dialog)
+  }, [])
+
+  const closeOperationDialog = useCallback(() => {
+    setOperationDialog(null)
+  }, [])
   
   // Estados para gerenciar modelos de amarrado
   const [modelosAmarrado, setModelosAmarrado] = useState([])
@@ -2028,27 +2115,50 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         largura: modelo.largura,
         altura: modelo.altura,
         espacamento: modelo.espacamento,
-        comprimento: modelo.comprimento,
+        comprimento: modelo.comprimento_perfil ?? modelo.comprimento,
         cor: modelo.cor,
         mostrar_filme: modelo.mostrar_filme,
       })
       setShowCarregarModeloModal(false)
       setMsg(`Modelo "${modelo.nome}" carregado!`)
     } else {
-      alert('Erro ao carregar modelo: ' + resultado.error)
+      showOperationDialog({
+        type: 'notice',
+        variant: 'danger',
+        title: 'Erro ao carregar modelo',
+        message: resultado.error || 'Não foi possível carregar este modelo de amarrado.',
+        confirmLabel: 'Entendi',
+      })
     }
   }
 
   const deletarModelo = async (modeloId) => {
-    if (!confirm('Tem certeza que deseja deletar este modelo?')) return
-    
-    const resultado = await AmarradoService.deletarModelo(modeloId)
-    if (resultado.success) {
-      await carregarModelosAmarrado()
-      setMsg('Modelo deletado com sucesso!')
-    } else {
-      alert('Erro ao deletar modelo: ' + resultado.error)
-    }
+    const modelo = modelosAmarrado.find((item) => item.id === modeloId)
+
+    showOperationDialog({
+      type: 'confirm',
+      variant: 'danger',
+      title: 'Deletar modelo de amarrado?',
+      subtitle: modelo?.nome || 'Modelo selecionado',
+      message: 'Essa ação remove apenas o modelo salvo. A configuração atual na tela e os dados de expedição não serão alterados.',
+      confirmLabel: 'Deletar modelo',
+      cancelLabel: 'Manter modelo',
+      onConfirm: async () => {
+        const resultado = await AmarradoService.deletarModelo(modeloId)
+        if (resultado.success) {
+          await carregarModelosAmarrado()
+          setMsg('Modelo deletado com sucesso!')
+        } else {
+          showOperationDialog({
+            type: 'notice',
+            variant: 'danger',
+            title: 'Erro ao deletar modelo',
+            message: resultado.error || 'Não foi possível deletar este modelo.',
+            confirmLabel: 'Entendi',
+          })
+        }
+      },
+    })
   }
 
   useEffect(() => {
@@ -2232,8 +2342,17 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     supabase.from('ferramentas_cfg').select('ferramenta, comprimento_mm, pecas_por_amarrado, pcs_por_pallet, pcs_por_caixa, embalagem')
       .then(({ data }) => { if (data) setFerramentasCfgData(data) })
     // Carregar palete_config de todas as ferramentas para calcular dimensões corretas por item
-    supabase.from('palete_config').select('ferramenta, comprimento_mm, largura_pacote_mm, altura_pacote_mm, profundidade_pacote_mm, pacotes_por_camada, camadas_por_bloco, num_blocos, orientacao_pacote, ripa_vertical, ripa_vert_largura_mm, ripa_vert_comp_mm, ripa_entre_camadas, ripa_altura_mm, ripa_topo')
-      .then(({ data }) => { if (data) setPaleteConfigData(data) })
+    // A altura nova é normalizada a partir dos campos já existentes da tabela.
+    supabase.from('palete_config').select('*')
+      .then(({ data }) => {
+        if (data) {
+          setPaleteConfigData(data.map(item => ({
+            ...item,
+            pacotes_por_altura: resolverEstruturaVertical(item).totalCamadas,
+            descricao_montagem: limparMetadataAltura(item.descricao_montagem),
+          })))
+        }
+      })
   }, [open, activeTab, fetchRomaneiosDisponiveis])
 
   const fetchConfig = async () => {
@@ -2264,12 +2383,15 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
     if (data) {
       const colunasRot = parseColunasRotacionadas(data.colunas_rotacionadas, data.pacotes_por_camada ?? 0)
-      const configNormalizado = { ...data, colunas_rotacionadas: colunasRot }
+      const pacotesPorAltura = resolverEstruturaVertical(data).totalCamadas
+      const descricaoMontagem = limparMetadataAltura(data.descricao_montagem)
+      const configNormalizado = { ...data, pacotes_por_altura: pacotesPorAltura, descricao_montagem: descricaoMontagem, colunas_rotacionadas: colunasRot }
       setConfig(configNormalizado)
       setForm({
         // Palete
         tipo_palete:           data.tipo_palete           ?? 'PBR_1200x1000',
         pacotes_por_camada:    data.pacotes_por_camada    ?? 3,
+        pacotes_por_altura:    pacotesPorAltura,
         camadas_por_bloco:     data.camadas_por_bloco     ?? 3,
         num_blocos:            data.num_blocos            ?? 3,
         // Ripas entre camadas
@@ -2309,7 +2431,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         orientacao_pacote:     data.orientacao_pacote     ?? 'longitudinal',
         cor_pacote:            data.cor_pacote            ?? '#b0b8c1',
         colunas_rotacionadas:  colunasRot,
-        descricao_montagem:    data.descricao_montagem    ?? '',
+        descricao_montagem:    descricaoMontagem,
         mostrar_cotas:         data.mostrar_cotas         ?? true,
         peso_pacote_kg:        data.peso_pacote_kg        ?? '',
       })
@@ -2324,14 +2446,17 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     setSalvando(true)
     setMsg('')
     const comprimentoNum = comprimento ? parseInt(comprimento, 10) : null
+    const pacotesPorAltura = Math.max(1, Number(form.pacotes_por_altura) || 1)
+    const numBlocos = Math.max(1, Math.min(pacotesPorAltura, Number(form.num_blocos) || 1))
     const payload = {
       ferramenta,
       comprimento_mm:        comprimentoNum,
       // Palete
       tipo_palete:           form.tipo_palete,
       pacotes_por_camada:    Number(form.pacotes_por_camada),
-      camadas_por_bloco:     Number(form.camadas_por_bloco),
-      num_blocos:            Number(form.num_blocos),
+      num_camadas:           pacotesPorAltura,
+      camadas_por_bloco:     Math.ceil(pacotesPorAltura / numBlocos),
+      num_blocos:            numBlocos,
       // Ripas entre camadas
       ripa_entre_camadas:    form.ripa_entre_camadas,
       num_ripas_por_camada:  Number(form.num_ripas_por_camada),
@@ -2372,7 +2497,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       orientacao_pacote:     form.orientacao_pacote,
       cor_pacote:            form.cor_pacote,
       colunas_rotacionadas:  form.colunas_rotacionadas,
-      descricao_montagem:    form.descricao_montagem,
+      descricao_montagem:    montarDescricaoComAltura(form.descricao_montagem, pacotesPorAltura),
       updated_at:            new Date().toISOString(),
     }
 
@@ -2405,6 +2530,19 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     }
 
     // Validar comprimento das ripas entre camadas (apenas aviso, não bloqueia)
+    if (name === 'pacotes_por_altura' || name === 'num_blocos') {
+      setForm(prev => {
+        const pacotesPorAltura = Math.max(1, Number(name === 'pacotes_por_altura' ? value : prev.pacotes_por_altura) || 1)
+        const numBlocos = Math.max(1, Math.min(pacotesPorAltura, Number(name === 'num_blocos' ? value : prev.num_blocos) || 1))
+        return {
+          ...prev,
+          [name]: value,
+          camadas_por_bloco: Math.ceil(pacotesPorAltura / numBlocos),
+        }
+      })
+      return
+    }
+
     if (name === 'ripa_comprimento_mm') {
       const comprimentoDigitado = Number(value) || 0
       // Calcular largura do material empilhado (sem ripas laterais)
@@ -2437,6 +2575,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         // Palete
         tipo_palete:           config.tipo_palete           ?? 'PBR_1200x1000',
         pacotes_por_camada:    config.pacotes_por_camada    ?? 3,
+        pacotes_por_altura:    config.pacotes_por_altura    ?? ((config.camadas_por_bloco ?? 3) * (config.num_blocos ?? 3)),
         camadas_por_bloco:     config.camadas_por_bloco     ?? 3,
         num_blocos:            config.num_blocos            ?? 3,
         // Ripas entre camadas
@@ -2484,8 +2623,9 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
   const metricsPaleteAtual = useMemo(() => {
     const pacotesCamada = Math.max(1, Number(form.pacotes_por_camada) || 0)
-    const camadasPorBloco = Math.max(1, Number(form.camadas_por_bloco) || 1)
-    const numBlocosAtivos = Math.max(1, Number(form.num_blocos) || 1)
+    const estruturaVertical = resolverEstruturaVertical(form)
+    const totalCamadas = estruturaVertical.totalCamadas
+    const numBlocosAtivos = estruturaVertical.numBlocos
     const pkLarg = mmToM(form.largura_pacote_mm)
     const pkProf = mmToM(form.profundidade_pacote_mm)
     const pkAlt = mmToM(form.altura_pacote_mm)
@@ -2503,11 +2643,10 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     const ripaAlt = mmToM(form.ripa_altura_mm)
     const altCamada = pkAlt + 0.004
     const altRipaBloco = form.ripa_entre_camadas ? ripaAlt + 0.004 : 0.006
-    const altBlocoTotal = altRipaBloco + camadasPorBloco * altCamada
     const altCamadaFinal = (form.camada_final_ativa && Number(form.camada_final_qtd) > 0)
       ? (altRipaBloco + altCamada)
       : 0
-    const altEmpilhado = numBlocosAtivos * altBlocoTotal + altCamadaFinal + (form.ripa_topo ? ripaAlt + 0.004 : 0)
+    const altEmpilhado = (numBlocosAtivos * altRipaBloco) + (totalCamadas * altCamada) + altCamadaFinal + (form.ripa_topo ? ripaAlt + 0.004 : 0)
     const totalAlt = 0.112 + altEmpilhado
     // Dimensões reais do palete: nunca menor que o estrado PBR base
     const paleteDimsBase = {
@@ -2520,7 +2659,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     const baseEst = paleteDimsBase[form.tipo_palete] || paleteDimsBase['PBR_1200x1000']
     const totalLarg = Math.max(layout.spanX, baseEst.largX)
     const totalProf = Math.max(layout.spanZ, baseEst.profZ)
-    const totalPacotes = pacotesCamada * camadasPorBloco * numBlocosAtivos
+    const totalPacotes = pacotesCamada * totalCamadas
     const volume = totalLarg * totalProf * totalAlt
 
     return {
@@ -2533,13 +2672,16 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       totalPacotes,
       volume,
       layout,
-      camadasPorBloco,
+      pacotesPorAltura: totalCamadas,
+      camadasPorBloco: estruturaVertical.camadasPorBloco,
+      camadasPorBlocoDistribuidas: estruturaVertical.camadasPorBlocoDistribuidas,
       numBlocos: numBlocosAtivos,
       pacotesPorCamada: pacotesCamada,
       pesoPacoteKg: Number(form.peso_pacote_kg) || 0,
     }
   }, [
     form.pacotes_por_camada,
+    form.pacotes_por_altura,
     form.camadas_por_bloco,
     form.num_blocos,
     form.largura_pacote_mm,
@@ -2651,11 +2793,10 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
     const dimsPalete = cfgPalete ? calcularDimensoesPalete(cfgPalete) : null
     const pacotesPorCamada = Math.max(1, Number(dimsPalete?.pacotesPorCamada || cfgPalete?.pacotes_por_camada || 1))
-    const camadasPorBloco = Math.max(1, Number(dimsPalete?.camadasPorBloco || cfgPalete?.camadas_por_bloco || 1))
-    const numBlocos = Math.max(1, Number(dimsPalete?.numBlocos || cfgPalete?.num_blocos || 1))
+    const totalCamadas = Math.max(1, Number(dimsPalete?.pacotesPorAltura) || resolverEstruturaVertical(cfgPalete || {}).totalCamadas)
 
     // Calcular número total de pacotes no palete (fonte única de verdade)
-    const totalPacotesPalete = pacotesPorCamada * camadasPorBloco * numBlocos
+    const totalPacotesPalete = pacotesPorCamada * totalCamadas
     
     // Se temos config de palete, usar pacotes como referência; caso contrário usar amarrados da ferramenta
     const refTotal = Math.max(1, totalPacotesPalete || amarradosPalete)
@@ -2663,7 +2804,6 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
     // Altura proporcional por camadas preenchidas
     const camadasNecessarias = Math.ceil(amarradosRack / pacotesPorCamada)
-    const totalCamadas = camadasPorBloco * numBlocos
     const camadasReais = Math.min(camadasNecessarias, totalCamadas)
 
     // Altura: base palete (0.112m) + proporcional das camadas
@@ -3011,8 +3151,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   }
 
   const totalCamadasPlanejadas = metricsPaleteAtual
-    ? metricsPaleteAtual.camadasPorBloco * metricsPaleteAtual.numBlocos
-    : (Number(form.camadas_por_bloco) || 0) * (Number(form.num_blocos) || 0)
+    ? metricsPaleteAtual.pacotesPorAltura
+    : resolverEstruturaVertical(form).totalCamadas
 
   // Responsividade
   const screen = useResponsive()
@@ -3068,8 +3208,10 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
   useEffect(() => {
     if (!open) return
-    setActiveTab('visualizacao')
-  }, [open])
+    const tabInicial = simulacaoId ? 'cubagem' : 'visualizacao'
+    setActiveTab(tabInicial)
+    onActiveTabChange?.(tabInicial)
+  }, [open, simulacaoId, onActiveTabChange])
 
   const itemSelecionado = useMemo(() => {
     if (!filaItens.length) return null
@@ -3257,6 +3399,16 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       setShowSalvarModal(false)
       const label = isCarga ? `Carga nº ${sim.numero_carga}` : 'Simulação'
       setMsg(`${label} salva com sucesso!`)
+      showOperationDialog({
+        type: 'notice',
+        variant: 'success',
+        title: isCarga ? 'Carga confirmada com sucesso' : 'Simulação salva com sucesso',
+        subtitle: isCarga ? `Carga nº ${sim.numero_carga || sim.id}` : sim.titulo,
+        message: isCarga
+          ? 'Os paletes desta carga foram vinculados e ficarão protegidos contra nova inclusão em outra carga confirmada.'
+          : 'A simulação foi salva e pode ser carregada novamente pela aba Cubagem.',
+        confirmLabel: 'OK',
+      })
 
       if (isCarga) {
         // Limpar fila e placements — itens agora pertencem à carga
@@ -3271,7 +3423,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       console.error('Erro ao salvar:', e)
       setMsg('Erro ao salvar: ' + (e.message || ''))
     } finally { setSalvandoSim(false) }
-  }, [simForm, caminhaoAtual, modoCubagem, folgaPerimetroCm, folgaAlturaCm, considerarAltura, manualPlacements, filaItens, totalPesoCargaKg, getMetadataFromPlacement, fetchRacksEmCargas, fetchRomaneiosDisponiveis])
+  }, [simForm, caminhaoAtual, modoCubagem, folgaPerimetroCm, folgaAlturaCm, considerarAltura, manualPlacements, filaItens, totalPesoCargaKg, getMetadataFromPlacement, fetchRacksEmCargas, fetchRomaneiosDisponiveis, showOperationDialog])
 
   const carregarListaSimulacoes = useCallback(async () => {
     setCarregandoSims(true)
@@ -3421,7 +3573,13 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     // Criar janela de impressão temporária
     const printWindow = window.open('', '_blank', 'width=800,height=600')
     if (!printWindow) {
-      alert('Permita popups para imprimir a ficha')
+      showOperationDialog({
+        type: 'notice',
+        variant: 'warning',
+        title: 'Impressão bloqueada',
+        message: 'O navegador bloqueou a janela de impressão. Permita pop-ups para este sistema e tente imprimir novamente.',
+        confirmLabel: 'Entendi',
+      })
       return
     }
 
@@ -3500,10 +3658,10 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     <div class="box">
       <div class="box-title">Estrutura do Palete</div>
       <div class="row"><label>Tipo:</label><value>${getVal('tipo_palete')?.replace('PBR_', 'PBR ')?.replace(/x/g, '×') || 'PBR 1200×1000'}</value></div>
-      <div class="row"><label>Pacotes/Camada:</label><value>${getVal('pacotes_por_camada', '-')}</value></div>
-      <div class="row"><label>Camadas/Bloco:</label><value>${getVal('camadas_por_bloco', '-')}</value></div>
+      <div class="row"><label>Pacotes/Largura:</label><value>${getVal('pacotes_por_camada', '-')}</value></div>
+      <div class="row"><label>Pacotes/Altura:</label><value>${getVal('pacotes_por_altura', getVal('camadas_por_bloco', 1) * getVal('num_blocos', 1))}</value></div>
       <div class="row"><label>Número de Blocos:</label><value>${getVal('num_blocos', '-')}</value></div>
-      <div class="row"><label>Total de Pacotes:</label><value>${(getVal('pacotes_por_camada', 0)) * (getVal('camadas_por_bloco', 0)) * (getVal('num_blocos', 0))} un</value></div>
+      <div class="row"><label>Total de Pacotes:</label><value>${(getVal('pacotes_por_camada', 0)) * (getVal('pacotes_por_altura', getVal('camadas_por_bloco', 1) * getVal('num_blocos', 1)))} un</value></div>
     </div>
 
     <div class="box">
@@ -3534,7 +3692,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
     printWindow.document.write(html)
     printWindow.document.close()
-  }, [ferramenta, comprimento, config, form, metricsPaleteAtual])
+  }, [ferramenta, comprimento, config, form, metricsPaleteAtual, showOperationDialog])
 
   // Auto-carregar simulação via prop (quando acessado via URL)
   useEffect(() => {
@@ -3666,6 +3824,19 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     // Recolhe painel esquerdo automaticamente para dar mais espaço à visualização
     setPainelEsquerdoRecolhido(true)
   }
+
+  const solicitarLimpezaCargaManual = useCallback((confirmAction) => {
+    showOperationDialog({
+      type: 'confirm',
+      variant: 'danger',
+      title: 'Limpar carga manual?',
+      subtitle: 'Cubagem em caminhões',
+      message: 'Todos os paletes posicionados manualmente serão removidos da carga em edição.\n\nIsso não altera romaneios, simulações salvas ou dados da Expedição.',
+      confirmLabel: 'Limpar carga',
+      cancelLabel: 'Manter carga',
+      onConfirm: confirmAction,
+    })
+  }, [showOperationDialog])
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden bg-white">
@@ -3916,6 +4087,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                 <div className="flex-1 overflow-hidden" style={{ minHeight: '250px' }}>
                   <PaleteVisualizacao3D
                     pacotesPorCamada={Number(form.pacotes_por_camada) || 3}
+                    pacotesPorAltura={Number(form.pacotes_por_altura) || undefined}
                     camadasPorBloco={Number(form.camadas_por_bloco) || 3}
                     tipoPalete={form.tipo_palete || 'PBR_1200x1000'}
                     numBlocos={Number(form.num_blocos) || 3}
@@ -3978,7 +4150,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
               <div className="px-4 py-2 bg-gray-800 flex items-center gap-4 text-[10px] text-gray-400 flex-wrap border-t border-gray-700">
                 <span className="flex items-center gap-1">
                   <span className="w-3 h-3 rounded inline-block" style={{ background: form.cor_pacote }} />
-                  Pacote ({form.pacotes_por_camada}×camada × {totalCamadasPlanejadas} camadas)
+                  Pacote ({form.pacotes_por_camada} largura × {totalCamadasPlanejadas} altura)
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-3 h-3 rounded inline-block bg-yellow-700" />
@@ -4171,17 +4343,23 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <FieldLabel>Pct/Cam.</FieldLabel>
+                      <FieldLabel>Pct/Largura</FieldLabel>
                       {editando ? <input type="number" name="pacotes_por_camada" min="1" max="30" value={form.pacotes_por_camada ?? ''} onChange={handleChange} className={inputCls} /> : <Val>{config?.pacotes_por_camada}</Val>}
                     </div>
                     <div>
-                      <FieldLabel>Cam/Bloco</FieldLabel>
-                      {editando ? <input type="number" name="camadas_por_bloco" min="1" max="20" value={form.camadas_por_bloco ?? ''} onChange={handleChange} className={inputCls} /> : <Val>{config?.camadas_por_bloco}</Val>}
+                      <FieldLabel>Pct/Altura</FieldLabel>
+                      {editando ? <input type="number" name="pacotes_por_altura" min="1" max="50" value={form.pacotes_por_altura ?? ''} onChange={handleChange} className={inputCls} /> : <Val>{config?.pacotes_por_altura ?? ((config?.camadas_por_bloco || 1) * (config?.num_blocos || 1))}</Val>}
                     </div>
                     <div>
                       <FieldLabel>Blocos</FieldLabel>
-                      {editando ? <input type="number" name="num_blocos" min="1" max="10" value={form.num_blocos ?? ''} onChange={handleChange} className={inputCls} /> : <Val>{config?.num_blocos}</Val>}
+                      {editando ? <input type="number" name="num_blocos" min="1" max={Math.max(1, Number(form.pacotes_por_altura) || 1)} value={form.num_blocos ?? ''} onChange={handleChange} className={inputCls} /> : <Val>{config?.num_blocos}</Val>}
                     </div>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-900">
+                    <b>Montagem:</b> {form.pacotes_por_camada || 0} pacotes de largura × {totalCamadasPlanejadas} pacotes de altura
+                    <span className="block mt-0.5 text-amber-700">
+                      Distribuição nos blocos: {metricsPaleteAtual?.camadasPorBlocoDistribuidas?.join(' + ') || '-'} camadas
+                    </span>
                   </div>
 
                   <Divider />
@@ -4425,7 +4603,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
                 {/* ── RESUMO (somente leitura) ── */}
                 {!editando && config && (() => {
-                  const totalCamadas = (config.num_blocos ?? 3) * (config.camadas_por_bloco ?? 3)
+                  const totalCamadas = resolverEstruturaVertical(config).totalCamadas
                   const totalPacotes = totalCamadas * (config.pacotes_por_camada ?? 3)
                   return (
                     <div className="mx-4 mb-10 bg-slate-900 rounded-2xl p-5 shadow-lg border border-slate-800">
@@ -5163,6 +5341,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                             }))
                           }}
                           initialPlacements={loadedPlacements}
+                          onRequestClear={solicitarLimpezaCargaManual}
                         />
                       </div>
 
@@ -6225,7 +6404,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                       <div className="flex-1">
                         <p className="font-semibold text-slate-800">{modelo.nome}</p>
                         <p className="text-xs text-slate-500">
-                          {modelo.tipo === 'circular' ? '⭕' : '▭'} {modelo.quantidade} peças · {modelo.largura}mm · {modelo.comprimento}mm
+                          {modelo.tipo === 'circular' ? '⭕' : '▭'} {modelo.quantidade} peças · {modelo.largura}mm · {modelo.comprimento_perfil ?? modelo.comprimento}mm
                         </p>
                         {modelo.descricao && (
                           <p className="text-xs text-slate-600 mt-1">{modelo.descricao}</p>
@@ -6261,6 +6440,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
             </div>
           </div>
         )}
+
+        <ActionDialog dialog={operationDialog} onClose={closeOperationDialog} />
 
         {/* Toast Notification */}
         {msg && (

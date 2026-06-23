@@ -200,7 +200,8 @@ const Relatorios = () => {
     { id: 'produtividade_embalagem', nome: 'Apontamentos - Embalagem: Produtividade (Itens)' },
     { id: 'rastreabilidade', nome: 'Rastreabilidade (Amarrados/Lotes)' },
     { id: 'apontamentos_rack', nome: 'Apontamentos por Rack!Embalagem' },
-    { id: 'folha_inspecao', nome: 'Folha de Inspeção de Qualidade (por Pedido)' }
+    { id: 'folha_inspecao', nome: 'Folha de Inspeção de Qualidade (por Pedido)' },
+    { id: 'checklist', nome: 'Checklist de Início de Turno' }
   ]
 
   const areaPorTipoRelatorio = (tipo) => {
@@ -1323,6 +1324,9 @@ const Relatorios = () => {
 
     // Renderiza a tabela de acordo com o tipo de relatório
     switch (baseTipo) {
+      case 'checklist':
+        return <RelatorioChecklist />
+      
       case 'folha_inspecao': {
         const rows = buildRows('folha_inspecao')
 

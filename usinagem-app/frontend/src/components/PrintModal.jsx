@@ -79,7 +79,9 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
   // Buscar código do cliente automaticamente quando apontamento mudar
   useEffect(() => {
     if (apontamento && isOpen && apontamento.produto) {
-      buscarCodigoClienteAutomatico(apontamento.produto)
+      buscarCodigoClienteAutomaticoSeguro(apontamento.produto)
+    } else if (isOpen) {
+      setCodigoProdutoCliente('')
     }
   }, [apontamento, isOpen])
 
@@ -250,6 +252,25 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
   }
 
   // Buscar código do cliente automaticamente
+  const buscarCodigoClienteAutomaticoSeguro = async (codigoTecno) => {
+    const codigoTecnoAtual = String(codigoTecno || '').trim()
+    if (!codigoTecnoAtual) {
+      setCodigoProdutoCliente('')
+      return
+    }
+
+    try {
+      setCodigoProdutoCliente('')
+      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecnoAtual)
+      if (codigoPreferencial) {
+        setCodigoProdutoCliente(codigoPreferencial.codigo_cliente)
+        console.log(`CÃ³digo do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecnoAtual}`)
+      }
+    } catch (error) {
+      console.error('Erro ao buscar cÃ³digo do cliente automÃ¡tico:', error)
+    }
+  }
+
   const buscarCodigoClienteAutomatico = async (codigoTecno) => {
     try {
       const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecno)
@@ -352,7 +373,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
         || apontamento.ordem
         || ''
       const pedidoCli = apontamento.pedido_cliente || apontamento.pedidoCliente || ''
-      const codigoClienteVal = codigoProdutoCliente || apontamento.codigo_produto_cliente || apontamento.codigoProdutoCliente || ''
+      const codigoClienteVal = codigoProdutoCliente || ''
       const qtde = apontamento.quantidade || ''
       const pallet = apontamento.rack_acabado || apontamento.rackAcabado || ''
       const lote = apontamento.lote || ''

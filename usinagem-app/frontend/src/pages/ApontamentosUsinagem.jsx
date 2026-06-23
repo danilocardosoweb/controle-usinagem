@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox, FaImage, FaCubes, FaPlay, FaChartLine, FaFileAlt, FaFileExcel, FaPrint, FaRedo, FaBarcode, FaCamera, FaTimes, FaUpload, FaEye, FaTags, FaEdit, FaClipboardList } from 'react-icons/fa'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox, FaImage, FaCubes, FaPlay, FaChartLine, FaFileAlt, FaFileExcel, FaPrint, FaRedo, FaBarcode, FaCamera, FaTimes, FaUpload, FaEye, FaTags, FaEdit, FaClipboardList, FaBookOpen } from 'react-icons/fa'
 import { Line } from 'react-chartjs-2'
 import { useNavigate } from 'react-router-dom'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip } from 'chart.js'
@@ -11,7 +11,14 @@ import * as XLSX from 'xlsx'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip)
 import { isVisualizador } from '../utils/auth'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
-import { buildFormularioIdentificacaoHtml, calcularTurno, resolverKit } from '../utils/formularioIdentificacao'
+import {
+  buildFormularioIdentificacaoHtml,
+  calcularTurno,
+  estaNaJanelaProducao,
+  getDataOperacionalAtualInput,
+  getJanelaProducao,
+  resolverKit
+} from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 import AutocompleteCodigoCliente from '../components/AutocompleteCodigoCliente'
@@ -23,6 +30,7 @@ import EtiquetaPaletePreview from '../components/EtiquetaPaletePreview'
 import EtiquetaPaleteExportPreview from '../components/EtiquetaPaleteExportPreview'
 import InspecaoQualidadeModal from '../components/InspecaoQualidadeModal'
 import PainelRitmoTurno from '../components/PainelRitmoTurno'
+import { ITDigitalModal } from '../components/it-digital'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
 const buildHttpPdfUrl = (basePath, fileName) => {
@@ -1546,12 +1554,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [listarApontAberto, setListarApontAberto] = useState(false)
   const [tabelaDiariaAberta, setTabelaDiariaAberta] = useState(false)
   const [dataTabelaDiaria, setDataTabelaDiaria] = useState(() => {
-    const d = new Date()
-    const pad = (n) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    return getDataOperacionalAtualInput()
   })
   const [filtroTabelaDiaria, setFiltroTabelaDiaria] = useState('')
   const [turnoTabelaDiaria, setTurnoTabelaDiaria] = useState('')
+  const [tipoApontamentoTabela, setTipoApontamentoTabela] = useState('validos')
   const [graficoParadasAberto, setGraficoParadasAberto] = useState(false)
   const [tipoParadaExpandido, setTipoParadaExpandido] = useState(null)
   const [statusLocalCache, setStatusLocalCache] = useState({})
@@ -1601,6 +1608,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [tmpLotesExt, setTmpLotesExt] = useState([''])
   // Modal de seleção de Rack!Embalagem e lotes (novo fluxo ao selecionar Pedido/Seq)
   const [rackModalAberto, setRackModalAberto] = useState(false)
+  const [itDigitalAberta, setItDigitalAberta] = useState(false)
+  const [itDigitalItem, setItDigitalItem] = useState(null)
+  const [itDigitalPendente, setItDigitalPendente] = useState(null)
   const [pedidoSeqSelecionado, setPedidoSeqSelecionado] = useState('')
   const [rackModalPerfil, setRackModalPerfil] = useState({ perfilLongo: '', codigoPerfil: '' })
   const [rackDigitado, setRackDigitado] = useState('')
@@ -1638,6 +1648,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [codigoProdutoBusca, setCodigoProdutoBusca] = useState('')
   const [filtroFerramentaBusca, setFiltroFerramentaBusca] = useState('')
   const [filtroComprimentoBusca, setFiltroComprimentoBusca] = useState('')
+
+  useEffect(() => {
+    if (!rackModalAberto && itDigitalPendente) {
+      setItDigitalItem(itDigitalPendente)
+      setItDigitalPendente(null)
+      setItDigitalAberta(true)
+    }
+  }, [rackModalAberto, itDigitalPendente])
   
   // Função para calcular duração em minutos
   const duracaoMin = (inicio, fim) => {
@@ -2602,6 +2620,51 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const fichaUrlAtual = cfgDocumentoAtual?.ficha_processo_pdf_url || docsAtivosAtual?.ficha_processo?.url_arquivo || ''
   const fotoUrlAtual = cfgDocumentoAtual?.foto_padronizacao_url || docsAtivosAtual?.foto_padronizacao?.url_arquivo || ''
 
+  const montarContextoIT = (ordem = null) => {
+    const codigoItem = ordem?.codigoPerfil || formData.codigoPerfil || ''
+    const codigoPerfil = extrairFerramenta(codigoItem)
+    const comprimento = Number(ordem?.comprimentoAcabado || formData.comprimentoAcabado || extrairComprimentoAcabado(codigoItem) || 0)
+    const perfilLongo = ordem?.perfilLongo || formData.perfilLongo || ''
+    const barraOriginal = Number(String(extrairComprimentoPerfilLongo(perfilLongo) || '').replace(/\D/g, '')) || 0
+    const cfg = (ferramentasCfg || []).find(item => (
+      String(item?.ferramenta || '').toUpperCase() === String(codigoPerfil || '').toUpperCase()
+      && normalizarComprimentoComparacao(item?.comprimento_mm) === normalizarComprimentoComparacao(comprimento)
+    )) || (ferramentasCfg || []).find(item => String(item?.ferramenta || '').toUpperCase() === String(codigoPerfil || '').toUpperCase()) || null
+    const pecasPorPacote = Number(cfg?.pecas_por_amarrado || 0)
+    const totalPecas = Number(ordem?.qtdPedido ?? formData.qtdPedido ?? 0)
+
+    return {
+      itemId: String(ordem?.id || formData.ordemTrabalho || codigoItem),
+      codigoItem,
+      codigoPerfil,
+      cliente: ordem?.cliente || formData.cliente || '',
+      comprimentoAcabado: comprimento,
+      totalPecas,
+      pedidoSeq: String(ordem?.id || formData.ordemTrabalho || ''),
+      numeroOp: ordem?.nroOp || formData.nroOp || '',
+      perfilLongo,
+      pecasPorPacote,
+      quantidadeAmarrados: pecasPorPacote > 0 ? Math.ceil(totalPecas / pecasPorPacote) : 0,
+      tempoCicloSeg: Number(cfg?.tempo_por_peca || 0),
+      setupMinutos: 0,
+      cortesPorCiclo: 1,
+      produtividadePadrao: Number(cfg?.teorico_produtividade_pcs_hora || 0),
+      barraOriginalMm: barraOriginal,
+      arquivoItUrl: cfg?.ficha_processo_pdf_url || '',
+    }
+  }
+
+  const agendarAberturaIT = (ordem) => {
+    if (!ordem || ordem._generico) return
+    setItDigitalPendente(montarContextoIT(ordem))
+  }
+
+  const abrirITAtual = () => {
+    if (!formData.codigoPerfil || !formData.ordemTrabalho) return
+    setItDigitalItem(montarContextoIT())
+    setItDigitalAberta(true)
+  }
+
   const abrirDocumentoUrl = (url) => {
     if (!url) return
     const w = window.open(url, 'pdf_viewer')
@@ -2929,11 +2992,48 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Buscar código do cliente automaticamente quando código do perfil mudar
   useEffect(() => {
     if (formData.codigoPerfil && formData.codigoPerfil.trim()) {
-      buscarCodigoClienteAutomatico(formData.codigoPerfil)
+      buscarCodigoClienteAutomaticoSeguro(formData.codigoPerfil)
+    } else {
+      setFormData(prev => prev.codigoProdutoCliente ? ({ ...prev, codigoProdutoCliente: '' }) : prev)
     }
   }, [formData.codigoPerfil])
 
   // Buscar código do cliente automaticamente
+  const buscarCodigoClienteAutomaticoSeguro = async (codigoTecno) => {
+    const codigoTecnoAtual = String(codigoTecno || '').trim()
+    if (!codigoTecnoAtual) {
+      setFormData(prev => prev.codigoProdutoCliente ? ({ ...prev, codigoProdutoCliente: '' }) : prev)
+      return
+    }
+
+    try {
+      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecnoAtual)
+      setFormData(prev => {
+        // Evita que uma busca atrasada de outro produto preencha o pedido atual.
+        if (String(prev.codigoPerfil || '').trim() !== codigoTecnoAtual) return prev
+
+        if (codigoPreferencial) {
+          console.log(`CÃ³digo do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecnoAtual}`)
+          return {
+            ...prev,
+            codigoProdutoCliente: codigoPreferencial.codigo_cliente
+          }
+        }
+
+        if (prev.codigoProdutoCliente) {
+          console.warn(`Nenhum cÃ³digo cliente cadastrado para ${codigoTecnoAtual}. Campo limpo para evitar reutilizar cÃ³digo antigo.`)
+        }
+
+        return {
+          ...prev,
+          codigoProdutoCliente: ''
+        }
+      })
+    } catch (error) {
+      console.error('Erro ao buscar cÃ³digo do cliente automÃ¡tico:', error)
+    }
+  }
+
   const buscarCodigoClienteAutomatico = async (codigoTecno) => {
     try {
       const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecno)
@@ -2985,7 +3085,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     if (name === 'ordemTrabalho') {
       // Tratamento especial para o pedido genérico TESTE/01
       if (value === 'TESTE/01') {
-        const inicioAuto = formData.inicio || getNowLocalInput()
+        const inicioAuto = getNowLocalInput()
         setFormData({
           ...formData,
           ordemTrabalho: 'TESTE/01',
@@ -3003,8 +3103,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           rack_ou_pallet: '',
           lotesExternos: [],
           amarradosDetalhados: [],
+          codigoProdutoCliente: '',
           inicio: inicioAuto,
-          fim: formData.fim || addMinutesToInput(inicioAuto, 60)
+          fim: addMinutesToInput(inicioAuto, 60)
         })
         // Para TESTE/01 não há rack obrigatório — não abre modal de rack
         setPedidoSeqSelecionado('TESTE/01')
@@ -3016,7 +3117,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
       const ordem = ordensTrabalho.find(o => o.id === value)
       if (ordem) {
-        const inicioAuto = formData.inicio || getNowLocalInput()
+        const inicioAuto = getNowLocalInput()
         setFormData({
           ...formData,
           ordemTrabalho: value,
@@ -3030,10 +3131,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           unidade: ordem.unidade,
           comprimentoAcabado: ordem.comprimentoAcabado,
           nroOp: ordem.nroOp,
+          codigoProdutoCliente: '',
           // Preenche início automaticamente se ainda não houver valor
           inicio: inicioAuto,
-          // Define fim como 1 hora após o início, caso ainda esteja vazio
-          fim: formData.fim || addMinutesToInput(inicioAuto, 60)
+          // Ao trocar o pedido, começa um novo apontamento com horário atual.
+          fim: addMinutesToInput(inicioAuto, 60)
         })
         // Abre novo modal: Rack!Embalagem e lotes relacionados
         setPedidoSeqSelecionado(value)
@@ -3041,6 +3143,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         setRackDigitado('')
         setLotesEncontrados([])
         setLotesSelecionados([])
+        agendarAberturaIT(ordem)
         setRackModalAberto(true)
         return
       }
@@ -3200,10 +3303,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Handlers do pop-up customizado
   const handleContinuarMesmoItem = () => {
     setContinuarMesmoItemAberto(false)
-    setFormData(prev => ({ ...prev, quantidade: '' }))
+    const novoInicio = getNowLocalInput()
+    const novoFim = addMinutesToInput(novoInicio, 60)
+    setFormData(prev => ({ ...prev, quantidade: '', inicio: novoInicio, fim: novoFim }))
     try {
       if (typeof window !== 'undefined') {
-        const draft = { ...formData, quantidade: '' }
+        const draft = { ...formData, quantidade: '', inicio: novoInicio, fim: novoFim }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(draft))
       }
     } catch {}
@@ -3469,18 +3574,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
   const linhasTabelaDiaria = useMemo(() => {
     const dataRef = String(dataTabelaDiaria || '').trim()
-    const janelaInicio = dataRef ? new Date(`${dataRef}T06:30:00`) : null
-    const janelaFim = dataRef ? new Date(`${dataRef}T01:30:00`) : null
-    if (janelaFim) janelaFim.setDate(janelaFim.getDate() + 1)
+    const turnoSelecionado = String(turnoTabelaDiaria || '').trim()
+    const janela = dataRef ? getJanelaProducao(dataRef, turnoSelecionado) : null
 
     return (apontamentosDB || []).filter((a) => {
       if (!dataRef) return true
-      if (!a.inicio) return false
-      const inicioDate = new Date(a.inicio)
-      if (Number.isNaN(inicioDate.getTime())) return false
-      if (janelaInicio && inicioDate < janelaInicio) return false
-      if (janelaFim && inicioDate > janelaFim) return false
-      return true
+      return estaNaJanelaProducao(a.inicio, janela) || estaNaJanelaProducao(a.created_at, janela)
     }).map((a, idx) => {
       const ordem = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '').trim()
       const quantidade = Number(a.quantidade || 0)
@@ -3517,7 +3616,11 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         ? Number((pesoLinear * comprimentoM * quantidade).toFixed(3))
         : 0
       
-      const turno = calcularTurno(a.inicio)
+      const dataReferenciaTurno = !dataRef || estaNaJanelaProducao(a.inicio, janela) ? a.inicio : a.created_at
+      const turno = calcularTurno(dataReferenciaTurno)
+
+      const totalPecas = quantidade + qtdRefugoRow
+      const apontamentoCorrecao = totalPecas <= 0
 
       return {
         id: a.id || `${ordem}-${idx}`,
@@ -3541,7 +3644,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         nroOp: String(a.nro_op || a.nroOp || '').trim(),
         observacoes: String(a.observacoes || '').trim(),
         horasTrabalhadas: horasTrabalhadas.toFixed(2),
-        totalPecas: quantidade + qtdRefugoRow,
+        totalPecas,
+        apontamentoCorrecao,
         pesoLinear,
         comprimentoMm,
         kgEstimado,
@@ -3549,16 +3653,16 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         statusSalvoId: statusSalvo?.id || null
       }
     })
-  }, [apontamentosDB, dataTabelaDiaria, statusApontamentosDB, ferramentasCfg])
+  }, [apontamentosDB, dataTabelaDiaria, turnoTabelaDiaria, statusApontamentosDB, ferramentasCfg])
 
   const linhasTabelaDiariaFiltradas = useMemo(() => {
     const termo = String(filtroTabelaDiaria || '').trim().toLowerCase()
-    const turnoSelecionado = String(turnoTabelaDiaria || '').trim()
 
     let linhas = linhasTabelaDiaria
-
-    if (turnoSelecionado) {
-      linhas = linhas.filter((linha) => linha.turno === turnoSelecionado)
+    if (tipoApontamentoTabela === 'validos') {
+      linhas = linhas.filter((linha) => !linha.apontamentoCorrecao)
+    } else if (tipoApontamentoTabela === 'correcoes') {
+      linhas = linhas.filter((linha) => linha.apontamentoCorrecao)
     }
 
     if (!termo) return linhas
@@ -3583,30 +3687,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       linha.observacoes,
       linha.statusMigracao
     ].some((valor) => String(valor || '').toLowerCase().includes(termo)))
-  }, [linhasTabelaDiaria, filtroTabelaDiaria, turnoTabelaDiaria])
+  }, [linhasTabelaDiaria, filtroTabelaDiaria, tipoApontamentoTabela])
 
   const paradasTabelaDiaria = useMemo(() => {
     const dataRef = String(dataTabelaDiaria || '').trim()
-    const janelaInicio = dataRef ? new Date(`${dataRef}T06:30:00`) : null
-    const janelaFim = dataRef ? new Date(`${dataRef}T01:30:00`) : null
-    if (janelaFim) janelaFim.setDate(janelaFim.getDate() + 1)
     const turnoSelecionado = String(turnoTabelaDiaria || '').trim()
+    const janela = dataRef ? getJanelaProducao(dataRef, turnoSelecionado) : null
 
     return (paradasDB || []).filter((p) => {
       if (!dataRef) return true
       const inicio = p.inicio || p.inicio_timestamp
-      if (!inicio) return false
-      const inicioDate = new Date(inicio)
-      if (Number.isNaN(inicioDate.getTime())) return false
-      if (janelaInicio && inicioDate < janelaInicio) return false
-      if (janelaFim && inicioDate > janelaFim) return false
-
-      if (turnoSelecionado) {
-        const turno = calcularTurno(inicio)
-        if (turno !== turnoSelecionado) return false
-      }
-
-      return true
+      return estaNaJanelaProducao(inicio, janela)
     })
   }, [paradasDB, dataTabelaDiaria, turnoTabelaDiaria])
 
@@ -3636,6 +3727,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       ocorrenciasParada: paradasTabelaDiaria.length
     }
   }, [linhasTabelaDiariaFiltradas, paradasTabelaDiaria])
+
+  const periodoTabelaDiaria = useMemo(() => {
+    const dataRef = String(dataTabelaDiaria || '').trim()
+    const turnoSelecionado = String(turnoTabelaDiaria || '').trim()
+    if (!dataRef) return ''
+    return getJanelaProducao(dataRef, turnoSelecionado).label
+  }, [dataTabelaDiaria, turnoTabelaDiaria])
 
   const exportarTabelaDiariaExcel = () => {
     if (!linhasTabelaDiariaFiltradas.length) {
@@ -4412,18 +4510,21 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       {tabelaDiariaAberta && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black bg-opacity-30" onClick={() => setTabelaDiariaAberta(false)}></div>
-          <div className="relative bg-white rounded-lg shadow-lg w-[99vw] max-w-[99vw] max-h-[92vh] overflow-hidden p-4 form-compact">
+          <div className="relative flex max-h-[92vh] w-[99vw] max-w-[99vw] flex-col overflow-hidden rounded-lg bg-white p-4 shadow-lg form-compact">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
                 <h3 className="text-base font-semibold text-gray-800">Tabela Diária de Apontamentos</h3>
-                <p className="text-xs text-gray-500 mt-1">Consulta diária em formato semelhante à planilha.</p>
+                <p className="text-xs text-gray-500 mt-1">Consulta por dia operacional e turno, em formato semelhante à planilha.</p>
+                {periodoTabelaDiaria && (
+                  <p className="text-[11px] font-semibold text-blue-700 mt-1">{periodoTabelaDiaria}</p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" className="btn-secondary" onClick={exportarTabelaDiariaExcel}>Exportar Excel</button>
                 <button className="text-sm text-gray-600 hover:text-gray-900" onClick={() => setTabelaDiariaAberta(false)}>Fechar</button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-[220px_180px_1fr] gap-3 mb-3">
+            <div className="grid grid-cols-1 gap-3 mb-3 md:grid-cols-[220px_220px_260px_minmax(280px,1fr)]">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
                 <input type="date" className="input-field input-field-sm" value={dataTabelaDiaria} onChange={(e) => setDataTabelaDiaria(e.target.value)} />
@@ -4435,9 +4536,21 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   value={turnoTabelaDiaria}
                   onChange={(e) => setTurnoTabelaDiaria(e.target.value)}
                 >
-                  <option value="">Todos os turnos</option>
+                  <option value="">Dia operacional completo</option>
                   <option value="TB">TB (06:30-16:10)</option>
-                  <option value="TC">TC (16:01-01:30)</option>
+                  <option value="TC">TC (16:10-01:20)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                <select
+                  className="input-field input-field-sm"
+                  value={tipoApontamentoTabela}
+                  onChange={(e) => setTipoApontamentoTabela(e.target.value)}
+                >
+                  <option value="validos">Somente válidos</option>
+                  <option value="correcoes">Somente correções</option>
+                  <option value="todos">Todos</option>
                 </select>
               </div>
               <div>
@@ -4490,8 +4603,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
               </div>
             </div>
-            <div className="max-h-[60vh] overflow-auto border rounded">
-              <table className="min-w-full text-sm">
+            <div className="min-h-0 flex-1 overflow-auto rounded border pb-3">
+              <table className="min-w-[2100px] text-sm">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th className="text-left px-3 py-2 whitespace-nowrap">Status</th>
@@ -4520,8 +4633,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   {linhasTabelaDiariaFiltradas.map((linha) => {
                     const statusAtual = statusLocalCache[linha.original.id] !== undefined ? statusLocalCache[linha.original.id] : linha.statusMigracao
                     const naoApontado = statusAtual === 'Não Apontado'
+                    const linhaCorrecao = linha.apontamentoCorrecao
                     return (
-                    <tr key={linha.id} className={`border-t align-top transition-colors ${naoApontado ? 'bg-amber-50 hover:bg-amber-100 border-l-4 border-l-orange-400' : 'hover:bg-gray-50'}`}>
+                    <tr key={linha.id} className={`border-t align-top transition-colors ${linhaCorrecao ? 'bg-slate-50 text-slate-600 border-l-4 border-l-slate-400 hover:bg-slate-100' : naoApontado ? 'bg-amber-50 hover:bg-amber-100 border-l-4 border-l-orange-400' : 'hover:bg-gray-50'}`}>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <select
                           className={`text-xs border rounded px-2 py-1 font-semibold ${naoApontado ? 'bg-orange-100 border-orange-400 text-orange-800' : 'bg-green-50 border-green-400 text-green-800'}`}
@@ -4543,7 +4657,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2 whitespace-nowrap">{linha.produto}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">{linha.quantidade}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">{linha.qtdRefugo}</td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">{linha.totalPecas}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        {linha.totalPecas}
+                        {linhaCorrecao && (
+                          <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">Correção</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">{linha.kgEstimado ? Number(linha.kgEstimado).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : '-'}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">{linha.horasTrabalhadas}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{linha.rackPallet}</td>
@@ -4578,7 +4697,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   )})}  
                   {linhasTabelaDiariaFiltradas.length === 0 && (
                     <tr>
-                      <td colSpan="19" className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para a data selecionada</td>
+                      <td colSpan="20" className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para a data e filtros selecionados</td>
                     </tr>
                   )}
                 </tbody>
@@ -5951,7 +6070,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               <p>Apontamento registrado com sucesso.</p>
               <p>Você deseja continuar cortando o <strong>mesmo item</strong>?</p>
               <ul className="list-disc ml-5 space-y-1">
-                <li>Se escolher <strong>Continuar</strong>, manterei todos os campos e vou limpar apenas "Quantidade Produzida".</li>
+                <li>Se escolher <strong>Continuar</strong>, manterei o item, limparei a quantidade e atualizarei início/fim para o próximo apontamento.</li>
                 <li>Se escolher <strong>Novo item</strong>, vou limpar todos os campos para você selecionar o próximo pedido.</li>
               </ul>
             </div>
@@ -6065,6 +6184,24 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </label>
                 {ferramentaAtual ? (
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={abrirITAtual}
+                      title="Abrir IT Digital / Modo Corte Guiado"
+                      className="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
+                    >
+                      <FaClipboardList />
+                      <span className="hidden xl:inline">IT Digital</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={abrirITAtual}
+                      title="Abrir ficha de processo do corte"
+                      aria-label="Abrir ficha de processo do corte"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-950"
+                    >
+                      <FaBookOpen />
+                    </button>
                     {/* Botão visualização 3D do palete */}
                     {ferramentaAtual && (() => {
                       const montagemUrl = `${window.location.origin}/montagem-palete?ferramenta=${encodeURIComponent(ferramentaAtual)}${comprimentoAtual ? `&comprimento=${comprimentoAtual}` : ''}`
@@ -7111,6 +7248,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                           className="btn-secondary py-1 px-2"
                           onClick={() => {
                             // Seleciona e preenche o formulário
+                            const inicioAuto = getNowLocalInput()
                             setFormData(prev => ({
                               ...prev,
                               ordemTrabalho: o.id,
@@ -7124,10 +7262,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                               unidade: o.unidade,
                               comprimentoAcabado: o.comprimentoAcabado,
                               nroOp: o.nroOp,
-                              // Preenche início automaticamente se vazio
-                              inicio: (prev.inicio || getNowLocalInput()),
-                              // Define fim automaticamente como 1h após o início se ainda vazio
-                              fim: prev.fim || addMinutesToInput((prev.inicio || getNowLocalInput()), 60)
+                              codigoProdutoCliente: '',
+                              // Ao selecionar um novo pedido, evita reaproveitar horário antigo do rascunho.
+                              inicio: inicioAuto,
+                              fim: addMinutesToInput(inicioAuto, 60)
                             }))
                             setBuscaAberta(false)
                             setPedidoSeqSelecionado(o.id)
@@ -7135,6 +7273,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                             setRackDigitado('')
                             setLotesEncontrados([])
                             setLotesSelecionados([])
+                            agendarAberturaIT(o)
                             // Para TESTE/01 o rack não é obrigatório — não abre modal
                             if (!o._generico) setRackModalAberto(true)
                           }}
@@ -7772,6 +7911,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           </div>
         </div>
       )}
+
+      <ITDigitalModal
+        open={itDigitalAberta}
+        item={itDigitalItem}
+        operador={{ id: user?.id, nome: user?.nome || formData.operador }}
+        maquina={{
+          id: formData.maquina || undefined,
+          nome: (maquinas || []).find(item => String(item.id) === String(formData.maquina))?.nome || '',
+        }}
+        onClose={() => setItDigitalAberta(false)}
+      />
 
       {/* Modal de Editar pcs/Palete */}
       {modalEditarPcsPalete && (

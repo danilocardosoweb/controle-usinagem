@@ -175,8 +175,28 @@ export default function Expedicao() {
     window.open(url, '_blank')
   }
 
-  // Identificar racks que já estão em qualquer romaneio ativo (pendente, conferido, expedido)
-  // Excluir apenas racks de romaneios cancelados ou com divergência já liberada
+  const isRomaneioConferido = (status) => status === 'conferido' || status === 'conferido_divergencia'
+  const isItemLiberadoPorDivergencia = (statusItem) => ['nao_encontrado', 'divergencia'].includes(String(statusItem || '').trim())
+  const formatarStatusRomaneio = (status) => {
+    const labels = {
+      pendente: 'PENDENTE',
+      conferido: 'CONFERIDO',
+      conferido_divergencia: 'CONFERIDO C/ DIVERGÊNCIA',
+      expedido: 'EXPEDIDO',
+      cancelado: 'CANCELADO',
+    }
+    return labels[status] || String(status || '-').toUpperCase()
+  }
+  const classeStatusRomaneio = (status) => {
+    if (status === 'pendente') return 'bg-yellow-100 text-yellow-800'
+    if (status === 'conferido') return 'bg-orange-100 text-orange-800'
+    if (status === 'conferido_divergencia') return 'bg-amber-100 text-amber-800'
+    if (status === 'cancelado') return 'bg-red-100 text-red-800'
+    return 'bg-green-100 text-green-800'
+  }
+
+  // Identificar racks que já estão reservados em romaneios ativos.
+  // Itens marcados como não encontrados/divergentes deixam de bloquear o palete para novo romaneio.
   const racksExpedidosSet = useMemo(() => {
     const romaneiosAtivos = new Set(
       (Array.isArray(romaneios) ? romaneios : [])
@@ -186,6 +206,7 @@ export default function Expedicao() {
 
     const itensEmRomaneio = (Array.isArray(romaneioItens) ? romaneioItens : [])
       .filter(item => romaneiosAtivos.has(String(item.romaneio_id)))
+      .filter(item => !isItemLiberadoPorDivergencia(item.status_item))
       .map(item => String(item.rack_ou_pallet || '').trim().toUpperCase())
       .filter(rack => rack.length > 0)
 
@@ -353,7 +374,7 @@ export default function Expedicao() {
       racksProntos: racksAgrupados.length,
       totalPecas: racksAgrupados.reduce((sum, r) => sum + r.totalPecas, 0),
       romaneiosPendentes: romaneiosHoje.filter(r => r.status === 'pendente').length,
-      romaneiosConferidos: romaneiosHoje.filter(r => r.status === 'conferido').length,
+      romaneiosConferidos: romaneiosHoje.filter(r => isRomaneioConferido(r.status)).length,
       romaneiosExpedidos: romaneiosHoje.filter(r => r.status === 'expedido').length
     }
   }, [racksAgrupados, romaneios])
@@ -607,7 +628,7 @@ export default function Expedicao() {
 
         const statusItem = conferido ? 'conferido' : naoEncontrado ? 'nao_encontrado' : 'divergencia'
 
-        await supabaseService.supabase
+        const { error: erroItem } = await supabaseService.supabase
           .from('expedicao_romaneio_itens')
           .update({
             status_item: statusItem,
@@ -615,21 +636,24 @@ export default function Expedicao() {
             observacao_item: obs,
           })
           .eq('id', item.id)
+        if (erroItem) throw erroItem
 
         // Liberar apontamento para próximo romaneio se não encontrado
         if (!conferido && item.apontamento_id) {
-          await supabaseService.supabase
+          const { error: erroApontamento } = await supabaseService.supabase
             .from('apontamentos')
             .update({ romaneio_numero: null })
             .eq('id', item.apontamento_id)
+          if (erroApontamento) throw erroApontamento
         }
       }
 
       const novoStatus = temDivergencia ? 'conferido_divergencia' : 'conferido'
-      await supabaseService.supabase
+      const { error: erroRomaneio } = await supabaseService.supabase
         .from('expedicao_romaneios')
         .update({ status: novoStatus, data_conferencia: new Date().toISOString(), usuario_conferencia: user?.nome })
         .eq('id', romaneioSelecionado.id)
+      if (erroRomaneio) throw erroRomaneio
 
       const msgFinal = temDivergencia
         ? `✅ Conferência finalizada com ${itensDivergentes.length} divergência(s). Itens não encontrados foram liberados para novo romaneio.`
@@ -666,10 +690,11 @@ export default function Expedicao() {
     if (!confirmado) return
 
     try {
-      await supabaseService.supabase
+      const { error: erroExpedir } = await supabaseService.supabase
         .from('expedicao_romaneios')
         .update({ status: 'expedido', data_expedicao: new Date().toISOString(), usuario_expedicao: user?.nome })
         .eq('id', romaneio.id)
+      if (erroExpedir) throw erroExpedir
 
       await avisarOperacao({
         tipo: 'success',
@@ -1122,7 +1147,7 @@ export default function Expedicao() {
 
     return lista
       .filter(rom => {
-        if (filtroStatus === 'ativos') return rom.status === 'pendente' || rom.status === 'conferido'
+        if (filtroStatus === 'ativos') return rom.status === 'pendente' || isRomaneioConferido(rom.status)
         if (filtroStatus === 'todos') return true
         return rom.status === filtroStatus
       })
@@ -1565,6 +1590,7 @@ export default function Expedicao() {
               { value: 'ativos', label: 'Ativos', color: 'bg-blue-100 text-blue-800 border-blue-300' },
               { value: 'pendente', label: 'Pendente', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
               { value: 'conferido', label: 'Conferido', color: 'bg-orange-100 text-orange-800 border-orange-300' },
+              { value: 'conferido_divergencia', label: 'Conferido c/ diverg.', color: 'bg-amber-100 text-amber-800 border-amber-300' },
               { value: 'expedido', label: 'Expedido', color: 'bg-green-100 text-green-800 border-green-300' },
               { value: 'cancelado', label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300' },
               { value: 'todos', label: 'Todos', color: 'bg-gray-100 text-gray-700 border-gray-300' },
@@ -1648,13 +1674,8 @@ export default function Expedicao() {
                     <td className="px-6 py-3 text-sm text-gray-600">{rom.total_racks}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">{rom.total_pecas}</td>
                     <td className="px-6 py-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        rom.status === 'pendente' ? 'bg-yellow-100 text-yellow-800' :
-                        rom.status === 'conferido' ? 'bg-orange-100 text-orange-800' :
-                        rom.status === 'cancelado' ? 'bg-red-100 text-red-800' :
-                        'bg-green-100 text-green-800'
-                      }`}>
-                        {rom.status.toUpperCase()}
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${classeStatusRomaneio(rom.status)}`}>
+                        {formatarStatusRomaneio(rom.status)}
                       </span>
                     </td>
                     <td className="px-6 py-3 text-sm space-x-3 flex">
@@ -1680,7 +1701,7 @@ export default function Expedicao() {
                           Conferir
                         </button>
                       )}
-                      {rom.status === 'conferido' && (
+                      {isRomaneioConferido(rom.status) && (
                         <button
                           onClick={() => expedir(rom)}
                           className="text-green-600 hover:text-green-800 font-medium"
@@ -1688,7 +1709,7 @@ export default function Expedicao() {
                           Expedir
                         </button>
                       )}
-                      {rom.status === 'conferido' || rom.status === 'conferido_divergencia' ? (
+                      {isRomaneioConferido(rom.status) ? (
                         <button
                           onClick={() => voltarPassoRomaneio(rom)}
                           className="text-orange-500 hover:text-orange-700 font-medium flex items-center gap-1"
