@@ -49,7 +49,11 @@ export default function PainelRitmoTurno({ apontamentos = [], metaDiaria = 20000
     if (!turnoAtual || !turnoAtual.inicioDia) return []
     const janela = { inicio: turnoAtual.inicioDia, fim: turnoAtual.fimDia }
     return (apontamentos || []).filter(a => {
-      return estaNaJanelaProducao(a.inicio, janela) || estaNaJanelaProducao(a.created_at, janela)
+      const inicioDate = a.inicio ? new Date(a.inicio) : null
+      const inicioValido = inicioDate && !Number.isNaN(inicioDate.getTime())
+      return inicioValido
+        ? estaNaJanelaProducao(a.inicio, janela)
+        : estaNaJanelaProducao(a.created_at, janela)
     })
   }, [apontamentos, turnoAtual])
 

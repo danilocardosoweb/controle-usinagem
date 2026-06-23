@@ -3579,6 +3579,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 
     return (apontamentosDB || []).filter((a) => {
       if (!dataRef) return true
+      const inicioDate = a.inicio ? new Date(a.inicio) : null
+      const inicioValido = inicioDate && !Number.isNaN(inicioDate.getTime())
+
+      if (turnoSelecionado) {
+        return inicioValido
+          ? estaNaJanelaProducao(a.inicio, janela)
+          : estaNaJanelaProducao(a.created_at, janela)
+      }
+
       return estaNaJanelaProducao(a.inicio, janela) || estaNaJanelaProducao(a.created_at, janela)
     }).map((a, idx) => {
       const ordem = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '').trim()
@@ -3616,7 +3625,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         ? Number((pesoLinear * comprimentoM * quantidade).toFixed(3))
         : 0
       
-      const dataReferenciaTurno = !dataRef || estaNaJanelaProducao(a.inicio, janela) ? a.inicio : a.created_at
+      const dataReferenciaTurno = a.inicio || a.created_at
       const turno = calcularTurno(dataReferenciaTurno)
 
       const totalPecas = quantidade + qtdRefugoRow
