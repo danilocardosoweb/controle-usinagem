@@ -5,6 +5,29 @@ import ReimpressaoApontamentosModal from './ReimpressaoApontamentosModal'
 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR')
 const fmtDec = (n, dec = 1) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '-'
+const normalizarUnidade = (valor) => {
+  const unidade = String(valor || 'PC').trim().toUpperCase()
+  if (['PCS', 'PÇ', 'PÇS', 'PECA', 'PEÇA', 'PECAS', 'PEÇAS'].includes(unidade)) return 'PC'
+  if (['KGS', 'QUILO', 'QUILOS'].includes(unidade)) return 'KG'
+  return unidade || 'PC'
+}
+const fmtQuantidade = (quantidade, unidade) => {
+  const unidadeNormalizada = normalizarUnidade(unidade)
+  return `${Number(quantidade || 0).toLocaleString('pt-BR', {
+    maximumFractionDigits: unidadeNormalizada === 'PC' ? 0 : 3,
+  })} ${unidadeNormalizada}`
+}
+const agruparQuantidades = (itens = []) => {
+  const totais = {}
+  itens.forEach((item) => {
+    const unidade = normalizarUnidade(item.unidade)
+    totais[unidade] = (Number(totais[unidade]) || 0) + (Number(item.quantidade) || 0)
+  })
+  return Object.entries(totais)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([unidade, quantidade]) => fmtQuantidade(quantidade, unidade))
+    .join(' + ') || fmtQuantidade(0, 'PC')
+}
 
 export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamentos, kitComponentes }) {
   const printRef = useRef()
@@ -44,7 +67,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
     return lista
   }, [itens, ordenacao, apontamentos])
 
-  const totalPecas = itensOrdenados.reduce((sum, i) => sum + (i.quantidade || 0), 0)
+  const quantidadeTotalFormatada = agruparQuantidades(itensOrdenados)
   const pesoTotal = itensOrdenados.reduce((sum, i) => sum + (i.peso_estimado_kg || 0), 0)
   const clienteUnico = romaneio.cliente || [...new Set(itensOrdenados.map(i => i.cliente).filter(Boolean))].join(', ')
 
@@ -121,8 +144,8 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
             <div class="value">${fmtInt(romaneio.total_racks || itens.length)}</div>
           </div>
           <div class="info-cell">
-            <div class="label">Pe&ccedil;as</div>
-            <div class="value">${fmtInt(romaneio.total_pecas || totalPecas)}</div>
+            <div class="label">Quantidade</div>
+            <div class="value">${quantidadeTotalFormatada}</div>
           </div>
           <div class="info-cell">
             <div class="label">Peso Estimado</div>
@@ -168,7 +191,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
                 <td class="mono">${item.produto || '-'}</td>
                 <td>${item.ferramenta || '-'}</td>
                 <td class="center">${item.comprimento_acabado_mm ? item.comprimento_acabado_mm + 'mm' : '-'}</td>
-                <td class="center"><strong>${fmtInt(item.quantidade)}</strong></td>
+                <td class="center"><strong>${fmtQuantidade(item.quantidade, item.unidade)}</strong></td>
                 <td class="right">${item.peso_estimado_kg ? fmtDec(item.peso_estimado_kg) : '-'}</td>
                 <td>${item.cliente || '-'}</td>
                 <td>${item.pedido_seq || '-'}</td>
@@ -185,8 +208,8 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
             <div class="s-value">${fmtInt(itens.length)}</div>
           </div>
           <div class="summary-cell">
-            <div class="s-label">Total Pe&ccedil;as</div>
-            <div class="s-value">${fmtInt(totalPecas)}</div>
+            <div class="s-label">Quantidade Total</div>
+            <div class="s-value">${quantidadeTotalFormatada}</div>
           </div>
           <div class="summary-cell">
             <div class="s-label">Peso Total</div>
@@ -235,8 +258,8 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
               <p className="text-lg font-bold text-gray-800 mt-0.5">{fmtInt(romaneio.total_racks || itens.length)}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Peças</p>
-              <p className="text-lg font-bold text-gray-800 mt-0.5">{fmtInt(romaneio.total_pecas || totalPecas)}</p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Quantidade</p>
+              <p className="text-lg font-bold text-gray-800 mt-0.5">{quantidadeTotalFormatada}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
               <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Peso</p>
@@ -314,7 +337,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
                   <td className="px-3 py-2 font-mono text-xs text-gray-600">{item.produto || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.ferramenta || '-'}</td>
                   <td className="px-3 py-2 text-center text-gray-700">{item.comprimento_acabado_mm ? `${item.comprimento_acabado_mm}mm` : '-'}</td>
-                  <td className="px-3 py-2 text-center font-bold text-gray-800">{fmtInt(item.quantidade)}</td>
+                  <td className="px-3 py-2 text-center font-bold text-gray-800">{fmtQuantidade(item.quantidade, item.unidade)}</td>
                   <td className="px-3 py-2 text-right text-gray-700">{item.peso_estimado_kg ? fmtDec(item.peso_estimado_kg) : '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.cliente || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.pedido_seq || '-'}</td>
@@ -332,7 +355,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
         {/* Footer fixo */}
         <div className="flex items-center gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-lg flex-shrink-0">
           <div className="flex-1 text-xs text-gray-500">
-            {fmtInt(itens.length)} itens | {fmtInt(totalPecas)} peças | {fmtDec(pesoTotal)} kg
+            {fmtInt(itens.length)} itens | {quantidadeTotalFormatada} | {fmtDec(pesoTotal)} kg
           </div>
           <button
             onClick={onClose}

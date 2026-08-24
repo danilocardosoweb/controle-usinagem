@@ -4264,13 +4264,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 className="px-3 py-1 rounded-md bg-primary-50 text-primary-700 text-sm font-semibold border border-primary-200"
                 title="Soma de apontamentos desta ordem"
               >
-                Qtd. Apontada: {totalApontado}
+                Qtd. Apontada: {Number(totalApontado || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {String(formData.unidade || 'PC').toUpperCase()}
               </div>
               <div
                 className="px-3 py-1 rounded-md bg-amber-50 text-amber-700 text-sm font-semibold border border-amber-200"
                 title="Saldo para cortar = Qtd.Pedido - Qtd. Apontada"
               >
-                Saldo p/ Cortar: {saldoParaCortar}
+                Saldo p/ Cortar: {Number(saldoParaCortar || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {String(formData.unidade || 'PC').toUpperCase()}
               </div>
               <button
                 type="button"
@@ -6437,7 +6437,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 value={formData.quantidade}
                 onChange={handleChange}
                 required
-                min="1"
+                min={String(formData.unidade || '').toUpperCase() === 'KG' ? '0.001' : '1'}
+                step={String(formData.unidade || '').toUpperCase() === 'KG' ? '0.001' : '1'}
                 className="input-field input-field-sm"
               />
             </div>
@@ -6554,7 +6555,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <div className="flex flex-col justify-between min-w-0" style={{width:'18%'}}>
                       <div>
                         <div className="text-xl font-bold text-gray-800 leading-none whitespace-nowrap">
-                          {estatisticasProduto.produtividadeMedia} <span className="text-[10px] font-normal text-gray-500">pcs/h</span>
+                          {estatisticasProduto.produtividadeMedia} <span className="text-[10px] font-normal text-gray-500">{String(formData.unidade || 'PC').toUpperCase()}/h</span>
                         </div>
                         <div className="text-[10px] text-gray-400 mb-1">Realizado</div>
                         {estatisticasProduto.comparativoStatus === 'acima' && (
@@ -6577,7 +6578,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <div className="mt-2 bg-orange-500 rounded-lg px-3 py-2 flex flex-col leading-tight">
                         <span className="text-[9px] font-bold text-orange-100 uppercase tracking-widest">Objetivo</span>
                         <span className="text-2xl font-black text-white leading-none">{estatisticasProduto.teoricoPcsHora}</span>
-                        <span className="text-[9px] font-semibold text-orange-200">pcs/h</span>
+                        <span className="text-[9px] font-semibold text-orange-200">{String(formData.unidade || 'PC').toUpperCase()}/h</span>
                       </div>
                     </div>
 

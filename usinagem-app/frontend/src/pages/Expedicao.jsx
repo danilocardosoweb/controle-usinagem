@@ -12,6 +12,53 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../utils/auth'
 import * as XLSX from 'xlsx'
 
+const normalizarUnidadeQuantidade = (valor) => {
+  const unidade = String(valor || '').trim().toUpperCase()
+  if (!unidade) return 'PC'
+  if (['PC', 'PCS', 'PÇ', 'PÇS', 'PECA', 'PEÇA', 'PECAS', 'PEÇAS'].includes(unidade)) return 'PC'
+  if (['KG', 'KGS', 'QUILO', 'QUILOS'].includes(unidade)) return 'KG'
+  return unidade
+}
+
+const normalizarCodigoProduto = (valor) => String(valor || '')
+  .trim()
+  .toUpperCase()
+  // Alguns apontamentos antigos registraram a letra O no trecho numerico do item.
+  .replace(/O/g, '0')
+
+const adicionarQuantidadePorUnidade = (totais, unidade, quantidade) => {
+  const chave = normalizarUnidadeQuantidade(unidade)
+  totais[chave] = (Number(totais[chave]) || 0) + (Number(quantidade) || 0)
+}
+
+const formatarQuantidade = (quantidade, unidade) => {
+  const unidadeNormalizada = normalizarUnidadeQuantidade(unidade)
+  const casasDecimais = unidadeNormalizada === 'PC' ? 0 : 3
+  return `${Number(quantidade || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: casasDecimais,
+  })} ${unidadeNormalizada}`
+}
+
+const formatarTotaisPorUnidade = (totais = {}) => {
+  const entradas = Object.entries(totais).filter(([, quantidade]) => Number(quantidade) !== 0)
+  if (entradas.length === 0) return formatarQuantidade(0, 'PC')
+  return entradas
+    .sort(([unidadeA], [unidadeB]) => unidadeA.localeCompare(unidadeB))
+    .map(([unidade, quantidade]) => formatarQuantidade(quantidade, unidade))
+    .join(' + ')
+}
+
+const somarTotaisDosRacks = (racks = []) => {
+  const totais = {}
+  racks.forEach((rack) => {
+    Object.entries(rack.totaisPorUnidade || {}).forEach(([unidade, quantidade]) => {
+      adicionarQuantidadePorUnidade(totais, unidade, quantidade)
+    })
+  })
+  return totais
+}
+
 export default function Expedicao() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -25,6 +72,8 @@ export default function Expedicao() {
   const { items: romaneios, loadItems: loadRomaneios } = useSupabase('expedicao_romaneios')
   const { items: romaneioItens, loadItems: loadRomaneioItens } = useSupabase('expedicao_romaneio_itens')
   const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
+  const [unidadesPedidoPorSeq, setUnidadesPedidoPorSeq] = useState(() => new Map())
+  const [unidadesPedidoPorProduto, setUnidadesPedidoPorProduto] = useState(() => new Map())
 
   const [tab, setTab] = useState('dashboard')
   // Período padrão de 90 dias para incluir racks antigos pendentes
@@ -247,6 +296,81 @@ export default function Expedicao() {
     return resultado
   }, [apontamentosParaKits, filtroCliente, filtroProduto, racksExpedidosSet])
 
+  useEffect(() => {
+    let ativo = true
+
+    const carregarUnidadesPedidos = async () => {
+      const mapa = new Map()
+      const unidadesPorProduto = new Map()
+      const tamanhoLote = 1000
+      let inicio = 0
+
+      while (ativo) {
+        const { data, error } = await supabase
+          .from('pedidos')
+          .select('id,pedido_seq,produto,unidade')
+          .range(inicio, inicio + tamanhoLote - 1)
+        if (error) {
+          console.error('Erro ao carregar unidades dos pedidos para a expedição:', error)
+          return
+        }
+
+        ;(data || []).forEach((pedido) => {
+          const chaves = [pedido?.pedido_seq, pedido?.id]
+            .map((valor) => String(valor || '').trim())
+            .filter(Boolean)
+          chaves.forEach((chave) => mapa.set(chave, normalizarUnidadeQuantidade(pedido?.unidade)))
+
+          const produto = normalizarCodigoProduto(pedido?.produto)
+          if (produto) {
+            if (!unidadesPorProduto.has(produto)) unidadesPorProduto.set(produto, new Set())
+            unidadesPorProduto.get(produto).add(normalizarUnidadeQuantidade(pedido?.unidade))
+          }
+        })
+
+        if (!data || data.length < tamanhoLote) break
+        inicio += tamanhoLote
+      }
+
+      if (ativo) {
+        setUnidadesPedidoPorSeq(mapa)
+        setUnidadesPedidoPorProduto(new Map(
+          [...unidadesPorProduto.entries()]
+            .filter(([, unidades]) => unidades.size === 1)
+            .map(([produto, unidades]) => [produto, [...unidades][0]])
+        ))
+      }
+    }
+
+    carregarUnidadesPedidos()
+    return () => { ativo = false }
+  }, [])
+
+  const obterUnidadeApontamento = (registro) => {
+    const unidadeDireta = registro?.unidade || registro?.unidade_medida
+    if (unidadeDireta) return normalizarUnidadeQuantidade(unidadeDireta)
+    const pedidoSeq = String(
+      registro?.pedido_seq || registro?.ordemTrabalho || registro?.ordem_trabalho || ''
+    ).trim()
+    const unidadePedido = unidadesPedidoPorSeq.get(pedidoSeq)
+    if (unidadePedido) return unidadePedido
+
+    const produto = normalizarCodigoProduto(registro?.produto || registro?.codigoPerfil)
+    return unidadesPedidoPorProduto.get(produto) || 'PC'
+  }
+
+  const obterTotaisRomaneio = (romaneio) => {
+    const itens = (Array.isArray(romaneioItens) ? romaneioItens : [])
+      .filter((item) => String(item.romaneio_id) === String(romaneio?.id))
+    if (itens.length === 0) return { PC: Number(romaneio?.total_pecas || 0) }
+
+    const totais = {}
+    itens.forEach((item) => {
+      adicionarQuantidadePorUnidade(totais, obterUnidadeApontamento(item), item.quantidade)
+    })
+    return totais
+  }
+
   // Apontamentos para Kits: SEM filtro de data, inclui TODOS os racks não expedidos
   const apontamentosParaKitsFiltrados = useMemo(() => {
     const resultado = (Array.isArray(apontamentosParaKits) ? apontamentosParaKits : [])
@@ -279,6 +403,8 @@ export default function Expedicao() {
           rack,
           apontamentos: [],
           totalPecas: 0,
+          totaisPorUnidade: {},
+          unidades: new Set(),
           clientes: new Set(),
           produtos: new Set(),
           pedidos: new Set(),
@@ -287,6 +413,9 @@ export default function Expedicao() {
       }
       grupos[rack].apontamentos.push(a)
       grupos[rack].totalPecas += Number(a.quantidade || 0)
+      const unidade = obterUnidadeApontamento(a)
+      adicionarQuantidadePorUnidade(grupos[rack].totaisPorUnidade, unidade, a.quantidade)
+      grupos[rack].unidades.add(unidade)
       grupos[rack].clientes.add(String(a.cliente || ''))
       grupos[rack].produtos.add(String(a.produto || a.codigoPerfil || ''))
       const pedidoValor = String(a.pedido_seq || a.ordemTrabalho || a.ordem_trabalho || a.pedido_cliente || a.pedidoCliente || '').trim()
@@ -297,7 +426,7 @@ export default function Expedicao() {
     const resultado = Object.values(grupos)
     console.log('📦 racksAgrupados:', resultado.length, 'racks prontos')
     return resultado
-  }, [racksProtos])
+  }, [racksProtos, unidadesPedidoPorSeq, unidadesPedidoPorProduto])
 
   const maquinasMap = useMemo(() => {
     const map = {}
@@ -352,12 +481,16 @@ export default function Expedicao() {
             cliente: chave,
             racks: [],
             totalPecas: 0,
+            totaisPorUnidade: {},
             produtos: new Set(),
             pedidos: new Set()
           }
         }
         grupos[chave].racks.push(rack)
         grupos[chave].totalPecas += rack.totalPecas
+        Object.entries(rack.totaisPorUnidade || {}).forEach(([unidade, quantidade]) => {
+          adicionarQuantidadePorUnidade(grupos[chave].totaisPorUnidade, unidade, quantidade)
+        })
         rack.produtos.forEach(prod => grupos[chave].produtos.add(prod))
         rack.pedidos.forEach(ped => grupos[chave].pedidos.add(ped))
       })
@@ -373,6 +506,7 @@ export default function Expedicao() {
     return {
       racksProntos: racksAgrupados.length,
       totalPecas: racksAgrupados.reduce((sum, r) => sum + r.totalPecas, 0),
+      totaisPorUnidade: somarTotaisDosRacks(racksAgrupados),
       romaneiosPendentes: romaneiosHoje.filter(r => r.status === 'pendente').length,
       romaneiosConferidos: romaneiosHoje.filter(r => isRomaneioConferido(r.status)).length,
       romaneiosExpedidos: romaneiosHoje.filter(r => r.status === 'expedido').length
@@ -398,9 +532,9 @@ export default function Expedicao() {
       return
     }
 
+    let romaneioCriadoId = null
     try {
       const numeroRomaneio = gerarNumeroRomaneio()
-      const totalPecas = racksParaRomaneio.reduce((sum, rack) => sum + rack.totalPecas, 0)
       const clientesDoRomaneio = [...new Set(
         racksParaRomaneio.flatMap(rack => Array.from(rack.clientes)).filter(Boolean)
       )].join(', ')
@@ -449,11 +583,14 @@ export default function Expedicao() {
           const loteExterno = loteSimplesValido ? loteSimples : (loteDoArray || loteSimples || '')
 
           const qtd = Number(apontamento.quantidade || 0) || 0
+          const unidade = obterUnidadeApontamento(apontamento)
           const pesoLinear = buscarPesoLinear(ferramentaExtraida, compNum)
           const compM = (Number(compNum || 0) || 0) / 1000
-          const pesoEstimadoKg = (pesoLinear > 0 && compM > 0 && qtd > 0)
-            ? Number((pesoLinear * compM * qtd).toFixed(3))
-            : null
+          const pesoEstimadoKg = unidade === 'KG'
+            ? Number(qtd.toFixed(3))
+            : ((pesoLinear > 0 && compM > 0 && qtd > 0)
+                ? Number((pesoLinear * compM * qtd).toFixed(3))
+                : null)
 
           itensBase.push({
             apontamento_id: apontamento.id,
@@ -462,6 +599,7 @@ export default function Expedicao() {
             ferramenta: ferramentaExtraida,
             comprimento_acabado_mm: compNum,
             quantidade: apontamento.quantidade,
+            unidade,
             cliente: apontamento.cliente,
             pedido_seq: apontamento.pedido_seq || apontamento.ordemTrabalho || apontamento.ordem_trabalho,
             pedido_cliente: apontamento.pedido_cliente || apontamento.pedidoCliente || '',
@@ -475,6 +613,16 @@ export default function Expedicao() {
       const pesoTotalEstimadoKg = Number(
         itensBase.reduce((sum, item) => sum + (Number(item.peso_estimado_kg || 0) || 0), 0).toFixed(3)
       )
+      const totalPecas = Number(
+        itensBase
+          .filter((item) => item.unidade === 'PC')
+          .reduce((sum, item) => sum + (Number(item.quantidade || 0) || 0), 0)
+          .toFixed(3)
+      )
+
+      if (!Number.isInteger(totalPecas)) {
+        throw new Error(`Quantidade em PC invalida para o romaneio: ${totalPecas}. Revise a unidade dos itens selecionados.`)
+      }
 
       const { data: novoRomaneio, error: erroRomaneio } = await supabaseService.supabase
         .from('expedicao_romaneios')
@@ -492,6 +640,7 @@ export default function Expedicao() {
       if (erroRomaneio) throw erroRomaneio
 
       const romaneioId = novoRomaneio[0].id
+      romaneioCriadoId = romaneioId
 
       const itens = itensBase.map(item => ({
         ...item,
@@ -529,6 +678,19 @@ export default function Expedicao() {
       window.location.reload()
     } catch (erro) {
       console.error('Erro ao criar romaneio:', erro)
+
+      // Evita deixar um cabecalho sem itens quando a segunda gravacao falhar.
+      if (romaneioCriadoId) {
+        await supabaseService.supabase
+          .from('expedicao_romaneio_itens')
+          .delete()
+          .eq('romaneio_id', romaneioCriadoId)
+        await supabaseService.supabase
+          .from('expedicao_romaneios')
+          .delete()
+          .eq('id', romaneioCriadoId)
+      }
+
       await avisarOperacao({
         tipo: 'error',
         titulo: 'Erro ao criar romaneio',
@@ -567,7 +729,13 @@ export default function Expedicao() {
         .select('*')
         .eq('romaneio_id', romaneio.id)
       if (error) throw error
-      setItensRomaneioSelecionado(itens || [])
+      setItensRomaneioSelecionado((itens || []).map((item) => ({
+        ...item,
+        unidade: obterUnidadeApontamento(item),
+        peso_estimado_kg: obterUnidadeApontamento(item) === 'KG'
+          ? Number(item.quantidade || 0)
+          : item.peso_estimado_kg,
+      })))
       setRomaneioSelecionado(romaneio)
       setImpressaoModalAberto(true)
     } catch (erro) {
@@ -680,7 +848,7 @@ export default function Expedicao() {
   const expedir = async (romaneio) => {
     const linha1 = `Romaneio: ${romaneio.numero_romaneio}`
     const linha2 = romaneio.cliente ? `Cliente: ${romaneio.cliente}` : ''
-    const linha3 = `Racks: ${romaneio.total_racks} | Peças: ${romaneio.total_pecas}`
+    const linha3 = `Racks: ${romaneio.total_racks} | Quantidade: ${formatarTotaisPorUnidade(obterTotaisRomaneio(romaneio))}`
     const confirmado = await confirmarOperacao({
       tipo: 'primary',
       titulo: 'Confirmar expedição',
@@ -992,7 +1160,7 @@ export default function Expedicao() {
         `Romaneio: ${romaneio.numero_romaneio}\n` +
         `Cliente: ${romaneio.cliente || '-'}\n` +
         `Racks: ${romaneio.total_racks}\n` +
-        `Peças: ${romaneio.total_pecas}\n\n` +
+        `Quantidade: ${formatarTotaisPorUnidade(obterTotaisRomaneio(romaneio))}\n\n` +
         `Esta ação irá:\n` +
         `- excluir o romaneio permanentemente\n` +
         `- remover as baixas de estoque associadas\n` +
@@ -1101,21 +1269,26 @@ export default function Expedicao() {
         ['Data de Criação:', new Date(romaneio.data_criacao).toLocaleDateString('pt-BR')],
         ['Status:', romaneio.status.toUpperCase()],
         ['Total de Racks:', romaneio.total_racks],
-        ['Total de Peças:', romaneio.total_pecas],
+        ['Quantidade Total:', formatarTotaisPorUnidade((itens || []).reduce((totais, item) => {
+          adicionarQuantidadePorUnidade(totais, obterUnidadeApontamento(item), item.quantidade)
+          return totais
+        }, {}))],
         ['Peso Total Estimado (kg):', formatarNumero(romaneio.peso_total_estimado_kg)],
         [],
         ['ITENS DO ROMANEIO'],
-        ['Rack', 'Produto', 'Ferramenta', 'Comp. Acabado (mm)', 'Quantidade', 'Peso Estimado (kg)', 'Cliente', 'Pedido', 'Pedido Cliente', 'Lote Externo', 'Status']
+        ['Rack', 'Produto', 'Ferramenta', 'Comp. Acabado (mm)', 'Quantidade', 'Unidade', 'Peso Estimado (kg)', 'Cliente', 'Pedido', 'Pedido Cliente', 'Lote Externo', 'Status']
       ]
 
       itens.forEach(item => {
+        const unidade = obterUnidadeApontamento(item)
         dados.push([
           item.rack_ou_pallet,
           item.produto,
           item.ferramenta || '',
           item.comprimento_acabado_mm || '',
           item.quantidade,
-          formatarNumero(item.peso_estimado_kg),
+          unidade,
+          formatarNumero(unidade === 'KG' ? item.quantidade : item.peso_estimado_kg),
           item.cliente || '',
           item.pedido_seq || '',
           item.pedido_cliente || '',
@@ -1267,8 +1440,8 @@ export default function Expedicao() {
             <div className="text-3xl font-bold text-gray-800">{indicadores.racksProntos}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
-            <div className="text-gray-600 text-sm font-medium">Total Peças</div>
-            <div className="text-3xl font-bold text-gray-800">{indicadores.totalPecas}</div>
+            <div className="text-gray-600 text-sm font-medium">Quantidade Disponível</div>
+            <div className="text-2xl font-bold text-gray-800">{formatarTotaisPorUnidade(indicadores.totaisPorUnidade)}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow border-l-4 border-yellow-500">
             <div className="text-gray-600 text-sm font-medium">Romaneios Pendentes</div>
@@ -1412,7 +1585,7 @@ export default function Expedicao() {
                       <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Racks</th>
                       <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Produtos</th>
                       <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Pedidos</th>
-                      <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Total Peças</th>
+                      <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Quantidade</th>
                       <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Ações</th>
                     </tr>
                   </thead>
@@ -1433,7 +1606,7 @@ export default function Expedicao() {
                         <td className="px-6 py-4 text-sm text-gray-600">
                           {cg.pedidos.size ? Array.from(cg.pedidos).slice(0, 2).join(', ') + (cg.pedidos.size > 2 ? ` +${cg.pedidos.size - 2}` : '') : '-'}
                         </td>
-                        <td className="px-6 py-4 font-bold text-gray-800">{cg.totalPecas.toLocaleString('pt-BR')} PC</td>
+                        <td className="px-6 py-4 font-bold text-gray-800">{formatarTotaisPorUnidade(cg.totaisPorUnidade)}</td>
                         <td className="px-6 py-4">
                           <button
                             onClick={() => abrirDetalhesCliente(cg)}
@@ -1660,7 +1833,7 @@ export default function Expedicao() {
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Cliente</th>
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Data</th>
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Racks</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Peças</th>
+                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Quantidade</th>
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Status</th>
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Ações</th>
                 </tr>
@@ -1672,7 +1845,7 @@ export default function Expedicao() {
                     <td className="px-6 py-3 text-sm font-medium text-blue-700">{rom.cliente || '-'}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">{new Date(rom.data_criacao).toLocaleDateString('pt-BR')}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">{rom.total_racks}</td>
-                    <td className="px-6 py-3 text-sm text-gray-600">{rom.total_pecas}</td>
+                    <td className="px-6 py-3 text-sm text-gray-600">{formatarTotaisPorUnidade(obterTotaisRomaneio(rom))}</td>
                     <td className="px-6 py-3">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${classeStatusRomaneio(rom.status)}`}>
                         {formatarStatusRomaneio(rom.status)}
@@ -2023,7 +2196,7 @@ export default function Expedicao() {
             <div className="p-6 space-y-4">
               <div className="bg-blue-50 p-4 rounded border border-blue-200">
                 <p className="text-sm text-blue-800">
-                  <strong>{racksParaRomaneio.length}</strong> racks selecionados | <strong>{racksParaRomaneio.reduce((sum, r) => sum + r.totalPecas, 0)}</strong> peças
+                  <strong>{racksParaRomaneio.length}</strong> racks selecionados | <strong>{formatarTotaisPorUnidade(somarTotaisDosRacks(racksParaRomaneio))}</strong>
                 </p>
               </div>
 
@@ -2032,7 +2205,7 @@ export default function Expedicao() {
                   <div key={idx} className="p-3 bg-gray-50 rounded border border-gray-200 flex justify-between items-center">
                     <div>
                       <p className="font-medium text-gray-800">{rack.rack}</p>
-                      <p className="text-sm text-gray-600">{rack.totalPecas} PC | {Array.from(rack.clientes).join(', ')}</p>
+                      <p className="text-sm text-gray-600">{formatarTotaisPorUnidade(rack.totaisPorUnidade)} | {Array.from(rack.clientes).join(', ')}</p>
                     </div>
                     <button
                       onClick={() => setRacksParaRomaneio(racksParaRomaneio.filter((_, i) => i !== idx))}
@@ -2183,7 +2356,7 @@ export default function Expedicao() {
                               )}
                             </div>
                             <p className="text-sm text-gray-500 mt-0.5">
-                              {item.ferramenta ? `Ferramenta: ${item.ferramenta}` : ''}{item.ferramenta && item.comprimento_acabado_mm ? ' · ' : ''}{item.comprimento_acabado_mm ? `${item.comprimento_acabado_mm}mm` : ''} · {item.quantidade} PC
+                              {item.ferramenta ? `Ferramenta: ${item.ferramenta}` : ''}{item.ferramenta && item.comprimento_acabado_mm ? ' · ' : ''}{item.comprimento_acabado_mm ? `${item.comprimento_acabado_mm}mm` : ''} · {formatarQuantidade(item.quantidade, obterUnidadeApontamento(item))}
                             </p>
                             {naoEnc && obs && (
                               <p className="text-xs text-red-600 mt-1 font-medium">📝 {obs}</p>
@@ -2298,7 +2471,7 @@ export default function Expedicao() {
               <div>
                 <h2 className="text-xl font-bold text-gray-800">Racks Acabados — {clienteSelecionadoDetalhes.cliente}</h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  {clienteSelecionadoDetalhes.racks.length} rack(s) • {clienteSelecionadoDetalhes.totalPecas.toLocaleString('pt-BR')} peças
+                  {clienteSelecionadoDetalhes.racks.length} rack(s) • {formatarTotaisPorUnidade(clienteSelecionadoDetalhes.totaisPorUnidade)}
                 </p>
               </div>
               <button onClick={() => setDetalhesModalAberto(false)} className="text-gray-400 hover:text-gray-600">
@@ -2321,7 +2494,7 @@ export default function Expedicao() {
               </label>
               {racksModalSelecionados.length > 0 && (
                 <span className="text-sm text-blue-600 font-medium">
-                  {racksModalSelecionados.length} rack(s) selecionado(s) — {racksModalSelecionados.reduce((s, r) => s + r.totalPecas, 0).toLocaleString('pt-BR')} PC
+                  {racksModalSelecionados.length} rack(s) selecionado(s) — {formatarTotaisPorUnidade(somarTotaisDosRacks(racksModalSelecionados))}
                 </span>
               )}
             </div>
@@ -2336,7 +2509,7 @@ export default function Expedicao() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Produto(s)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Pedido</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Comp. Acabado</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Peças</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Quantidade</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Amarrados</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Operador</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Data</th>
@@ -2380,11 +2553,14 @@ export default function Expedicao() {
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {rack.comprimentos && rack.comprimentos.size ? Array.from(rack.comprimentos).join(', ') : '-'}
                         </td>
-                        <td className="px-4 py-3 font-bold text-gray-800">{rack.totalPecas.toLocaleString('pt-BR')} PC</td>
+                        <td className="px-4 py-3 font-bold text-gray-800">{formatarTotaisPorUnidade(rack.totaisPorUnidade)}</td>
                         <td className="px-4 py-3 text-sm">
                           {(() => {
                             const produto = Array.from(rack.produtos)[0] || ''
                             const comp = rack.comprimentos && rack.comprimentos.size ? Array.from(rack.comprimentos)[0] : ''
+                            if (!rack.unidades?.has('PC') || rack.unidades.size !== 1) {
+                              return <span className="text-gray-400">Não aplicável</span>
+                            }
                             const info = getAmarradosInfo(produto, comp, rack.totalPecas)
                             if (!info) return <span className="text-gray-400">-</span>
                             return (
