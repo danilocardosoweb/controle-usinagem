@@ -149,6 +149,39 @@ const formatDateTimeBR = (value) => {
   }
 }
 
+const parseQuantidade = (valor) => {
+  if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0
+
+  const texto = String(valor ?? '').trim().replace(/\s/g, '')
+  if (!texto) return 0
+
+  const ultimaVirgula = texto.lastIndexOf(',')
+  const ultimoPonto = texto.lastIndexOf('.')
+  let normalizado = texto.replace(/[^0-9,.-]/g, '')
+
+  if (ultimaVirgula >= 0 && ultimoPonto >= 0) {
+    normalizado = ultimaVirgula > ultimoPonto
+      ? normalizado.replace(/\./g, '').replace(',', '.')
+      : normalizado.replace(/,/g, '')
+  } else if (ultimaVirgula >= 0) {
+    normalizado = normalizado.replace(',', '.')
+  }
+
+  const numero = Number(normalizado)
+  return Number.isFinite(numero) ? numero : 0
+}
+
+const formatarQuantidadePorUnidade = (valor, unidade) => {
+  if (valor === '' || valor === null || valor === undefined) return ''
+
+  const unidadeNormalizada = String(unidade || 'PC').trim().toUpperCase()
+  const casasDecimais = unidadeNormalizada === 'KG' ? 2 : 0
+  return parseQuantidade(valor).toLocaleString('pt-BR', {
+    minimumFractionDigits: casasDecimais,
+    maximumFractionDigits: casasDecimais,
+  })
+}
+
 const sanitizeSheetName = (name) => {
   if (!name) return 'Dados'
   const sanitized = String(name).replace(/[:\\\/\?\*\[\]]/g, '').trim()
@@ -2478,7 +2511,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       || getCampoOriginal(p, 'PERFIL LONGO') 
       || ''
     const separadoBruto = p.separado ?? getCampoOriginal(p, 'SEPARADO') ?? 0
-    const separadoNum = Number(String(separadoBruto).replace(/\D/g, '')) || 0
+    const separadoNum = parseQuantidade(separadoBruto)
     // Datas podem estar em DT.FATURA ou DATA ENTREGA na planilha
     const dtFatura = p.dt_fatura 
       || getCampoOriginal(p, 'DT.FATURA') 
@@ -2507,6 +2540,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       nroOp
     }
   })
+
+  const ordemSelecionadaAtual = ordensTrabalhoTodas.find(
+    (ordem) => String(ordem.id) === String(formData.ordemTrabalho)
+  )
   
   // Se estiver no modo "embalagem", exibir apenas pedidos que JÁ POSSUEM apontamentos registrados
   const ordensComApontamentoSet = useMemo(() => {
@@ -6463,7 +6500,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               <input
                 type="text"
                 name="separado"
-                value={formData.separado}
+                value={formatarQuantidadePorUnidade(
+                  ordemSelecionadaAtual?.separado ?? formData.separado,
+                  ordemSelecionadaAtual?.unidade ?? formData.unidade
+                )}
                 readOnly
                 className="input-field input-field-sm bg-gray-100 h-[36px]"
               />
@@ -7248,7 +7288,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                           <span className="text-gray-400 text-xs italic">-</span>
                         ) : (
                           <span className="text-gray-700">
-                            {Number(o.separado || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                            {formatarQuantidadePorUnidade(o.separado, o.unidade)}
                           </span>
                         )}
                       </td>
