@@ -5,7 +5,7 @@ import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
 import ModalEtiquetaPersonalizada from '../components/ModalEtiquetaPersonalizada'
 import RelatorioChecklist from '../components/RelatorioChecklist'
-import { buildFormularioIdentificacaoHtml, resolverKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, resolverDescricaoCodigoCliente, resolverKit } from '../utils/formularioIdentificacao'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -105,6 +105,7 @@ const Relatorios = () => {
   const { items: folhasInspecaoRegistros } = useSupabase('folhas_inspecao_registros')
   const { items: kitsDB } = useSupabase('expedicao_kits')
   const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
+  const { items: codigosProdutosClientesDB } = useSupabase('codigos_produtos_clientes')
 
   // Utilitário: Agrupar rastreabilidade em modo compacto (uma linha por apontamento)
   const agruparRastreabilidadeCompacto = (linhas) => {
@@ -251,12 +252,14 @@ const Relatorios = () => {
     const turno = a.turno || ''
 
     const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
+    const descricaoProduto = resolverDescricaoCodigoCliente(item, codigoCliente, codigosProdutosClientesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP: loteMPVal,
       cliente,
       item,
       codigoCliente,
+      descricaoProduto,
       nomeKit: kitInfo?.nome || '',
       codigoKit: kitInfo?.codigo || '',
       medida,

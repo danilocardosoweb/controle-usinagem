@@ -17,7 +17,8 @@ import {
   estaNaJanelaProducao,
   getDataOperacionalAtualInput,
   getJanelaProducao,
-  resolverKit
+  resolverKit,
+  resolverDescricaoCodigoCliente
 } from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
@@ -282,6 +283,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const { items: paradasDB } = useSupabase('apontamentos_parada')
   const { items: kitsDB } = useSupabase('expedicao_kits')
   const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
+  const { items: codigosProdutosClientesDB } = useSupabase('codigos_produtos_clientes')
   const { items: ferramentasCfg, loadItems: recarregarFerramentasCfg } = useSupabase('ferramentas_cfg')
   const { items: documentosFerramentas } = useSupabase('documentos_ferramentas')
   // Lotes importados (Dados • Lotes) via Supabase
@@ -1417,12 +1419,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const turno = formData.turno || calcularTurno(dataHoraProducao)
 
     const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
+    const descricaoProduto = resolverDescricaoCodigoCliente(item, codigoCliente, codigosProdutosClientesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP: loteMPVal,
       cliente,
       item,
       codigoCliente,
+      descricaoProduto,
       nomeKit: kitInfo?.nome || '',
       codigoKit: kitInfo?.codigo || '',
       medida,
@@ -1507,12 +1511,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const turno = dados.turno || calcularTurno(dataHoraProducao)
 
     const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
+    const codigoCliente = dados.codigo_produto_cliente || dados.codigoProdutoCliente || dados.codigo_cliente || ''
+    const descricaoProduto = resolverDescricaoCodigoCliente(item, codigoCliente, codigosProdutosClientesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote: dados.lote || '',
       loteMP: dados.lote_externo || '',
       cliente: dados.cliente || '',
       item,
-      codigoCliente: dados.codigo_produto_cliente || '',
+      codigoCliente,
+      descricaoProduto,
       nomeKit: kitInfo?.nome || '',
       codigoKit: kitInfo?.codigo || '',
       medida,
@@ -3917,12 +3924,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const turno = apontamento.turno || ''
 
         const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
+        const descricaoProduto = resolverDescricaoCodigoCliente(item, codigoCliente, codigosProdutosClientesDB)
         const html = buildFormularioIdentificacaoHtml({
           lote,
           loteMP: loteMPVal,
           cliente,
           item,
           codigoCliente,
+          descricaoProduto,
           nomeKit: kitInfo?.nome || '',
           codigoKit: kitInfo?.codigo || '',
           medida,
@@ -5315,12 +5324,18 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               </button>
               <button
                 onClick={() => {
+                  const descricaoProduto = resolverDescricaoCodigoCliente(
+                    formBrancoData.item,
+                    formBrancoData.codigoCliente,
+                    codigosProdutosClientesDB
+                  )
                   const html = buildFormularioIdentificacaoHtml({
                     lote: formBrancoData.lote,
                     loteMP: formBrancoData.loteMP || '',
                     cliente: formBrancoData.cliente,
                     item: formBrancoData.item,
                     codigoCliente: formBrancoData.codigoCliente,
+                    descricaoProduto,
                     nomeKit: '', codigoKit: '',
                     medida: formBrancoData.medida,
                     pedidoTecno: formBrancoData.pedidoTecno,

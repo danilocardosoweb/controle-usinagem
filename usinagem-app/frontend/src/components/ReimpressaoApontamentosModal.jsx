@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import useSupabase from '../hooks/useSupabase'
 import { FaPrint, FaTimes, FaCheckSquare, FaSquare, FaEdit, FaFileAlt, FaBarcode, FaFileWord } from 'react-icons/fa'
-import { buildFormularioIdentificacaoHtml, calcularTurno, resolverKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, calcularTurno, resolverDescricaoCodigoCliente, resolverKit } from '../utils/formularioIdentificacao'
 
 const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) => {
   const [selecionados, setSelecionados] = useState({})
@@ -12,6 +12,7 @@ const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) 
   const [formEdicao, setFormEdicao] = useState({})
   const { items: kitsDB } = useSupabase('expedicao_kits')
   const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
+  const { items: codigosProdutosClientesDB } = useSupabase('codigos_produtos_clientes')
 
   // Mapear itens do romaneio com apontamentos completos
   const itensCompletos = useMemo(() => {
@@ -121,7 +122,7 @@ const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) 
     const loteMP = apontamento.lote_externo || apontamento.loteExterno || ''
     const cliente = apontamento.cliente || ''
     const item = apontamento.produto || ''
-    const codigoCliente = apontamento.codigo_cliente || ''
+    const codigoCliente = apontamento.codigo_produto_cliente || apontamento.codigoProdutoCliente || apontamento.codigo_cliente || ''
     const medida = apontamento.comprimento_acabado_mm 
       ? `${apontamento.comprimento_acabado_mm} mm` 
       : ''
@@ -143,12 +144,14 @@ const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) 
 
     // Gerar HTML do formulário
     const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
+    const descricaoProduto = resolverDescricaoCodigoCliente(item, codigoCliente, codigosProdutosClientesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP,
       cliente,
       item,
       codigoCliente,
+      descricaoProduto,
       nomeKit: kitInfo?.nome || '',
       codigoKit: kitInfo?.codigo || '',
       medida,

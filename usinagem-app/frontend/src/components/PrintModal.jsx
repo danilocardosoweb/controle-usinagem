@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FaPrint, FaTimes, FaCheckCircle, FaExclamationTriangle, FaFileWord, FaBarcode, FaEye, FaArrowLeft } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, isImpressoraAtiva } from '../utils/impressoras'
-import { buildFormularioIdentificacaoHtml, resolverKit } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, resolverDescricaoCodigoCliente, resolverKit } from '../utils/formularioIdentificacao'
 import EtiquetasService from '../services/EtiquetasService'
 import PrintService from '../services/PrintService'
 import useSupabase from '../hooks/useSupabase'
@@ -27,6 +27,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
   const { items: pedidosDB } = useSupabase('pedidos')
   const { items: kitsDB } = useSupabase('expedicao_kits')
   const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
+  const { items: codigosProdutosClientesDB } = useSupabase('codigos_produtos_clientes')
 
   const pedidoClienteResolvido = useMemo(() => {
     const normalizar = (v) => {
@@ -392,12 +393,14 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const turno = apontamento.turno || ''
 
       const kitInfo = resolverKit(item, kitsDB, kitComponentesDB)
+      const descricaoProduto = resolverDescricaoCodigoCliente(item, codigoClienteVal, codigosProdutosClientesDB)
       const html = buildFormularioIdentificacaoHtml({
         lote,
         loteMP: loteMPVal,
         cliente,
         item,
         codigoCliente: codigoClienteVal,
+        descricaoProduto,
         nomeKit: kitInfo?.nome || '',
         codigoKit: kitInfo?.codigo || '',
         medida,

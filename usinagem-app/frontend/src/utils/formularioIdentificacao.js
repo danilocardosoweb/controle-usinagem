@@ -130,12 +130,28 @@ export const resolverNomeKit = (produto, kits = [], componentes = []) => {
   return kit ? kit.nome : ''
 }
 
+const normalizarCodigo = (valor) => String(valor || '').trim().toUpperCase()
+
+export const resolverDescricaoCodigoCliente = (item, codigoCliente, codigos = []) => {
+  const itemNormalizado = normalizarCodigo(item)
+  const codigoClienteNormalizado = normalizarCodigo(codigoCliente)
+  if (!itemNormalizado || !codigoClienteNormalizado) return ''
+
+  const vinculo = (codigos || []).find(codigo => (
+    normalizarCodigo(codigo?.codigo_tecno) === itemNormalizado
+    && normalizarCodigo(codigo?.codigo_cliente) === codigoClienteNormalizado
+  ))
+
+  return String(vinculo?.descricao_produto || '').trim()
+}
+
 export const buildFormularioIdentificacaoHtml = ({
   lote,
   loteMP,
   cliente,
   item,
   codigoCliente,
+  descricaoProduto,
   nomeKit,
   codigoKit,
   medida,
@@ -365,7 +381,11 @@ export const buildFormularioIdentificacaoHtml = ({
 
         <div class="form-row">
           <div class="label">Código Cliente:</div>
-          <div class="valor" style="display:flex;align-items:center;justify-content:center;gap:10px;">${codigoCliente || ''}${nomeKit ? `<span style="font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.3pt;border-left:3px solid #1a3a6b;padding-left:10px;"> ${nomeKit}${codigoKit ? ` <span style="font-size:11pt;color:#4a6b9b;font-weight:600;">(${codigoKit})</span>` : ''}</span>` : ''}</div>
+          <div class="valor" style="display:flex;align-items:center;justify-content:center;gap:10px;white-space:nowrap;overflow:hidden;">
+            <span style="flex:0 0 auto;">${codigoCliente || ''}</span>
+            ${descricaoProduto ? `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.2pt;border-left:3px solid #1a3a6b;padding-left:10px;">${descricaoProduto}</span>` : ''}
+            ${nomeKit ? `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.3pt;border-left:3px solid #1a3a6b;padding-left:10px;">${nomeKit}${codigoKit ? ` <span style="font-size:11pt;color:#4a6b9b;font-weight:600;">(${codigoKit})</span>` : ''}</span>` : ''}
+          </div>
         </div>
 
         <div class="form-row">
