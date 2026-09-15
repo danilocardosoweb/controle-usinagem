@@ -1,7 +1,11 @@
-import { FaClock, FaCubes, FaForward, FaLayerGroup, FaRulerHorizontal, FaTachometerAlt } from 'react-icons/fa'
+import { FaClock, FaCubes, FaEdit, FaForward, FaLayerGroup, FaRulerHorizontal, FaTachometerAlt } from 'react-icons/fa'
 import type { ITDigital, ItemCorteContext } from './types'
 
-interface Props { item: ItemCorteContext; it: ITDigital }
+interface Props {
+  item: ItemCorteContext
+  it: ITDigital
+  onEdit?: () => void
+}
 
 const tones: Record<string, { card: string; label: string }> = {
   slate: { card: 'bg-slate-50 border-slate-200', label: 'text-slate-600' },
@@ -20,7 +24,7 @@ const Metric = ({ label, value, tone = 'slate', icon }: { label: string; value: 
   </div>
 )
 
-export default function ItemHeaderCard({ item, it }: Props) {
+export default function ItemHeaderCard({ item, it, onEdit }: Props) {
   const tolerancia = `-${Number(it.tolerancia_menos_mm).toLocaleString('pt-BR')} / +${Number(it.tolerancia_mais_mm).toLocaleString('pt-BR')} mm`
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -28,20 +32,31 @@ export default function ItemHeaderCard({ item, it }: Props) {
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-300">Item em corte</p>
           <h2 className="text-2xl font-black">{item.codigoItem}</h2>
-          <p className="text-sm text-slate-300">{item.cliente} · Pedido {item.pedidoSeq}</p>
+          <p className="text-sm text-slate-300">{item.cliente} Â· Pedido {item.pedidoSeq}</p>
         </div>
-        <div className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-4 py-2 text-sm font-black text-emerald-300">
-          IT v{it.versao} · {it.status === 'ativa' ? 'ATIVA' : it.status.toUpperCase()}
+        <div className="flex items-center gap-2">
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex items-center gap-2 rounded-full border border-orange-400/40 bg-orange-500/15 px-4 py-2 text-sm font-black text-orange-200 hover:bg-orange-500/25"
+            >
+              <FaEdit /> Editar ficha
+            </button>
+          )}
+          <div className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-4 py-2 text-sm font-black text-emerald-300">
+            IT v{it.versao} Â· {it.status === 'ativa' ? 'ATIVA' : it.status.toUpperCase()}
+          </div>
         </div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 p-4">
         <Metric tone="orange" icon={<FaRulerHorizontal />} label="Comprimento" value={`${Number(it.comprimento_acabado_mm).toLocaleString('pt-BR')} mm`} />
-        <Metric tone="blue" icon={<FaTachometerAlt />} label="Meta" value={`${it.produtividade_padrao_pcs_hora || 0} pç/h`} />
+        <Metric tone="blue" icon={<FaTachometerAlt />} label="Meta" value={`${it.produtividade_padrao_pcs_hora || 0} pÃ§/h`} />
         <Metric tone="amber" icon={<FaClock />} label="Tempo ciclo" value={`${it.tempo_ciclo_seg || 0} s`} />
         <Metric tone="slate" icon={<FaForward />} label="Avanco" value={it.avanco_maquina ? String(it.avanco_maquina).replace('.', ',') : '-'} />
-        <Metric tone="cyan" icon={<FaLayerGroup />} label="Peças/pacote" value={String(it.pecas_por_pacote || 0)} />
-        <Metric tone="indigo" icon={<FaCubes />} label="Total peças" value={Number(item.totalPecas || it.total_pecas || 0).toLocaleString('pt-BR')} />
-        <Metric tone="emerald" icon={<FaRulerHorizontal />} label="Tolerância" value={tolerancia} />
+        <Metric tone="cyan" icon={<FaLayerGroup />} label="PeÃ§as/pacote" value={String(it.pecas_por_pacote || 0)} />
+        <Metric tone="indigo" icon={<FaCubes />} label="Total peÃ§as" value={Number(item.totalPecas || it.total_pecas || 0).toLocaleString('pt-BR')} />
+        <Metric tone="emerald" icon={<FaRulerHorizontal />} label="TolerÃ¢ncia" value={tolerancia} />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-x-5 gap-y-2 px-5 pb-4 text-xs text-slate-600">
         <span><b>Perfil:</b> {item.codigoPerfil || '-'}</span>

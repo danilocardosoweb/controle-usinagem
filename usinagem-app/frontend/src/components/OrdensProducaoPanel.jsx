@@ -7,6 +7,7 @@ import {
 import supabaseService from '../services/SupabaseService'
 import auditoriaService from '../services/AuditoriaService'
 import { useAuth } from '../contexts/AuthContext'
+import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion'
 
 const STATUS_LABELS = {
   pendente: { label: 'Pendente', color: 'bg-gray-100 text-gray-700 border-gray-300' },
@@ -589,6 +590,9 @@ function ModalOP({ rack, statusMap, onClose, onAtualizarStatus, user, printRef }
               </div>
             </div>
             <div className="text-right">
+              <div className="mb-2 text-xs font-semibold text-slate-600 border border-slate-300 rounded px-2 py-1">
+                {DOCUMENT_VERSION_LABEL}
+              </div>
               <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold border ${cfg.color}`}>
                 {cfg.label}
               </span>

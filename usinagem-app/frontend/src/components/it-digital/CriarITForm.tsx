@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { FaClipboardList, FaCog, FaLayerGroup, FaPlus, FaSave } from 'react-icons/fa'
-import type { CriarITInput, ItemCorteContext } from './types'
+import { useEffect, useState } from 'react'
+import { FaClipboardList, FaCog, FaLayerGroup, FaPlus, FaSave, FaTimes } from 'react-icons/fa'
+import type { CriarITInput, ITDigital, ItemCorteContext } from './types'
 import { CRITERIOS_APROVACAO, CRITERIOS_REPROVACAO, ETAPAS_PADRAO } from './constants'
 
 type FormState = {
@@ -19,6 +19,8 @@ type FormState = {
   procedimento: string
 }
 
+type FormMode = 'create' | 'edit'
+
 const joinLines = (items: string[]) => items.join('\n')
 
 const splitLines = (value: string) =>
@@ -28,6 +30,27 @@ const splitLines = (value: string) =>
     .filter(Boolean)
 
 const parseNumber = (value: string) => Number(value.replace(/\./g, '').replace(',', '.')) || 0
+
+const formatNumber = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return ''
+  return String(value).replace('.', ',')
+}
+
+const createInitialForm = (item: ItemCorteContext, it?: ITDigital | null): FormState => ({
+  tolerancia: formatNumber(it?.tolerancia_mais_mm ?? 0.5),
+  pecasPorPacote: String(it?.pecas_por_pacote ?? item.pecasPorPacote ?? ''),
+  quantidadeAmarrados: String(it?.quantidade_amarrados ?? item.quantidadeAmarrados ?? ''),
+  totalPecas: String(it?.total_pecas ?? item.totalPecas ?? ''),
+  tempoCiclo: String(it?.tempo_ciclo_seg ?? item.tempoCicloSeg ?? ''),
+  setup: String(it?.setup_minutos ?? item.setupMinutos ?? ''),
+  cortes: String(it?.cortes_por_ciclo ?? item.cortesPorCiclo ?? 1),
+  produtividade: String(it?.produtividade_padrao_pcs_hora ?? item.produtividadePadrao ?? ''),
+  avanco: formatNumber(it?.avanco_maquina ?? item.avancoMaquina ?? null),
+  barra: String(it?.barra_original_mm ?? item.barraOriginalMm ?? ''),
+  arquivo: it?.arquivo_it_url ?? item.arquivoItUrl ?? '',
+  objetivo: it?.objetivo || `Cortar o perfil ${item.codigoItem} para ${item.cliente}, mantendo medida, qualidade e rastreabilidade do lote.`,
+  procedimento: joinLines((it?.procedimento_operacional?.length ? it.procedimento_operacional : ETAPAS_PADRAO).map(etapa => etapa.instrucao)),
+})
 
 const inputClass = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-black text-slate-800 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100'
 const textAreaClass = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100'
@@ -62,26 +85,28 @@ const Section = ({ icon, title, subtitle, children }: { icon: React.ReactNode; t
   </section>
 )
 
-export default function CriarITForm({ item, onCreate, disabled }: { item: ItemCorteContext; onCreate: (input: CriarITInput) => Promise<void>; disabled?: boolean }) {
-  const [show, setShow] = useState(false)
+interface Props {
+  item: ItemCorteContext
+  onSubmit: (input: CriarITInput) => Promise<void>
+  disabled?: boolean
+  mode?: FormMode
+  initialIT?: ITDigital | null
+  onCancel?: () => void
+}
+
+export default function CriarITForm({ item, onSubmit, disabled, mode = 'create', initialIT = null, onCancel }: Props) {
+  const isEdit = mode === 'edit'
+  const [show, setShow] = useState(isEdit)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState<FormState>({
-    tolerancia: '0,5',
-    pecasPorPacote: String(item.pecasPorPacote || ''),
-    quantidadeAmarrados: String(item.quantidadeAmarrados || ''),
-    totalPecas: String(item.totalPecas || ''),
-    tempoCiclo: String(item.tempoCicloSeg || ''),
-    setup: String(item.setupMinutos || ''),
-    cortes: String(item.cortesPorCiclo || 1),
-    produtividade: String(item.produtividadePadrao || ''),
-    avanco: '',
-    barra: String(item.barraOriginalMm || ''),
-    arquivo: item.arquivoItUrl || '',
-    objetivo: `Cortar o perfil ${item.codigoItem} para ${item.cliente}, mantendo medida, qualidade e rastreabilidade do lote.`,
-    procedimento: joinLines(ETAPAS_PADRAO.map(etapa => etapa.instrucao)),
-  })
+  const [form, setForm] = useState<FormState>(() => createInitialForm(item, initialIT))
 
   const update = (key: keyof FormState, value: string) => setForm(prev => ({ ...prev, [key]: value }))
+
+  useEffect(() => {
+    setForm(createInitialForm(item, initialIT))
+    setShow(isEdit)
+    setSaving(false)
+  }, [item.codigoItem, item.cliente, item.comprimentoAcabado, initialIT?.id, isEdit])
 
   const submit = async () => {
     const pecas = Math.max(0, Math.floor(parseNumber(form.pecasPorPacote)))
@@ -95,7 +120,7 @@ export default function CriarITForm({ item, onCreate, disabled }: { item: ItemCo
 
     setSaving(true)
     try {
-      await onCreate({
+      await onSubmit({
         codigo_item: item.codigoItem,
         codigo_perfil: item.codigoPerfil,
         cliente: item.cliente,
@@ -127,7 +152,7 @@ export default function CriarITForm({ item, onCreate, disabled }: { item: ItemCo
     }
   }
 
-  if (!show) {
+  if (!show && !isEdit) {
     return (
       <button
         type="button"
@@ -144,7 +169,7 @@ export default function CriarITForm({ item, onCreate, disabled }: { item: ItemCo
     <div className="mt-3 w-full max-w-6xl rounded-3xl border border-orange-200 bg-orange-50/70 p-3 text-left shadow-sm">
       <div className="mb-3 rounded-2xl bg-slate-950 p-4 text-white">
         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-300">Ficha de processo</p>
-        <h3 className="mt-1 text-xl font-black">Receita de corte do item</h3>
+        <h3 className="mt-1 text-xl font-black">{isEdit ? 'Editar receita de corte' : 'Receita de corte do item'}</h3>
         <p className="mt-1 text-xs font-semibold text-slate-300">
           Cadastre os parametros da maquina e o modo de preparo. Essa ficha sera usada como guia do operador.
         </p>
@@ -198,8 +223,18 @@ export default function CriarITForm({ item, onCreate, disabled }: { item: ItemCo
         onClick={submit}
         className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-base font-black text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600 disabled:opacity-50"
       >
-        <FaSave /> {saving ? 'Salvando ficha...' : 'Salvar ficha e abrir IT Digital'}
+        <FaSave /> {saving ? (isEdit ? 'Salvando alterações...' : 'Salvando ficha...') : (isEdit ? 'Salvar alterações' : 'Salvar ficha e abrir IT Digital')}
       </button>
+      {isEdit && onCancel && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={onCancel}
+          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-base font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <FaTimes /> Cancelar edição
+        </button>
+      )}
     </div>
   )
 }

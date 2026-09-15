@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { FaPrint, FaTimes, FaFileExcel, FaFileAlt } from 'react-icons/fa'
 import ReimpressaoApontamentosModal from './ReimpressaoApontamentosModal'
+import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion'
 
 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR')
 const fmtDec = (n, dec = 1) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
@@ -87,6 +88,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
           .header-right { text-align: right; }
           .header-right .rom-num { font-size: 16px; font-weight: 700; color: #1e3a5f; }
           .header-right .rom-date { font-size: 11px; color: #666; margin-top: 2px; }
+          .document-version { display: inline-block; margin-top: 5px; padding: 2px 6px; border: 1px solid #94a3b8; border-radius: 4px; color: #475569; font-size: 9px; font-weight: 700; }
           .info-bar { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; font-size: 11px; }
           .info-cell { flex: 1; padding: 8px 12px; border-right: 1px solid #d1d5db; }
           .info-cell:last-child { border-right: none; }
@@ -126,6 +128,7 @@ export default function ExpedicaoImpressao({ romaneio, itens, onClose, apontamen
           <div class="header-right">
             <div class="rom-num">${romaneio.numero_romaneio}</div>
             <div class="rom-date">${new Date(romaneio.data_criacao).toLocaleDateString('pt-BR')}</div>
+            <div class="document-version">${DOCUMENT_VERSION_LABEL}</div>
             <div style="font-size:10px;color:#888;margin-top:4px">Ordenado por: ${{ palete: 'Palete', ferramenta: 'Ferramenta + Comp.', data: 'Data Apontamento' }[ordenacao]}</div>
           </div>
         </div>

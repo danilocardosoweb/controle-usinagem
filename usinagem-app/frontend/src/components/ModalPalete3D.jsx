@@ -11,6 +11,7 @@ import { gerarPosicoesAmarrado } from '../utils/geometriaAmarrado'
 import { AmarradoService } from '../services/AmarradoService'
 import { supabase } from '../config/supabase'
 import { useResponsive, getResponsiveClasses } from '../hooks/useResponsive'
+import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion'
 
 // Expor AmarradoService globalmente para debug no console
 if (typeof window !== 'undefined') {
@@ -1976,6 +1977,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const [nomeNovoModelo, setNomeNovoModelo] = useState('')
   const [descricaoNovoModelo, setDescricaoNovoModelo] = useState('')
   const [modeloAmarradoSelecionado, setModeloAmarradoSelecionado] = useState(null) // Para usar na visualização 3D
+  const [filtroModeloAmarrado, setFiltroModeloAmarrado] = useState('')
 
   const handleAmarradoChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -1992,45 +1994,37 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     }
   }, [activeTab])
 
-  // Recarregar modelos quando ferramenta ou comprimento mudar
-  useEffect(() => {
-    if ((activeTab === 'visualizacao' || activeTab === 'amarrado') && ferramenta) {
-      carregarModelosAmarrado()
-    }
-  }, [ferramenta, comprimento, activeTab])
-
   const carregarModelosAmarrado = async () => {
     setCarregandoModelos(true)
     try {
-      // Se não temos ferramenta, não carrega nada
-      if (!ferramenta) {
-        console.log('⚠️ Ferramenta não selecionada, não carregando modelos')
-        setModelosAmarrado([])
-        setCarregandoModelos(false)
-        return
-      }
-
       const comprimentoNum = comprimento ? parseInt(comprimento, 10) : null
-      const filtros = {
-        ferramenta,
-        ...(comprimentoNum && { comprimento_mm: comprimentoNum })
-      }
-      
-      console.log('📥 Carregando modelos com filtros:', filtros)
-      console.log(`   Ferramenta: "${ferramenta}" (tipo: ${typeof ferramenta})`)
-      console.log(`   Comprimento: ${comprimentoNum} (tipo: ${typeof comprimentoNum})`)
-      
-      const resultado = await AmarradoService.carregarModelos(filtros)
-      
+
+      console.log('📥 Carregando biblioteca de modelos de amarrado')
+      console.log(`   Contexto atual -> Ferramenta: "${ferramenta || '-'}" | Comprimento: ${comprimentoNum ?? '-'}`)
+
+      const resultado = await AmarradoService.carregarModelos({})
+
       if (resultado.success) {
         const modelos = resultado.data || []
         setModelosAmarrado(modelos)
-        console.log(`✅ ${modelos.length} modelo(s) encontrado(s) para ${ferramenta}${comprimentoNum ? ` / ${comprimentoNum}mm` : ''}`)
-        
-        // Se não encontrou nada, sugerir debug
-        if (modelos.length === 0) {
-          console.warn('⚠️ Nenhum modelo encontrado. Execute: await AmarradoService.debugListarTodos()')
-        }
+
+        const modelosContexto = !ferramenta
+          ? modelos
+          : modelos.filter((m) => {
+              const ferrModelo = String(m?.ferramenta || '').trim().toUpperCase()
+              const ferrAtual = String(ferramenta || '').trim().toUpperCase()
+              const compAtual = Number.isFinite(comprimentoNum) ? comprimentoNum : null
+              const compModelo = m?.comprimento_mm === null || m?.comprimento_mm === undefined || m?.comprimento_mm === ''
+                ? null
+                : Number(m.comprimento_mm)
+
+              const bateFerramenta = ferrModelo === ferrAtual
+              const bateComprimento = compAtual === null ? true : compModelo === compAtual
+              return bateFerramenta && bateComprimento
+            })
+
+        console.log(`✅ ${modelos.length} modelo(s) carregado(s) na biblioteca`)
+        console.log(`   ${modelosContexto.length} modelo(s) batem com o contexto atual`)
       } else {
         console.error('❌ Erro ao carregar modelos:', resultado.error)
         setModelosAmarrado([])
@@ -2045,48 +2039,43 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
   const salvarNovoModelo = async () => {
     if (!nomeNovoModelo.trim()) {
-      setMsg('❌ Informe um nome para o modelo')
-      return
-    }
-
-    if (!ferramenta) {
-      setMsg('❌ Ferramenta não selecionada')
-      return
-    }
-
-    if (!comprimento) {
-      setMsg('❌ Comprimento não informado')
+      setMsg('❌ Informe um nome para a matriz/modelo')
       return
     }
 
     setSalvandoModelo(true)
     try {
-      // Verificar se modelo com mesmo nome + ferramenta + comprimento já existe
-      const modeloExistente = modelosAmarrado.find(m => 
-        m.nome === nomeNovoModelo && 
-        m.ferramenta === ferramenta && 
-        m.comprimento_mm === parseInt(comprimento, 10)
+      const ferramentaAtual = ferramenta ? String(ferramenta).trim() : null
+      const comprimentoAtual = comprimento ? Number(comprimento) : null
+
+      const modeloExistente = modelosAmarrado.find(m =>
+        String(m.nome || '').trim().toLowerCase() === nomeNovoModelo.trim().toLowerCase() &&
+        String(m.ferramenta || '').trim().toLowerCase() === String(ferramentaAtual || '').trim().toLowerCase() &&
+        (
+          comprimentoAtual === null
+            ? (m.comprimento_mm === null || m.comprimento_mm === undefined || m.comprimento_mm === '')
+            : Number(m.comprimento_mm) === comprimentoAtual
+        )
       )
 
       const novoModelo = {
         ...amarrado,
-        nome: nomeNovoModelo,
+        nome: nomeNovoModelo.trim(),
         descricao: descricaoNovoModelo,
-        ferramenta,
-        comprimento: Number(comprimento) || 0, // comprimento do perfil em mm
-        comprimento_mm: Number(comprimento) || 0, // comprimento da ferramenta em mm
+        ferramenta: ferramentaAtual,
+        comprimento: comprimentoAtual || Number(amarrado.comprimento) || 0,
+        comprimento_mm: comprimentoAtual,
       }
 
       console.log('📝 Salvando modelo:', novoModelo)
       const resultado = await AmarradoService.salvarModelo(novoModelo)
-      
+
       if (resultado.success) {
         setShowSalvarModeloModal(false)
         setNomeNovoModelo('')
         setDescricaoNovoModelo('')
         await carregarModelosAmarrado()
-        
-        // Mensagem diferente para novo modelo vs atualização
+
         if (modeloExistente) {
           setMsg('✏️ Modelo atualizado com sucesso!')
         } else {
@@ -2108,6 +2097,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     const resultado = await AmarradoService.carregarModeloPorId(modeloId)
     if (resultado.success) {
       const modelo = resultado.data
+      setModeloAmarradoSelecionado(modelo)
       setAmarrado({
         tipo: modelo.tipo,
         quantidade: modelo.quantidade,
@@ -2131,6 +2121,44 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
       })
     }
   }
+
+  const modelosAmarradoContexto = useMemo(() => {
+    const ferramentaAtual = String(ferramenta || '').trim().toUpperCase()
+    const comprimentoAtual = comprimento ? Number.parseInt(comprimento, 10) : null
+
+    if (!ferramentaAtual) {
+      return modelosAmarrado
+    }
+
+    return modelosAmarrado.filter((modelo) => {
+      const ferramentaModelo = String(modelo?.ferramenta || '').trim().toUpperCase()
+      const comprimentoModelo = modelo?.comprimento_mm === null || modelo?.comprimento_mm === undefined || modelo?.comprimento_mm === ''
+        ? null
+        : Number(modelo.comprimento_mm)
+
+      const bateFerramenta = ferramentaModelo === ferramentaAtual
+      const bateComprimento = comprimentoAtual === null ? true : comprimentoModelo === comprimentoAtual
+      return bateFerramenta && bateComprimento
+    })
+  }, [modelosAmarrado, ferramenta, comprimento])
+
+  const modelosAmarradoFiltrados = useMemo(() => {
+    const termo = filtroModeloAmarrado.trim().toLowerCase()
+    if (!termo) return modelosAmarrado
+
+    return modelosAmarrado.filter((modelo) => {
+      const campos = [
+        modelo?.nome,
+        modelo?.descricao,
+        modelo?.ferramenta,
+        modelo?.tipo,
+        modelo?.comprimento_mm,
+        modelo?.comprimento_perfil,
+      ]
+
+      return campos.some((valor) => String(valor ?? '').toLowerCase().includes(termo))
+    })
+  }, [modelosAmarrado, filtroModeloAmarrado])
 
   const deletarModelo = async (modeloId) => {
     const modelo = modelosAmarrado.find((item) => item.id === modeloId)
@@ -3605,6 +3633,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     .header h1 { font-size: 22px; color: #1f2937; margin-bottom: 5px; }
     .header .ferramenta { font-size: 18px; color: #f59e0b; font-weight: bold; }
     .header .data { font-size: 11px; color: #6b7280; margin-top: 5px; }
+    .document-version { display: inline-block; margin-top: 6px; padding: 2px 7px; border: 1px solid #94a3b8; border-radius: 4px; color: #475569; font-size: 10px; font-weight: bold; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
     .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; background: #fafafa; }
     .box-title { font-size: 12px; font-weight: bold; color: #f59e0b; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
@@ -3631,6 +3660,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     <h1>FICHA DE PROCESSO E MATERIAL</h1>
     <div class="ferramenta">${ferramenta || 'N/A'}${comprimento ? ' - ' + comprimento + 'mm' : ''}</div>
     <div class="data">Emitido em: ${dataAtual} às ${horaAtual}</div>
+    <div class="document-version">${DOCUMENT_VERSION_LABEL}</div>
   </div>
 
   <div class="dimensoes">
@@ -4207,13 +4237,31 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
               <div className="flex-1 overflow-y-auto py-3 px-1 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                 {/* ── SELETOR DE AMARRADO ── */}
                 <div className="mx-4 mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-                  <label className="block text-xs font-bold text-emerald-700 uppercase mb-2">Usar Modelo de Amarrado</label>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label className="block text-xs font-bold text-emerald-700 uppercase">Biblioteca de Amarrados</label>
+                    <span className="text-[10px] font-semibold text-emerald-600">
+                      Biblioteca: {modelosAmarrado.length} · Contexto: {modelosAmarradoContexto.length}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-emerald-600 mb-2">
+                    Salve pelo nome da matriz e reutilize sem depender do palete atual.
+                  </p>
                   
                   {carregandoModelos ? (
                     <div className="text-xs text-emerald-600 font-semibold">⏳ Carregando modelos...</div>
-                  ) : modelosAmarrado.length === 0 ? (
-                    <div className="text-xs text-emerald-600 font-semibold">
-                      Nenhum modelo salvo para TR-{ferramenta} / {comprimento}mm
+                  ) : modelosAmarradoContexto.length === 0 ? (
+                    <div className="space-y-2">
+                      <div className="text-xs text-emerald-600 font-semibold">
+                        Nenhum modelo vinculado ao contexto atual de TR-{ferramenta || '—'} / {comprimento || '—'}mm
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowCarregarModeloModal(true)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 transition-colors"
+                      >
+                        <FaFolderOpen size={12} />
+                        Ver biblioteca completa
+                      </button>
                     </div>
                   ) : (
                     <>
@@ -4256,7 +4304,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         className="w-full px-2 py-1.5 border border-emerald-300 rounded text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       >
                         <option value="">-- Nenhum (padrão) --</option>
-                        {modelosAmarrado.map(modelo => (
+                        {modelosAmarradoContexto.map(modelo => (
                           <option key={modelo.id} value={modelo.id}>
                             {modelo.nome} ({modelo.tipo === 'circular' ? '⭕' : '▭'} {modelo.quantidade}pc)
                           </option>
@@ -4299,6 +4347,13 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                           </div>
                         )
                       })()}
+                      <button
+                        type="button"
+                        onClick={() => setShowCarregarModeloModal(true)}
+                        className="mt-2 text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 underline"
+                      >
+                        Abrir biblioteca completa
+                      </button>
                     </>
                   )}
                 </div>
@@ -6310,6 +6365,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
               <h3 className="text-lg font-bold text-slate-800 mb-4">Salvar Modelo de Amarrado</h3>
+              <p className="text-xs text-slate-500 mb-4">Use o nome da matriz para localizar depois, mesmo sem vínculo com o palete atual.</p>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -6326,12 +6382,12 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome do Modelo *</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome da matriz / modelo *</label>
                   <input
                     type="text"
                     value={nomeNovoModelo}
                     onChange={(e) => setNomeNovoModelo(e.target.value)}
-                    placeholder="Ex: Amarrado Padrão"
+                    placeholder="Ex: TR-0073 / 729mm"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
@@ -6384,19 +6440,29 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="bg-white rounded-lg shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
               <h3 className="text-lg font-bold text-slate-800 mb-4">Carregar Modelo de Amarrado</h3>
+              <div className="mb-4">
+                <label className="block text-xs font-semibold text-slate-600 mb-1 uppercase">Pesquisar na biblioteca</label>
+                <input
+                  type="text"
+                  value={filtroModeloAmarrado}
+                  onChange={(e) => setFiltroModeloAmarrado(e.target.value)}
+                  placeholder="Nome da matriz, ferramenta, descrição..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                />
+              </div>
               
               {carregandoModelos ? (
                 <div className="flex items-center justify-center py-8 text-slate-500">
                   <div className="animate-spin mr-2">⏳</div>
                   Carregando modelos...
                 </div>
-              ) : modelosAmarrado.length === 0 ? (
+              ) : modelosAmarradoFiltrados.length === 0 ? (
                 <div className="py-8 text-center text-slate-500">
-                  <p>Nenhum modelo salvo para esta ferramenta.</p>
+                  <p>Nenhum modelo encontrado na biblioteca.</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {modelosAmarrado.map((modelo) => (
+                  {modelosAmarradoFiltrados.map((modelo) => (
                     <div
                       key={modelo.id}
                       className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
@@ -6405,6 +6471,10 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         <p className="font-semibold text-slate-800">{modelo.nome}</p>
                         <p className="text-xs text-slate-500">
                           {modelo.tipo === 'circular' ? '⭕' : '▭'} {modelo.quantidade} peças · {modelo.largura}mm · {modelo.comprimento_perfil ?? modelo.comprimento}mm
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          {modelo.ferramenta ? `Ferramenta: ${modelo.ferramenta}` : 'Sem ferramenta vinculada'}
+                          {modelo.comprimento_mm ? ` · ${modelo.comprimento_mm}mm` : ''}
                         </p>
                         {modelo.descricao && (
                           <p className="text-xs text-slate-600 mt-1">{modelo.descricao}</p>

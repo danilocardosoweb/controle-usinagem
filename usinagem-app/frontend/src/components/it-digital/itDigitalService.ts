@@ -66,6 +66,38 @@ export const criarIT = async (input: CriarITInput, usuarioId?: string | number):
   return data as ITDigital
 }
 
+export const atualizarIT = async (
+  itId: string,
+  input: CriarITInput,
+  usuarioId?: string | number,
+): Promise<ITDigital> => {
+  const payload = {
+    ...input,
+    objetivo: input.objetivo || 'Executar o corte com seguranca, qualidade e rastreabilidade.',
+    aplicacao_responsaveis: input.aplicacao_responsaveis || 'Operadores habilitados da Serra Doppia 2 Cabecas.',
+    equipamentos: input.equipamentos?.length ? input.equipamentos : ['Serra Doppia 2 Cabecas', 'Paquimetro ou trena calibrada'],
+    materiais: input.materiais?.length ? input.materiais : ['Perfil identificado conforme OP'],
+    epis_obrigatorios: input.epis_obrigatorios?.length ? input.epis_obrigatorios : ['Oculos de seguranca', 'Protetor auricular', 'Calcado de seguranca'],
+    procedimento_operacional: input.procedimento_operacional?.length ? input.procedimento_operacional : ETAPAS_PADRAO,
+    criterios_aprovacao: input.criterios_aprovacao?.length ? input.criterios_aprovacao : CRITERIOS_APROVACAO,
+    criterios_reprovacao: input.criterios_reprovacao?.length ? input.criterios_reprovacao : CRITERIOS_REPROVACAO,
+    status: 'ativa',
+    ativo: true,
+    updated_at: new Date().toISOString(),
+    atualizado_por: usuarioId ? String(usuarioId) : null,
+  }
+
+  const { data, error } = await supabase
+    .from('it_digitais')
+    .update(payload)
+    .eq('id', itId)
+    .select('*')
+    .single()
+
+  if (error) handleError(error)
+  return data as ITDigital
+}
+
 export const buscarHistoricoIT = async (codigoItem: string, limite = 8): Promise<ITExecucao[]> => {
   const { data, error } = await supabase
     .from('it_execucoes')

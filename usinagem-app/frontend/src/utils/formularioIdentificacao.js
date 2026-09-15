@@ -1,3 +1,5 @@
+import { FORMULARIO_IDENTIFICACAO_MATERIAL } from '../config/documentVersion'
+
 const TURNO_B_INICIO_MIN = 6 * 60 + 30
 const TURNO_B_FIM_MIN = 16 * 60 + 10
 const TURNO_C_INICIO_MIN = 16 * 60 + 10
@@ -196,6 +198,7 @@ export const buildFormularioIdentificacaoHtml = ({
       print-color-adjust: exact;
     }
     .container {
+      position: relative;
       max-width: 100%;
       height: 184mm;
       margin: 0 auto;
@@ -331,6 +334,10 @@ export const buildFormularioIdentificacaoHtml = ({
       width: 100%;
     }
     .pallet-card .pallet-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 3mm;
       font-size: 15pt;
       font-weight: 800;
       text-transform: uppercase;
@@ -357,11 +364,21 @@ export const buildFormularioIdentificacaoHtml = ({
       overflow: hidden;
       padding: 0 1mm;
     }
+    .document-control {
+      position: absolute;
+      right: 8mm;
+      bottom: 1.5mm;
+      color: #475569;
+      font-size: 6.5pt;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+    }
   </style>
   </head><body>
     <div class="container">
       <div class="header">
-        <div class="titulo">Formulário de Identificação do Material Cortado</div>
+        <div class="titulo">${FORMULARIO_IDENTIFICACAO_MATERIAL.tituloCompleto}</div>
         <div class="sub">
           <span class="sub-item">Lote: ${lote || ''}</span>
           ${loteMPVal ? `<span class="sub-item">| Lote MP: ${loteMPVal}</span>` : ''}
@@ -437,10 +454,11 @@ export const buildFormularioIdentificacaoHtml = ({
         </div>
 
         <div class="pallet-card">
-          <div class="pallet-label">Número do Palete</div>
+          <div class="pallet-label"><span>Número do Palete</span></div>
           <div class="pallet-value">${pallet || ''}</div>
         </div>
       </div>
+      <div class="document-control">${FORMULARIO_IDENTIFICACAO_MATERIAL.controle}</div>
     </div>
   </body></html>`
 }

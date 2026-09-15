@@ -7,21 +7,13 @@ const Dashboard = () => {
   // Dados reais do Supabase
   const { items: pedidos } = useSupabase('pedidos')
   const { items: apontamentos } = useSupabase('apontamentos')
-  const { items: paradas } = useSupabase('paradas')
+  const { items: paradas } = useSupabase('apontamentos_parada')
   const { items: maquinas } = useSupabase('maquinas')
   
   // Hook para apontamentos recentes
   const { apontamentosRecentes, loading: loadingApontamentos } = useApontamentosRecentes()
 
   const [periodo, setPeriodo] = useState('hoje') // 'hoje' | 'ontem' | 'ult7'
-  const hojeISO = new Date()
-  const dia = (() => {
-    const y = hojeISO.getFullYear()
-    const m = String(hojeISO.getMonth() + 1).padStart(2, '0')
-    const d = String(hojeISO.getDate()).padStart(2, '0')
-    return `${y}-${m}-${d}` // YYYY-MM-DD em horário local
-  })()
-
   const toLocalYMD = (dt) => {
     if (!(dt instanceof Date)) return ''
     if (isNaN(dt.getTime())) return ''
@@ -48,20 +40,38 @@ const Dashboard = () => {
     return { inicio, fim, ymdInicio: toLocalYMD(inicio), ymdFim: toLocalYMD(fim) }
   }, [periodo])
 
+  const apontamentosPeriodo = useMemo(() => (apontamentos || []).filter(a => {
+    const inicio = new Date(a.inicio || a.inicio_timestamp || a.data || a.inicio_norm || '')
+    return !isNaN(inicio.getTime()) && inicio >= range.inicio && inicio <= range.fim
+  }), [apontamentos, range])
+
+  const paradasPeriodo = useMemo(() => (paradas || []).filter(p => {
+    const inicio = new Date(p.inicio || p.inicio_timestamp || p.inicio_norm || '')
+    const fim = new Date(p.fim || p.fim_timestamp || p.fim_norm || new Date())
+    return !isNaN(inicio.getTime()) && !isNaN(fim.getTime()) && inicio <= range.fim && fim >= range.inicio
+  }), [paradas, range])
+
   const stats = useMemo(() => {
-    // Produção no período: soma quantidades de apontamentos cujo início cai dentro do range
-    const prodPeriodo = (apontamentos || []).reduce((acc, a) => {
-      const iniRaw = a.inicio || a.inicio_timestamp || a.data || a.inicio_norm || ''
-      const iniDate = iniRaw ? new Date(iniRaw) : null
-      const qtd = Number(a.quantidade || 0)
-      if (!iniDate || isNaN(iniDate.getTime())) return acc
-      return (iniDate >= range.inicio && iniDate <= range.fim) ? (acc + (isNaN(qtd) ? 0 : qtd)) : acc
+    const producaoPorUnidade = Object.entries(apontamentosPeriodo.reduce((acc, a) => {
+      const unidade = String(a.unidade || a.unidade_medida || 'PC').toUpperCase()
+      acc[unidade] = (acc[unidade] || 0) + (Number(a.quantidade) || 0)
+      return acc
+    }, {})).sort(([a], [b]) => a.localeCompare(b))
+
+    const producaoTotal = apontamentosPeriodo.reduce((acc, a) => acc + (Number(a.quantidade) || 0), 0)
+    const refugoTotal = apontamentosPeriodo.reduce((acc, a) => acc + (Number(a.qtd_refugo) || 0), 0)
+
+    const msProducao = apontamentosPeriodo.reduce((acc, a) => {
+      const inicio = new Date(a.inicio || a.inicio_timestamp || a.inicio_norm || '')
+      const fim = new Date(a.fim || a.fim_timestamp || a.fim_norm || '')
+      if (isNaN(inicio.getTime()) || isNaN(fim.getTime())) return acc
+      return acc + Math.max(0, fim - inicio)
     }, 0)
 
     // Tempo de Parada do período: somar interseções com o range
     const inicioDia = range.inicio
     const fimDia = range.fim
-    const msParadaHoje = (paradas || []).reduce((acc, p) => {
+    const msParadaHoje = paradasPeriodo.reduce((acc, p) => {
       const iniRaw = p.inicio || p.inicio_timestamp || p.inicio_norm
       if (!iniRaw) return acc
       const fimRaw = p.fim || p.fim_timestamp || p.fim_norm || new Date()
@@ -93,25 +103,34 @@ const Dashboard = () => {
       return !(qtd > 0 && sep >= qtd)
     }).length
 
-    // OEE (placeholder simples, até termos paradas e metas)
-    const disponibilidade = 0
-    const performance = 0
-    const qualidade = 0
-    const total = 0
+    const disponibilidade = msProducao + msParadaHoje > 0
+      ? Math.round((msProducao / (msProducao + msParadaHoje)) * 100)
+      : null
+    const unidadesNoPeriodo = producaoPorUnidade.map(([unidade]) => unidade)
+    const qualidade = unidadesNoPeriodo.length === 1 && producaoTotal + refugoTotal > 0
+      ? Math.round((producaoTotal / (producaoTotal + refugoTotal)) * 100)
+      : null
 
     return {
-      oee: { disponibilidade, performance, qualidade, total },
+      oee: {
+        disponibilidade,
+        performance: null,
+        qualidade,
+        total: null,
+        qualidadeMotivo: unidadesNoPeriodo.length > 1 ? 'Unidades mistas no período' : null
+      },
       tempoParada: tempoParadaFmt,
-      producaoDiaria: prodPeriodo,
+      producaoPorUnidade,
+      refugoTotal,
       ordensCompletadas: concluidas,
       ordensPendentes: pendentes,
     }
-  }, [apontamentos, pedidos, paradas, range])
+  }, [apontamentosPeriodo, pedidos, paradasPeriodo, range])
 
   const ordensExecucao = useMemo(() => {
     // Agregar apontamentos por pedido (ordemTrabalho = pedido_seq)
     const porPedido = {}
-    for (const a of (apontamentos || [])) {
+    for (const a of apontamentosPeriodo) {
       const seq = String(a.ordem_trabalho || a.pedido_seq || '')
       if (!seq) continue
       const q = Number(a.quantidade || 0)
@@ -164,9 +183,10 @@ const Dashboard = () => {
           progresso,
         }
       })
-      .slice(0, 5)
+      .sort((a, b) => b.progresso - a.progresso)
+      .slice(0, 8)
     return lista
-  }, [pedidos, apontamentos, maquinas])
+  }, [pedidos, apontamentosPeriodo, maquinas])
   
   return (
     <div>
@@ -198,7 +218,8 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-gray-700">OEE Total</h2>
-          <p className="text-3xl font-bold text-primary-600">{stats.oee.total ? `${stats.oee.total}%` : '-'}</p>
+          <p className="text-3xl font-bold text-gray-400">-</p>
+          <p className="mt-1 text-xs text-gray-500">Aguardando meta teórica de performance</p>
         </div>
         
         <div className="bg-white rounded-lg shadow p-6">
@@ -208,11 +229,16 @@ const Dashboard = () => {
         
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-gray-700">Produção no Período</h2>
-          <p className="text-3xl font-bold text-green-600">{stats.producaoDiaria}</p>
+          {stats.producaoPorUnidade.length > 0 ? stats.producaoPorUnidade.map(([unidade, quantidade]) => (
+            <p key={unidade} className="text-2xl font-bold text-green-600">
+              {quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} <span className="text-sm">{unidade}</span>
+            </p>
+          )) : <p className="text-3xl font-bold text-gray-400">-</p>}
         </div>
         
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-gray-700">Ordens</h2>
+          <p className="text-xs text-gray-400 mb-2">Carteira total</p>
           <div className="flex justify-between">
             <div>
               <p className="text-sm text-gray-500">Concluídas</p>
@@ -228,15 +254,16 @@ const Dashboard = () => {
       
       {/* Componentes do OEE */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-4">Componentes do OEE</h2>
+        <h2 className="text-lg font-semibold text-gray-700">Indicadores para cálculo do OEE</h2>
+        <p className="text-xs text-gray-500 mb-4">O OEE total será exibido quando houver meta teórica para calcular a performance.</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <h3 className="text-sm font-medium text-gray-500">Disponibilidade</h3>
             <div className="mt-1 relative pt-1">
               <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div style={{ width: `${stats.oee.disponibilidade}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500"></div>
+                <div style={{ width: `${stats.oee.disponibilidade ?? 0}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500"></div>
               </div>
-              <p className="text-right text-sm font-semibold text-gray-700">{stats.oee.disponibilidade}%</p>
+              <p className="text-right text-sm font-semibold text-gray-700">{stats.oee.disponibilidade != null ? `${stats.oee.disponibilidade}%` : '-'}</p>
             </div>
           </div>
           
@@ -244,9 +271,9 @@ const Dashboard = () => {
             <h3 className="text-sm font-medium text-gray-500">Performance</h3>
             <div className="mt-1 relative pt-1">
               <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div style={{ width: `${stats.oee.performance}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-yellow-500"></div>
+                <div style={{ width: `${stats.oee.performance ?? 0}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-yellow-500"></div>
               </div>
-              <p className="text-right text-sm font-semibold text-gray-700">{stats.oee.performance}%</p>
+              <p className="text-right text-sm font-semibold text-gray-500">Sem meta teórica</p>
             </div>
           </div>
           
@@ -254,9 +281,11 @@ const Dashboard = () => {
             <h3 className="text-sm font-medium text-gray-500">Qualidade</h3>
             <div className="mt-1 relative pt-1">
               <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div style={{ width: `${stats.oee.qualidade}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-green-500"></div>
+                <div style={{ width: `${stats.oee.qualidade ?? 0}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-green-500"></div>
               </div>
-              <p className="text-right text-sm font-semibold text-gray-700">{stats.oee.qualidade}%</p>
+              <p className="text-right text-sm font-semibold text-gray-700">
+                {stats.oee.qualidade != null ? `${stats.oee.qualidade}%` : (stats.oee.qualidadeMotivo || '-')}
+              </p>
             </div>
           </div>
         </div>
@@ -264,7 +293,10 @@ const Dashboard = () => {
       
       {/* Ordens em Execução baseadas nos pedidos em_producao */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-4">Ordens em Execução</h2>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-700">Ordens movimentadas no período</h2>
+          <p className="text-xs text-gray-500">Até 8 ordens incompletas, priorizadas pelo maior progresso</p>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -281,7 +313,7 @@ const Dashboard = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {ordensExecucao.map((o, idx) => (
-                <tr key={idx}>
+                <tr key={o.codigo || idx}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{o.codigo}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{o.perfil}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{o.maquina}</td>
@@ -303,7 +335,7 @@ const Dashboard = () => {
               ))}
               {ordensExecucao.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="px-6 py-6 text-center text-gray-500">Nenhuma ordem em produção</td>
+                  <td colSpan="8" className="px-6 py-6 text-center text-gray-500">Nenhuma ordem movimentada no período</td>
                 </tr>
               )}
             </tbody>

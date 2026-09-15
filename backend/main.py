@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import auth, pedidos, sync, files, print
+from routes import auth, pedidos, portal, sync, files, print
 
 app = FastAPI(title="API de Controle de Usinagem")
 
@@ -30,6 +30,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/auth", tags=["Autenticação"])
 app.include_router(pedidos.router, prefix="/api", tags=["Pedidos"])
+app.include_router(portal.router, prefix="/api", tags=["Portal do Cliente"])
 app.include_router(sync.router, prefix="/api", tags=["Sincronização"]) 
 app.include_router(files.router, prefix="/api", tags=["Arquivos"]) 
 app.include_router(print.router, prefix="/api", tags=["Impressão"]) 

@@ -5,6 +5,7 @@ import { useSupabase } from '../hooks/useSupabase'
 import { useAuth } from '../contexts/AuthContext'
 import { FaEdit } from 'react-icons/fa'
 import { isVisualizador } from '../utils/auth'
+import DocumentVersionBadge from '../components/DocumentVersionBadge'
 
 const ApontamentosParadas = () => {
   const { user } = useAuth()
@@ -275,7 +276,10 @@ const ApontamentosParadas = () => {
   
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Apontamentos de Paradas</h1>
+      <div className="flex items-center gap-2 flex-wrap">
+        <h1 className="text-2xl font-bold text-gray-800">Apontamentos de Paradas</h1>
+        <DocumentVersionBadge />
+      </div>
       
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">

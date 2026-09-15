@@ -32,6 +32,8 @@ import EtiquetaPaleteExportPreview from '../components/EtiquetaPaleteExportPrevi
 import InspecaoQualidadeModal from '../components/InspecaoQualidadeModal'
 import PainelRitmoTurno from '../components/PainelRitmoTurno'
 import { ITDigitalModal } from '../components/it-digital'
+import DocumentVersionBadge from '../components/DocumentVersionBadge'
+import { FORMULARIO_INSPECAO_QUALIDADE } from '../config/documentVersion'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
 const buildHttpPdfUrl = (basePath, fileName) => {
@@ -571,7 +573,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
-<title>Folha de Inspeção — ${pedidoSeq}</title>
+<title>${FORMULARIO_INSPECAO_QUALIDADE.tituloCompleto} — ${pedidoSeq}</title>
 <style>
   @page { size: A4 portrait; margin: 7mm; }
   * { box-sizing: border-box; }
@@ -606,6 +608,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 5px; }
   .header-title { font-size: 11pt; font-weight: bold; }
   .header-sub { font-size: 7.5pt; color: #444; }
+  .document-control { display:inline-block; margin-top:3px; padding:2px 6px; border:1px solid #64748b; border-radius:3px; color:#334155; font-size:6.5pt; font-weight:bold; white-space:nowrap; }
   .logo { font-size: 12pt; font-weight: 900; letter-spacing: -1px; color: #1a56db; }
   .section { border: 1px solid #bbb; border-radius: 3px; margin-bottom: 5px; overflow: hidden; }
   .section-title { background: #1a56db; color: #fff; font-weight: bold; font-size: 7.5pt; padding: 2px 6px; text-transform: uppercase; letter-spacing: .5px; }
@@ -661,9 +664,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     <div>
       <div class="logo">Controle de Usinagem</div>
       <div class="header-sub">Sistema de Gestão Industrial</div>
+      <div class="document-control">${FORMULARIO_INSPECAO_QUALIDADE.controle}</div>
     </div>
     <div style="text-align:center">
-      <div class="header-title">FOLHA DE INSPEÇÃO DE QUALIDADE</div>
+      <div class="header-title">${FORMULARIO_INSPECAO_QUALIDADE.tituloCompleto}</div>
       <div class="header-sub">Data: ${dataHoje} &nbsp;|&nbsp; Hora: ${horaHoje}</div>
     </div>
     <div style="text-align:right;padding-right:4px;min-width:100px;">
@@ -1411,7 +1415,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const pedidoTecno = formData.ordemTrabalho || ''
     const pedidoCli = formData.pedidoCliente || ''
     const qtde = quantidade || ''
-    const pallet = formData.rack_acabado || rackOuPalletValor || ''
+    const pallet = formData.rack_acabado || rackOuPalletValor || formData.rack_ou_pallet || ''
     const durezaVal = dureza || ''
     const loteMPVal = loteMP || ''
     const dataHoraProducao = formData.inicio ? parseLocalInputToDate(formData.inicio) : null
@@ -1526,7 +1530,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       pedidoTecno: dados.pedido_seq || '',
       pedidoCli: dados.pedido_cliente || '',
       qtde: dados.quantidade || '',
-      pallet: dados.rack_acabado || '',
+      pallet: dados.rack_acabado || dados.rackAcabado || dados.rack_ou_pallet || dados.rackOuPallet || '',
       dureza: dados.dureza_material || 'N/A',
       dataProducao,
       dataHoraProducao,
@@ -2547,6 +2551,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       nroOp
     }
   })
+  const [formBrancoErros, setFormBrancoErros] = useState({ qtde: false, pallet: false })
 
   const ordemSelecionadaAtual = ordensTrabalhoTodas.find(
     (ordem) => String(ordem.id) === String(formData.ordemTrabalho)
@@ -3906,7 +3911,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const pedidoCli = apontamento.pedido_cliente || apontamento.pedidoCliente || ''
         const codigoCliente = apontamento.codigo_produto_cliente || apontamento.codigoProdutoCliente || ''
         const qtde = apontamento.quantidade || ''
-        const pallet = apontamento.rack_acabado || apontamento.rackAcabado || ''
+        const pallet = apontamento.rack_acabado || apontamento.rackAcabado || apontamento.rack_ou_pallet || apontamento.rackOuPallet || ''
         const lote = apontamento.lote || ''
         const loteMPVal = apontamento.lote_externo || apontamento.loteExterno || 
           (Array.isArray(apontamento.lotes_externos) ? apontamento.lotes_externos.join(', ') : '') || ''
@@ -4134,7 +4139,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-gray-800">{tituloPagina}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold text-gray-800">{tituloPagina}</h1>
+            <DocumentVersionBadge />
+          </div>
           
           {/* Destaque de Ferramenta e Comprimento */}
           {formData.codigoPerfil && (
@@ -4288,6 +4296,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                   qtde: '', pallet: '', pedidoCli: '', turno: calcularTurno(new Date().toISOString()), dureza: '',
                   dataProducao: new Date().toLocaleDateString('pt-BR'), lote: '', loteMP: ''
                 })
+                setFormBrancoErros({ qtde: false, pallet: false })
                 setFormBrancoAberto(true)
               }}
               aria-label="Formulário em branco"
@@ -5287,13 +5296,21 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Qtde</label>
-                  <input type="text" value={formBrancoData.qtde} onChange={e => setFormBrancoData(p => ({...p, qtde: e.target.value}))}
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Quantidade" />
+                  <input type="text" value={formBrancoData.qtde} onChange={e => {
+                    setFormBrancoData(p => ({...p, qtde: e.target.value}))
+                    if (e.target.value.trim()) setFormBrancoErros(p => ({ ...p, qtde: false }))
+                  }}
+                    className={`w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 ${formBrancoErros.qtde ? 'border-red-500 bg-red-50 focus:ring-red-300' : 'border-gray-300 focus:ring-green-400'}`} placeholder="Quantidade obrigatória" />
+                  {formBrancoErros.qtde && <p className="mt-1 text-xs font-medium text-red-600">Informe a quantidade.</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Palet</label>
-                  <input type="text" value={formBrancoData.pallet} onChange={e => setFormBrancoData(p => ({...p, pallet: e.target.value}))}
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Ex: USI-1360" />
+                  <input type="text" value={formBrancoData.pallet} onChange={e => {
+                    setFormBrancoData(p => ({...p, pallet: e.target.value}))
+                    if (e.target.value.trim()) setFormBrancoErros(p => ({ ...p, pallet: false }))
+                  }}
+                    className={`w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 ${formBrancoErros.pallet ? 'border-red-500 bg-red-50 focus:ring-red-300' : 'border-gray-300 focus:ring-green-400'}`} placeholder="Ex: USI-1360" />
+                  {formBrancoErros.pallet && <p className="mt-1 text-xs font-medium text-red-600">Informe o número do palete.</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Turno</label>
@@ -5324,6 +5341,15 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               </button>
               <button
                 onClick={() => {
+                  const erros = {
+                    qtde: !String(formBrancoData.qtde || '').trim(),
+                    pallet: !String(formBrancoData.pallet || '').trim()
+                  }
+                  setFormBrancoErros(erros)
+                  if (erros.qtde || erros.pallet) {
+                    alert('Preencha a quantidade e o número do palete antes de imprimir.')
+                    return
+                  }
                   const descricaoProduto = resolverDescricaoCodigoCliente(
                     formBrancoData.item,
                     formBrancoData.codigoCliente,

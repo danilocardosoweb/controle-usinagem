@@ -4,6 +4,7 @@ import useSupabase from '../../hooks/useSupabase'
 import supabaseService from '../../services/SupabaseService'
 import { extrairFerramenta } from '../../utils/expUsinagem'
 import GeradorRomaneio from './GeradorRomaneio'
+import { DOCUMENT_VERSION_LABEL } from '../../config/documentVersion'
 
 const createTempId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const normalizarTexto = (value) => String(value || '').trim()
@@ -1163,7 +1164,7 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                       <p>${racks.length} racks &nbsp;·&nbsp; ${totalPecas.toLocaleString('pt-BR')} peças${kitsStr ? `&nbsp;·&nbsp; Kits: ${kitsStr}` : ''}</p>
                       <table><thead><tr><th>#</th><th>Rack</th><th>Produto(s)</th><th>Cliente</th><th style="text-align:right">Qtd</th></tr></thead>
                       <tbody>${linhas}</tbody></table>
-                      <p style="margin-top:16px;font-size:11px;color:#aaa">Impresso em ${new Date().toLocaleString('pt-BR')}</p>
+                      <p style="margin-top:16px;font-size:11px;color:#64748b">Impresso em ${new Date().toLocaleString('pt-BR')} &nbsp;|&nbsp; <strong>${DOCUMENT_VERSION_LABEL}</strong></p>
                       <script>window.onload=()=>window.print()</script></body></html>`
                     const w = window.open('', '_blank', 'width=800,height=600')
                     w.document.write(html)

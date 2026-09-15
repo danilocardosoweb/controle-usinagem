@@ -8,16 +8,25 @@ import { supabase } from '../config/supabase';
 export const AmarradoService = {
   /**
    * Salva um novo modelo de amarrado ou atualiza um existente
-   * Chave composta: ferramenta + comprimento + nome
+   * Chave composta: nome + ferramenta + comprimento_mm
+   * Observação: ferramenta e comprimento_mm são opcionais para permitir
+   * cadastro independente do modelo de palete.
    */
   async salvarModelo(modelo) {
     try {
+      const nome = String(modelo.nome || '').trim()
+      const ferramenta = String(modelo.ferramenta || '').trim() || null
+      const comprimentoMm =
+        modelo.comprimento_mm === null || modelo.comprimento_mm === undefined || modelo.comprimento_mm === ''
+          ? null
+          : Number(modelo.comprimento_mm)
+
       // Se tem ID, é atualização
       if (modelo.id) {
         const { data, error } = await supabase
           .from('amarrado_modelos')
           .update({
-            nome: modelo.nome,
+            nome,
             descricao: modelo.descricao || null,
             tipo: modelo.tipo,
             quantidade: Number(modelo.quantidade) || 0,
@@ -28,8 +37,8 @@ export const AmarradoService = {
             comprimento_perfil: Number(modelo.comprimento) || 0,
             cor: modelo.cor || null,
             mostrar_filme: modelo.mostrar_filme || false,
-            ferramenta: modelo.ferramenta || null,
-            comprimento_mm: Number(modelo.comprimento_mm) || null,
+            ferramenta,
+            comprimento_mm: comprimentoMm,
             criado_em: new Date().toISOString(),
           })
           .eq('id', modelo.id);
@@ -40,14 +49,25 @@ export const AmarradoService = {
 
       // Se não tem ID, tenta inserir novo
       // Primeiro verifica se já existe modelo com MESMO NOME + ferramenta + comprimento_mm
-      const { data: existente, error: erroExistente } = await supabase
+      let queryExistente = supabase
         .from('amarrado_modelos')
         .select('id')
-        .eq('ferramenta', modelo.ferramenta || null)
-        .eq('comprimento_mm', modelo.comprimento_mm || null)
-        .eq('nome', modelo.nome)
+        .eq('nome', nome)
         .limit(1)
-        .single();
+
+      if (ferramenta) {
+        queryExistente = queryExistente.eq('ferramenta', ferramenta)
+      } else {
+        queryExistente = queryExistente.is('ferramenta', null)
+      }
+
+      if (comprimentoMm === null) {
+        queryExistente = queryExistente.is('comprimento_mm', null)
+      } else {
+        queryExistente = queryExistente.eq('comprimento_mm', comprimentoMm)
+      }
+
+      const { data: existente, error: erroExistente } = await queryExistente.single();
 
       // Se existe, atualiza o existente
       // Ignora erro PGRST116 (no rows) - significa que não existe nenhum modelo com esse nome
@@ -55,7 +75,7 @@ export const AmarradoService = {
         const { data, error } = await supabase
           .from('amarrado_modelos')
           .update({
-            nome: modelo.nome,
+            nome,
             descricao: modelo.descricao || null,
             tipo: modelo.tipo,
             quantidade: Number(modelo.quantidade) || 0,
@@ -66,6 +86,8 @@ export const AmarradoService = {
             comprimento_perfil: Number(modelo.comprimento) || 0,
             cor: modelo.cor || null,
             mostrar_filme: modelo.mostrar_filme || false,
+            ferramenta,
+            comprimento_mm: comprimentoMm,
             criado_em: new Date().toISOString(),
           })
           .eq('id', existente.id);
@@ -78,7 +100,7 @@ export const AmarradoService = {
       const { data, error } = await supabase
         .from('amarrado_modelos')
         .insert([{
-          nome: modelo.nome,
+          nome,
           descricao: modelo.descricao || null,
           tipo: modelo.tipo,
           quantidade: Number(modelo.quantidade) || 0,
@@ -89,8 +111,8 @@ export const AmarradoService = {
           comprimento_perfil: Number(modelo.comprimento) || 0,
           cor: modelo.cor || null,
           mostrar_filme: modelo.mostrar_filme || false,
-          ferramenta: modelo.ferramenta || null,
-          comprimento_mm: Number(modelo.comprimento_mm) || null,
+          ferramenta,
+          comprimento_mm: comprimentoMm,
           criado_em: new Date().toISOString(),
         }]);
 
@@ -103,9 +125,8 @@ export const AmarradoService = {
   },
 
   /**
-   * Carrega modelos de amarrado com filtros por ferramenta e/ou comprimento
-   * Busca específica: ferramenta + comprimento
-   * Fallback: apenas ferramenta
+   * Carrega modelos de amarrado.
+   * Sem filtros, retorna a biblioteca inteira.
    */
   async carregarModelos(filtros = {}) {
     try {

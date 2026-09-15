@@ -376,7 +376,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const pedidoCli = apontamento.pedido_cliente || apontamento.pedidoCliente || ''
       const codigoClienteVal = codigoProdutoCliente || ''
       const qtde = apontamento.quantidade || ''
-      const pallet = apontamento.rack_acabado || apontamento.rackAcabado || ''
+      const pallet = apontamento.rack_acabado || apontamento.rackAcabado || apontamento.rack_ou_pallet || apontamento.rackOuPallet || ''
       const lote = apontamento.lote || ''
       const loteMPVal = apontamento.lote_externo || apontamento.loteExterno || 
         (Array.isArray(apontamento.lotes_externos) ? apontamento.lotes_externos.join(', ') : '') || ''

@@ -255,7 +255,7 @@ const Relatorios = () => {
     const pedidoTecno = (a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '')
     const pedidoCli = (a.pedido_cliente || a.pedidoCliente || '')
     const qtde = a.quantidade || ''
-    const pallet = (a.rack_acabado || a.rackAcabado || '')
+    const pallet = (a.rack_acabado || a.rackAcabado || a.rack_ou_pallet || a.rackOuPallet || '')
     const lote = a.lote || ''
     const loteMPVal = a.lote_externo || a.loteExterno || 
                      (Array.isArray(a.lotes_externos) ? a.lotes_externos.join(', ') : '') || ''
