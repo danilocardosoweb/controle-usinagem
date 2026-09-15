@@ -2,6 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { FaPrint, FaDownload, FaCalendarAlt, FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaFilter, FaChartLine, FaClock, FaUser, FaCog } from 'react-icons/fa';
 import { supabase } from '../config/supabase';
 import * as XLSX from 'xlsx';
+import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion';
+
+const formatarDataLocal = (dataIso) => {
+  if (!dataIso) return '-';
+  const [ano, mes, dia] = String(dataIso).slice(0, 10).split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : dataIso;
+};
+
+const dataInputLocal = (data) => {
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, '0');
+  const dia = String(data.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+};
 
 const RelatorioChecklist = () => {
   const [checklists, setChecklists] = useState([]);
@@ -83,18 +97,18 @@ const RelatorioChecklist = () => {
 
     switch (filtros.periodo) {
       case 'hoje':
-        dataInicio = dataFim = hoje.toISOString().split('T')[0];
+        dataInicio = dataFim = dataInputLocal(hoje);
         break;
       case 'semana':
         const inicioSemana = new Date(hoje);
         inicioSemana.setDate(hoje.getDate() - 7);
-        dataInicio = inicioSemana.toISOString().split('T')[0];
-        dataFim = hoje.toISOString().split('T')[0];
+        dataInicio = dataInputLocal(inicioSemana);
+        dataFim = dataInputLocal(hoje);
         break;
       case 'mes':
         const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-        dataInicio = inicioMes.toISOString().split('T')[0];
-        dataFim = hoje.toISOString().split('T')[0];
+        dataInicio = dataInputLocal(inicioMes);
+        dataFim = dataInputLocal(hoje);
         break;
       case 'personalizado':
         dataInicio = filtros.dataInicio;
@@ -110,9 +124,14 @@ const RelatorioChecklist = () => {
     const concluidos = checklists.filter(c => c.status === 'concluido').length;
     const pendentes = checklists.filter(c => c.status === 'pendente').length;
     const incompletos = checklists.filter(c => c.status === 'incompleto').length;
+    const comOcorrencias = checklists.filter(c =>
+      (Number(c.itens_atencao) || 0) > 0 || (Number(c.itens_problema) || 0) > 0
+    ).length;
     
-    // Taxa de conformidade
-    const taxaConformidade = total > 0 ? ((concluidos / total) * 100).toFixed(1) : 0;
+    // Conformidade mede os itens aprovados, não apenas o encerramento do checklist.
+    const totalItens = checklists.reduce((sum, c) => sum + (Number(c.total_itens) || 0), 0);
+    const totalItensOk = checklists.reduce((sum, c) => sum + (Number(c.itens_ok) || 0), 0);
+    const taxaConformidade = totalItens > 0 ? ((totalItensOk / totalItens) * 100).toFixed(1) : 0;
     
     // Distribuição por turno
     const porTurno = checklists.reduce((acc, c) => {
@@ -136,6 +155,7 @@ const RelatorioChecklist = () => {
       concluidos,
       pendentes,
       incompletos,
+      comOcorrencias,
       taxaConformidade,
       porTurno,
       porMaquina,
@@ -144,8 +164,36 @@ const RelatorioChecklist = () => {
   }, [checklists]);
 
   const exportarExcel = () => {
+    const periodo = getDataFiltro();
+    const turnosEsperados = filtros.turno ? [filtros.turno] : ['1º Turno', '2º Turno'];
+    const cobertura = [];
+    if (periodo.dataInicio && periodo.dataFim) {
+      const cursor = new Date(`${periodo.dataInicio}T12:00:00`);
+      const limite = new Date(`${periodo.dataFim}T12:00:00`);
+      let diasProcessados = 0;
+      while (cursor <= limite && diasProcessados < 366) {
+        const dataIso = dataInputLocal(cursor);
+        turnosEsperados.forEach(turno => {
+          const registros = checklists.filter(c => c.data_checklist === dataIso && c.turno === turno);
+          cobertura.push({
+            'Data': formatarDataLocal(dataIso),
+            'Turno': turno,
+            'Situação': registros.length > 0 ? 'REALIZADO' : 'SEM CHECKLIST',
+            'Quantidade de registros': registros.length,
+            'Operadores': [...new Set(registros.map(c => c.operador_nome).filter(Boolean))].join(', ') || '-',
+            'Máquinas': [...new Set(registros.map(c => c.maquina).filter(Boolean))].join(', ') || '-',
+            'Com ocorrências': registros.filter(c =>
+              (Number(c.itens_atencao) || 0) > 0 || (Number(c.itens_problema) || 0) > 0
+            ).length
+          });
+        });
+        cursor.setDate(cursor.getDate() + 1);
+        diasProcessados += 1;
+      }
+    }
+    const turnosSemChecklist = cobertura.filter(item => item['Situação'] === 'SEM CHECKLIST').length;
     const dados = checklists.map(c => ({
-      'Data': c.data_checklist,
+      'Data': formatarDataLocal(c.data_checklist),
       'Hora': c.hora_checklist,
       'Máquina': c.maquina,
       'Operador': c.operador_nome,
@@ -161,19 +209,21 @@ const RelatorioChecklist = () => {
       'Ações Corretivas': c.acoes_corretivas || ''
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dados);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Checklists');
 
-    // Adicionar planilha de estatísticas
     const statsData = [
-      ['Período', getDataFiltro().dataInicio || 'Início', 'até', getDataFiltro().dataFim || 'Fim'],
+      ['RELATÓRIO DE VALIDAÇÃO DO CHECKLIST DE INÍCIO DE TURNO'],
+      [DOCUMENT_VERSION_LABEL],
+      ['Período', formatarDataLocal(periodo.dataInicio) || 'Início', 'até', formatarDataLocal(periodo.dataFim) || 'Fim'],
+      ['Gerado em', new Date().toLocaleString('pt-BR')],
       [],
       ['Estatísticas Gerais'],
       ['Total de Checklists', estatisticas.total],
       ['Concluídos', estatisticas.concluidos],
       ['Pendentes', estatisticas.pendentes],
       ['Incompletos', estatisticas.incompletos],
+      ['Com ocorrências', estatisticas.comOcorrencias],
+      ['Datas/turnos sem checklist', turnosSemChecklist],
       ['Taxa de Conformidade', `${estatisticas.taxaConformidade}%`],
       ['Média Itens OK', estatisticas.mediaItensOK],
       [],
@@ -185,9 +235,38 @@ const RelatorioChecklist = () => {
     ];
 
     const wsStats = XLSX.utils.aoa_to_sheet(statsData);
-    XLSX.utils.book_append_sheet(wb, wsStats, 'Estatísticas');
+    wsStats['!cols'] = [{ wch: 32 }, { wch: 20 }, { wch: 10 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, wsStats, 'Resumo');
 
-    const fileName = `relatorio_checklist_${new Date().toISOString().split('T')[0]}.xlsx`;
+    const ws = XLSX.utils.json_to_sheet(dados);
+    const colunas = Object.keys(dados[0] || {
+      Data: '', Hora: '', Máquina: '', Operador: '', Turno: '', Status: '',
+      'Total Itens': '', 'Itens OK': '', 'Itens Atenção': '', 'Itens Problema': '',
+      'Taxa Conformidade': '', Observações: '', 'Não Conformidades': '', 'Ações Corretivas': ''
+    });
+    ws['!cols'] = colunas.map(coluna => ({
+      wch: Math.min(55, Math.max(12, coluna.length + 2, ...dados.map(linha => String(linha[coluna] ?? '').length + 2)))
+    }));
+    if (dados.length > 0) {
+      ws['!autofilter'] = { ref: `A1:${XLSX.utils.encode_col(colunas.length - 1)}${dados.length + 1}` };
+    }
+    ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+    XLSX.utils.book_append_sheet(wb, ws, 'Detalhamento');
+
+    const wsCobertura = XLSX.utils.json_to_sheet(cobertura);
+    wsCobertura['!cols'] = [
+      { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 24 },
+      { wch: 32 }, { wch: 32 }, { wch: 18 }
+    ];
+    if (cobertura.length > 0) {
+      wsCobertura['!autofilter'] = { ref: `A1:G${cobertura.length + 1}` };
+    }
+    wsCobertura['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+    XLSX.utils.book_append_sheet(wb, wsCobertura, 'Cobertura por Turno');
+
+    const inicioArquivo = periodo.dataInicio || 'inicio';
+    const fimArquivo = periodo.dataFim || 'fim';
+    const fileName = `validacao_checklist_${inicioArquivo}_a_${fimArquivo}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
 
@@ -226,8 +305,8 @@ const RelatorioChecklist = () => {
               <p>Concluídos</p>
             </div>
             <div class="stat-card">
-              <h3 class="status-pendente">${estatisticas.pendentes}</h3>
-              <p>Pendentes</p>
+              <h3 class="status-pendente">${estatisticas.comOcorrencias}</h3>
+              <p>Com ocorrências</p>
             </div>
             <div class="stat-card">
               <h3>${estatisticas.taxaConformidade}%</h3>
@@ -245,6 +324,8 @@ const RelatorioChecklist = () => {
                 <th>Turno</th>
                 <th>Status</th>
                 <th>Itens OK</th>
+                <th>Atenções</th>
+                <th>Problemas</th>
                 <th>Total</th>
                 <th>% OK</th>
               </tr>
@@ -252,13 +333,15 @@ const RelatorioChecklist = () => {
             <tbody>
               ${checklists.map(c => `
                 <tr>
-                  <td>${c.data_checklist}</td>
+                  <td>${formatarDataLocal(c.data_checklist)}</td>
                   <td>${c.hora_checklist}</td>
                   <td>${c.maquina}</td>
                   <td>${c.operador_nome}</td>
                   <td>${c.turno}</td>
                   <td class="status-${c.status}">${c.status}</td>
                   <td>${c.itens_ok}</td>
+                  <td>${c.itens_atencao || 0}</td>
+                  <td>${c.itens_problema || 0}</td>
                   <td>${c.total_itens}</td>
                   <td>${c.total_itens > 0 ? ((c.itens_ok / c.total_itens) * 100).toFixed(1) : 0}%</td>
                 </tr>
@@ -466,8 +549,8 @@ const RelatorioChecklist = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pendentes</p>
-              <p className="text-2xl font-bold text-yellow-600">{estatisticas.pendentes}</p>
+              <p className="text-sm text-gray-600">Com ocorrências</p>
+              <p className="text-2xl font-bold text-yellow-600">{estatisticas.comOcorrencias}</p>
             </div>
             <FaExclamationTriangle className="w-8 h-8 text-yellow-500" />
           </div>
@@ -512,6 +595,12 @@ const RelatorioChecklist = () => {
                   Itens OK
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Atenções
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Problemas
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Total
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -526,7 +615,7 @@ const RelatorioChecklist = () => {
               {checklists.map((checklist) => (
                 <tr key={checklist.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm text-gray-900">
-                    {new Date(checklist.data_checklist).toLocaleDateString('pt-BR')}
+                    {formatarDataLocal(checklist.data_checklist)}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900">
                     {checklist.hora_checklist}
@@ -553,6 +642,12 @@ const RelatorioChecklist = () => {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900">
                     {checklist.itens_ok}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-amber-700">
+                    {checklist.itens_atencao || 0}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-red-700">
+                    {checklist.itens_problema || 0}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900">
                     {checklist.total_itens}

@@ -17,8 +17,10 @@ import {
   FaMicrochip,
   FaServer,
   FaBox,
-  FaListAlt
+  FaListAlt,
+  FaPrint
 } from 'react-icons/fa';
+import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion';
 
 // Categorias do checklist com seus itens - ESPECÍFICO PARA USINAGEM
 const CHECKLIST_CATEGORIAS = [
@@ -120,6 +122,7 @@ const CHECKLIST_CATEGORIAS = [
     icon: FaRuler,
     cor: 'emerald',
     itens: [
+      { id: 'qual_equipamentos_medicao', texto: 'Inspecionar equipamentos de medição' },
       { id: 'qual_paquimetro', texto: 'Paquímetro/relógio comparador calibrado' },
       { id: 'qual_escala', texto: 'Escala de medição disponível' },
       { id: 'qual_primeira', texto: 'Primeira peça do turno conferida' },
@@ -173,6 +176,7 @@ export default function ChecklistInicioTurno({
   const [observacoes, setObservacoes] = useState({});
   const [problemaAberto, setProblemaAberto] = useState(null);
   const [concluido, setConcluido] = useState(false);
+  const [salvando, setSalvando] = useState(false);
   const [horaAtual, setHoraAtual] = useState(new Date());
 
   // Atualiza hora a cada minuto
@@ -192,6 +196,68 @@ export default function ChecklistInicioTurno({
 
   const progresso = Math.round((itensRespondidos / totalItens) * 100);
   const todosRespondidos = itensRespondidos === totalItens;
+  const itensComOcorrencia = useMemo(() =>
+    Object.values(respostas).filter(status => status === STATUS.ATENCAO || status === STATUS.PROBLEMA).length,
+  [respostas]);
+
+  const escaparHtml = (valor) => String(valor ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+
+  const imprimirChecklist = () => {
+    const linhas = CHECKLIST_CATEGORIAS.flatMap(categoria => categoria.itens.map(item => ({
+      categoria: categoria.titulo,
+      item: item.texto,
+      status: respostas[item.id] || STATUS.PENDENTE,
+      observacao: observacoes[item.id] || ''
+    })));
+    const rotulos = {
+      [STATUS.OK]: 'OK',
+      [STATUS.ATENCAO]: 'ATENÇÃO',
+      [STATUS.PROBLEMA]: 'PROBLEMA',
+      [STATUS.PENDENTE]: 'PENDENTE'
+    };
+    const janela = window.open('', '_blank', 'width=1100,height=800');
+    if (!janela) {
+      alert('Permita pop-ups no navegador para imprimir o checklist.');
+      return;
+    }
+
+    janela.document.write(`<!doctype html><html><head><title>Checklist de Início de Turno</title><style>
+      @page { size: A4 landscape; margin: 10mm; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; color: #172033; margin: 0; font-size: 10px; }
+      header { border-bottom: 2px solid #172033; padding-bottom: 8px; margin-bottom: 10px; }
+      h1 { font-size: 19px; margin: 0 0 4px; }
+      .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+      .meta div { background: #f3f6fa; border: 1px solid #d8dee8; padding: 6px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #cfd6e1; padding: 4px 6px; vertical-align: top; }
+      th { background: #172033; color: white; text-align: left; }
+      .ok { color: #08783f; font-weight: bold; }
+      .atencao { color: #9a5b00; font-weight: bold; }
+      .problema { color: #b42318; font-weight: bold; }
+      .pendente { color: #667085; font-weight: bold; }
+      footer { display: flex; justify-content: space-between; margin-top: 8px; color: #475467; }
+    </style></head><body>
+      <header><h1>Checklist de Início de Turno</h1><div class="meta">
+        <div><strong>Operador:</strong> ${escaparHtml(operador)}</div>
+        <div><strong>Máquina:</strong> ${escaparHtml(maquina)}</div>
+        <div><strong>Turno:</strong> ${escaparHtml(turno)}</div>
+        <div><strong>Data/Hora:</strong> ${escaparHtml(new Date().toLocaleString('pt-BR'))}</div>
+      </div></header>
+      <table><thead><tr><th>Categoria</th><th>Verificação</th><th>Status</th><th>Observação</th></tr></thead><tbody>
+        ${linhas.map(linha => `<tr><td>${escaparHtml(linha.categoria)}</td><td>${escaparHtml(linha.item)}</td><td class="${linha.status}">${rotulos[linha.status]}</td><td>${escaparHtml(linha.observacao) || '-'}</td></tr>`).join('')}
+      </tbody></table>
+      <footer><strong>Progresso: ${itensRespondidos}/${totalItens} (${progresso}%)</strong><span>${DOCUMENT_VERSION_LABEL}</span></footer>
+    </body></html>`);
+    janela.document.close();
+    janela.focus();
+    janela.print();
+  };
 
   const marcarTodosOK = () => {
     const novasRespostas = {};
@@ -235,18 +301,31 @@ export default function ChecklistInicioTurno({
     }
   };
 
-  const finalizarChecklist = () => {
-    setConcluido(true);
-    if (onConcluir) {
-      onConcluir({
-        maquina,
-        operador,
-        turno,
-        data: new Date().toISOString(),
-        respostas,
-        observacoes,
-        progresso
-      });
+  const finalizarChecklist = async () => {
+    const ocorrenciasSemDescricao = CHECKLIST_CATEGORIAS
+      .flatMap(categoria => categoria.itens)
+      .filter(item => [STATUS.ATENCAO, STATUS.PROBLEMA].includes(respostas[item.id]))
+      .filter(item => !observacoes[item.id]?.trim());
+
+    if (ocorrenciasSemDescricao.length > 0) {
+      setProblemaAberto(ocorrenciasSemDescricao[0].id);
+      alert('Descreva todas as ocorrências marcadas como Atenção ou Problema antes de finalizar.');
+      return;
+    }
+    try {
+      setSalvando(true);
+      const salvo = await onConcluir?.({
+          maquina,
+          operador,
+          turno,
+          data: new Date().toISOString(),
+          respostas,
+          observacoes,
+          progresso
+        });
+      if (salvo !== false) setConcluido(true);
+    } finally {
+      setSalvando(false);
     }
   };
 
@@ -275,22 +354,33 @@ export default function ChecklistInicioTurno({
             Checklist concluído!
           </h2>
           <p className="text-gray-600 mb-6 text-lg">
-            Área de Usinagem pronta para produção! 🚀
+            {itensComOcorrencia > 0 ? 'Checklist registrado com ocorrências' : 'Área de Usinagem pronta para produção'}
           </p>
           <div className="bg-emerald-50 rounded-2xl p-4 mb-6">
             <p className="text-emerald-700 font-medium">
               {progresso}% dos itens verificados
             </p>
             <p className="text-sm text-emerald-600 mt-1">
-              Todas as máquinas liberadas para operação
+              {itensComOcorrencia > 0
+                ? `${itensComOcorrencia} ocorrência(s) registrada(s) para acompanhamento`
+                : 'Nenhuma ocorrência identificada'}
             </p>
           </div>
-          <button
-            onClick={() => setConcluido(false)}
-            className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-semibold transition-all"
-          >
-            Novo Checklist
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={imprimirChecklist}
+              className="py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+            >
+              <FaPrint className="w-4 h-4" />
+              Imprimir
+            </button>
+            <button
+              onClick={() => setConcluido(false)}
+              className="py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-semibold transition-all"
+            >
+              Novo Checklist
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -383,6 +473,14 @@ export default function ChecklistInicioTurno({
           >
             <FaTimesCircle className="w-4 h-4" />
             Desmarcar todos
+          </button>
+          <button
+            onClick={imprimirChecklist}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md shadow-blue-100 transition-all flex items-center gap-2 active:scale-95 text-sm"
+            title="Imprimir o checklist com as respostas atuais"
+          >
+            <FaPrint className="w-4 h-4" />
+            Imprimir
           </button>
         </div>
       </div>
@@ -592,16 +690,16 @@ export default function ChecklistInicioTurno({
             {/* Botão Finalizar Compacto */}
             <button
               onClick={finalizarChecklist}
-              disabled={!todosRespondidos}
+              disabled={!todosRespondidos || salvando}
               className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg font-bold text-base transition-all flex items-center justify-center gap-2 ${
-                todosRespondidos
+                todosRespondidos && !salvando
                   ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-md shadow-emerald-100 active:scale-95'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
             >
               <FaCheckCircle className="w-5 h-5" />
-              Finalizar Checklist
-              {todosRespondidos && <FaChevronRight className="w-4 h-4" />}
+              {salvando ? 'Salvando...' : 'Finalizar Checklist'}
+              {todosRespondidos && !salvando && <FaChevronRight className="w-4 h-4" />}
             </button>
           </div>
         </div>

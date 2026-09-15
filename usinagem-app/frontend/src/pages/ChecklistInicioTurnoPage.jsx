@@ -17,10 +17,18 @@ export default function ChecklistInicioTurnoPage() {
 
   // Detectar turno baseado na hora atual
   const getTurnoAtual = () => {
-    const hora = new Date().getHours();
-    if (hora >= 6 && hora < 14) return '1º Turno';
-    if (hora >= 14 && hora < 22) return '2º Turno';
-    return '3º Turno';
+    const agora = new Date();
+    const minutos = agora.getHours() * 60 + agora.getMinutes();
+    if (minutos >= 390 && minutos < 970) return '1º Turno'; // 06:30 às 16:10
+    if (minutos >= 970 || minutos < 80) return '2º Turno'; // 16:10 às 01:20
+    return 'Fora de turno';
+  };
+
+  const getDataLocal = (data) => {
+    const ano = data.getFullYear();
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
   };
 
   // Usar dados reais do usuário logado
@@ -38,18 +46,23 @@ export default function ChecklistInicioTurnoPage() {
       // Preparar dados para salvar no Supabase
       const dataAtual = new Date();
       const checklistData = {
-        data_checklist: dataAtual.toISOString().split('T')[0], // YYYY-MM-DD
+        data_checklist: getDataLocal(dataAtual),
         hora_checklist: dataAtual.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         maquina: dados.maquina || 'Máquina não definida',
         operador_nome: dados.operador || user?.nome || 'Operador',
         turno: dados.turno || getTurnoAtual(),
         status: 'concluido',
         total_itens: Object.keys(dados.respostas || {}).length,
-        itens_ok: Object.values(dados.respostas || {}).filter(v => v === true).length,
+        itens_ok: Object.values(dados.respostas || {}).filter(v => v === 'ok').length,
         itens_atencao: Object.values(dados.respostas || {}).filter(v => v === 'atencao').length,
-        itens_problema: Object.values(dados.respostas || {}).filter(v => v === false).length,
-        observacoes: dados.observacoes?.geral || '',
-        nao_conformidades: dados.observacoes?.problemas || '',
+        itens_problema: Object.values(dados.respostas || {}).filter(v => v === 'problema').length,
+        observacoes: Object.entries(dados.observacoes || {})
+          .map(([item, texto]) => `${item}: ${texto}`)
+          .join(' | '),
+        nao_conformidades: Object.entries(dados.respostas || {})
+          .filter(([, status]) => status === 'problema')
+          .map(([item]) => `${item}: ${dados.observacoes?.[item] || 'Sem descrição'}`)
+          .join(' | '),
         acoes_corretivas: dados.observacoes?.acoes || ''
       };
 
@@ -63,7 +76,7 @@ export default function ChecklistInicioTurnoPage() {
       if (error) {
         console.error('❌ Erro ao salvar checklist:', error);
         alert('Erro ao salvar checklist: ' + error.message);
-        return;
+        return false;
       }
 
       console.log('✅ Checklist salvo com sucesso:', data);
@@ -75,10 +88,12 @@ export default function ChecklistInicioTurnoPage() {
       setTimeout(() => {
         navigate('/dashboard', { replace: true });
       }, 2000);
+      return true;
       
     } catch (error) {
       console.error('❌ Erro ao processar checklist:', error);
       alert('Erro ao processar checklist: ' + error.message);
+      return false;
     }
   };
 

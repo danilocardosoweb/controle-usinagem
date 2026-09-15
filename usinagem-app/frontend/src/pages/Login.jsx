@@ -17,9 +17,6 @@ const Login = ({ onLogin }) => {
     setError('')
     setLoading(true)
     
-    // Log para depuração
-    console.log('Tentando login com:', { username, password })
-    
     try {
       // Usar as credenciais atualizadas do AuthContext
       const result = await onLogin(username, password)

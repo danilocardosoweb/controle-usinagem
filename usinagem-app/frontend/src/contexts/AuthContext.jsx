@@ -24,7 +24,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (username, password) => {
-    console.log('AuthContext: Tentativa de login', { username, password });
+    console.log('AuthContext: Tentativa de login', { username });
     
     try {
       // Importar o SupabaseService dinamicamente

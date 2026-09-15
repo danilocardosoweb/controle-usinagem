@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, FaUsers, FaIndustry, FaTachometerAlt, FaCalendarAlt } from 'react-icons/fa'
+import { FaPrint, FaClock, FaChartLine, FaExclamationTriangle, FaCheckCircle, FaUsers, FaIndustry, FaTachometerAlt, FaCalendarAlt, FaSkullCrossbones } from 'react-icons/fa'
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 import PrintModal from '../components/PrintModal'
 import ModalEtiquetaPersonalizada from '../components/ModalEtiquetaPersonalizada'
 import RelatorioChecklist from '../components/RelatorioChecklist'
 import { buildFormularioIdentificacaoHtml, resolverDescricaoCodigoCliente, resolverKit } from '../utils/formularioIdentificacao'
+import DocumentVersionBadge from '../components/DocumentVersionBadge'
+import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -186,24 +188,32 @@ const Relatorios = () => {
   }, [apontamentos])
 
   const tiposRelatorio = [
-    { id: 'producao', nome: 'Produção por Período' },
-    { id: 'producao_usinagem', nome: 'Apontamentos - Usinagem: Produção por Período' },
-    { id: 'producao_embalagem', nome: 'Apontamentos - Embalagem: Produção por Período' },
-    { id: 'inspecao_qualidade', nome: 'Inspeção de Qualidade (QA)' },
-    { id: 'paradas', nome: 'Paradas de Máquina' },
-    { id: 'desempenho', nome: 'Desempenho por Operador/Máquina' },
-    { id: 'desempenho_usinagem', nome: 'Apontamentos - Usinagem: Desempenho por Operador/Máquina' },
-    { id: 'desempenho_embalagem', nome: 'Apontamentos - Embalagem: Desempenho por Operador/Máquina' },
-    { id: 'oee', nome: 'OEE Detalhado' },
-    { id: 'expedicao', nome: 'Estimativa de Expedição' },
-    { id: 'produtividade', nome: 'Produtividade (Itens)' },
-    { id: 'produtividade_usinagem', nome: 'Apontamentos - Usinagem: Produtividade (Itens)' },
-    { id: 'produtividade_embalagem', nome: 'Apontamentos - Embalagem: Produtividade (Itens)' },
-    { id: 'rastreabilidade', nome: 'Rastreabilidade (Amarrados/Lotes)' },
-    { id: 'apontamentos_rack', nome: 'Apontamentos por Rack!Embalagem' },
-    { id: 'folha_inspecao', nome: 'Folha de Inspeção de Qualidade (por Pedido)' },
-    { id: 'checklist', nome: 'Checklist de Início de Turno' }
+    { id: 'checklist', nome: 'Validação do Checklist de Início de Turno', grupo: 'Rotinas e conformidade' },
+    { id: 'producao', nome: 'Produção consolidada', grupo: 'Produção' },
+    { id: 'producao_usinagem', nome: 'Produção - Usinagem', grupo: 'Produção' },
+    { id: 'producao_embalagem', nome: 'Produção - Embalagem', grupo: 'Produção' },
+    { id: 'desempenho', nome: 'Desempenho consolidado', grupo: 'Desempenho' },
+    { id: 'desempenho_usinagem', nome: 'Desempenho - Usinagem', grupo: 'Desempenho' },
+    { id: 'desempenho_embalagem', nome: 'Desempenho - Embalagem', grupo: 'Desempenho' },
+    { id: 'produtividade', nome: 'Produtividade consolidada', grupo: 'Desempenho' },
+    { id: 'produtividade_usinagem', nome: 'Produtividade - Usinagem', grupo: 'Desempenho' },
+    { id: 'produtividade_embalagem', nome: 'Produtividade - Embalagem', grupo: 'Desempenho' },
+    { id: 'oee', nome: 'OEE detalhado', grupo: 'Desempenho' },
+    { id: 'sucata_refugo', nome: 'Perdas e sucatas', grupo: 'Qualidade' },
+    { id: 'inspecao_qualidade', nome: 'Inspeção de qualidade (QA)', grupo: 'Qualidade' },
+    { id: 'folha_inspecao', nome: 'Folha de inspeção por pedido', grupo: 'Qualidade' },
+    { id: 'paradas', nome: 'Paradas de máquina', grupo: 'Operação' },
+    { id: 'expedicao', nome: 'Estimativa de expedição', grupo: 'Logística e rastreabilidade' },
+    { id: 'rastreabilidade', nome: 'Rastreabilidade de amarrados e lotes', grupo: 'Logística e rastreabilidade' },
+    { id: 'apontamentos_rack', nome: 'Apontamentos por rack de embalagem', grupo: 'Logística e rastreabilidade' }
   ]
+
+  const gruposRelatorio = tiposRelatorio.reduce((grupos, relatorio) => {
+    const grupo = relatorio.grupo || 'Outros'
+    if (!grupos[grupo]) grupos[grupo] = []
+    grupos[grupo].push(relatorio)
+    return grupos
+  }, {})
 
   const areaPorTipoRelatorio = (tipo) => {
     if (!tipo) return null
@@ -219,6 +229,9 @@ const Relatorios = () => {
   
   const handleChange = (e) => {
     const { name, value } = e.target
+    if (name === 'tipoRelatorio') {
+      setAbaAtiva(value === 'checklist' ? 'checklist' : 'producao')
+    }
     setFiltros(prev => {
       const next = {
         ...prev,
@@ -308,9 +321,11 @@ const Relatorios = () => {
     try {
       // Criar workbook
       const wb = XLSX.utils.book_new()
+      wb.Props = { ...wb.Props, Comments: DOCUMENT_VERSION_LABEL }
       
-      // Converter dados para worksheet
-      const ws = XLSX.utils.json_to_sheet(rows)
+      // Reserva as duas primeiras linhas para o controle documental visível.
+      const ws = XLSX.utils.json_to_sheet(rows, { origin: 'A3' })
+      XLSX.utils.sheet_add_aoa(ws, [['Controle documental', DOCUMENT_VERSION_LABEL]], { origin: 'A1' })
       
       // Configurar largura das colunas automaticamente
       const colWidths = []
@@ -374,10 +389,12 @@ const Relatorios = () => {
 
     try {
       const wb = XLSX.utils.book_new()
+      wb.Props = { ...wb.Props, Comments: DOCUMENT_VERSION_LABEL }
       
       sheetsData.forEach(({ data, name }) => {
         if (data && data.length > 0) {
-          const ws = XLSX.utils.json_to_sheet(data)
+          const ws = XLSX.utils.json_to_sheet(data, { origin: 'A3' })
+          XLSX.utils.sheet_add_aoa(ws, [['Controle documental', DOCUMENT_VERSION_LABEL]], { origin: 'A1' })
           
           // Auto-ajustar largura das colunas
           const colWidths = []
@@ -529,6 +546,27 @@ const Relatorios = () => {
             Separado: a.separado ?? a.qtd_separado ?? '-'
           }
         })
+      case 'sucata_refugo':
+        return sucatasFiltradas.map(r => ({
+          Data: r.Data,
+          Hora: r.Hora,
+          Maquina: r.Maquina,
+          Operador: r.Operador,
+          PedidoSeq: r.PedidoSeq,
+          Cliente: r.Cliente,
+          Produto: r.Produto,
+          Qtd_Produzida: r.Qtd_Produzida,
+          Qtd_Refugo: r.Qtd_Refugo,
+          Comprimento_Refugo_mm: r.Comprimento_Refugo_mm,
+          Kg_Estimado: r.Kg_Estimado,
+          RackOuPallet: r.RackOuPallet,
+          RackAcabado: r.RackAcabado,
+          Lote: r.Lote,
+          Dureza: r.Dureza,
+          Origem: r.Origem,
+          Etapa: r.Etapa,
+          Observacoes: r.Observacoes
+        }))
       case 'paradas':
         return paradasFiltradas.map(p => ({
           Data: brDate(p.inicio_norm),
@@ -903,7 +941,7 @@ const Relatorios = () => {
       }
       
       // Gerar dados para cada tipo de relatório
-      tiposRelatorio.forEach(tipo => {
+      tiposRelatorio.filter(tipo => tipo.id !== 'checklist').forEach(tipo => {
         try {
           // Temporariamente alterar o tipo de relatório para gerar os dados
           const originalTipo = filtros.tipoRelatorio
@@ -1008,6 +1046,35 @@ const Relatorios = () => {
     }
     return map
   }, [maquinasCat])
+
+  const cfgPorFerramenta = useMemo(() => {
+    const map = {}
+    for (const cfg of (ferramentasCfg || [])) {
+      if (!cfg?.ferramenta) continue
+      const ferr = String(cfg.ferramenta || '').trim()
+      const comp = String(cfg.comprimento_mm || cfg.comprimento || '').replace(/\D/g, '')
+      const chave = `${ferr}__${comp || '-'}`
+      map[chave] = cfg
+      if (!map[ferr]) map[ferr] = cfg
+    }
+    return map
+  }, [ferramentasCfg])
+
+  const resolveCfgRefugo = (produto) => {
+    const ferr = extrairFerramenta(produto)
+    const comp = String(extrairComprimentoAcabado(produto) || '').replace(/\D/g, '')
+    const chave = `${ferr}__${comp || '-'}`
+    return cfgPorFerramenta[chave] || cfgPorFerramenta[ferr] || null
+  }
+
+  const calcularKgRefugo = (produto, qtdRefugo, comprimentoRefugo) => {
+    const cfg = resolveCfgRefugo(produto)
+    const pesoLinear = Number(cfg?.peso_linear || 0) || 0
+    const qtd = Number(qtdRefugo || 0) || 0
+    const comp = Number(comprimentoRefugo || 0) || 0
+    if (!pesoLinear || !qtd || !comp) return null
+    return Number((qtd * (comp / 1000) * pesoLinear).toFixed(3))
+  }
 
   const normTxt = (v) => {
     try {
@@ -1118,6 +1185,42 @@ const Relatorios = () => {
     })
   }, [apontamentosBaseFiltros, filtros.ferramenta, filtros.comprimento])
 
+  const sucatasFiltradas = useMemo(() => {
+    return (apontamentosFiltrados || [])
+      .filter(a => Number(a.qtd_refugo || 0) > 0)
+      .map(a => {
+        const produto = a.produto || a.codigoPerfil || '-'
+        const qtdProduzida = Number(a.quantidade || 0) || 0
+        const qtdRefugo = Number(a.qtd_refugo || 0) || 0
+        const comprimentoRefugo = Number(a.comprimento_refugo || 0) || 0
+        const kgEstimado = calcularKgRefugo(produto, qtdRefugo, comprimentoRefugo)
+        const inicioTs = a.inicio ? new Date(a.inicio).getTime() : 0
+
+        return {
+          _sort: inicioTs || 0,
+          Data: brDate(a.inicio),
+          Hora: brTime(a.inicio),
+          Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
+          Operador: a.operador || '-',
+          PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
+          Cliente: a.cliente || '-',
+          Produto: produto,
+          Qtd_Produzida: qtdProduzida,
+          Qtd_Refugo: qtdRefugo,
+          Comprimento_Refugo_mm: comprimentoRefugo || '-',
+          Kg_Estimado: kgEstimado,
+          RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
+          RackAcabado: a.rack_acabado || a.rackAcabado || '-',
+          Lote: a.lote || '-',
+          Dureza: a.dureza_material || '-',
+          Origem: a.exp_unidade || '-',
+          Etapa: a.exp_stage || '-',
+          Observacoes: a.observacoes || '-'
+        }
+      })
+      .sort((a, b) => (b._sort || 0) - (a._sort || 0))
+  }, [apontamentosFiltrados, maqMap, cfgPorFerramenta])
+
   const apontamentosPorId = useMemo(() => {
     const map = {}
     for (const a of (apontamentos || [])) {
@@ -1205,7 +1308,7 @@ const Relatorios = () => {
       return tb - ta
     })
     return copia
-  }, [apontamentosFiltrados])
+  }, [apontamentosFiltrados, sucatasFiltradas, filtros.tipoRelatorio])
 
   useEffect(() => {
     let cancelado = false
@@ -1327,9 +1430,6 @@ const Relatorios = () => {
 
     // Renderiza a tabela de acordo com o tipo de relatório
     switch (baseTipo) {
-      case 'checklist':
-        return <RelatorioChecklist />
-      
       case 'folha_inspecao': {
         const rows = buildRows('folha_inspecao')
 
@@ -1595,6 +1695,122 @@ const Relatorios = () => {
             </table>
           </div>
         )
+
+      case 'sucata_refugo': {
+        const rows = buildRows('sucata_refugo')
+        return (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
+                <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                  <FaSkullCrossbones className="w-3 h-3" />
+                  <span>Apontamentos com sucata</span>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{indicadores.totalApontamentos}</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+                <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                  <FaIndustry className="w-3 h-3" />
+                  <span>Peças refugadas</span>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{Number(indicadores.totalRefugo || 0).toLocaleString('pt-BR')}</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-amber-500">
+                <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                  <FaChartLine className="w-3 h-3" />
+                  <span>Kg estimados</span>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{fmt(indicadores.totalKg, 3)}</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
+                <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                  <FaExclamationTriangle className="w-3 h-3" />
+                  <span>Taxa de refugo</span>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{indicadores.taxaRefugo}%</div>
+              </div>
+            </div>
+
+            {indicadores.insights.length > 0 && (
+              <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-lg p-4 border border-red-100 mt-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <FaSkullCrossbones className="w-4 h-4 text-red-600" />
+                  Alertas do relatório
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {indicadores.insights.map((insight, idx) => (
+                    <div
+                      key={idx}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+                        insight.tipo === 'alerta' ? 'bg-red-100 text-red-700' :
+                        insight.tipo === 'sucesso' ? 'bg-green-100 text-green-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}
+                    >
+                      {insight.icone === 'warning' && <FaExclamationTriangle className="w-3 h-3" />}
+                      {insight.icone === 'clock' && <FaClock className="w-3 h-3" />}
+                      {insight.icone === 'check' && <FaCheckCircle className="w-3 h-3" />}
+                      {insight.msg}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-lg shadow p-4 mt-4 overflow-x-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-700">Detalhamento de perdas e sucatas</h2>
+                <span className="text-sm text-gray-500">{rows.length} registro(s)</span>
+              </div>
+              <table className="min-w-[1400px] divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hora</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Máquina</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operador</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido/Seq</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produto</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produzidas</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sucata</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kg Estimado</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Compr. Refugo</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rack/Pallet</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lote</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Observações</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {rows.map((r, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Data}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Hora}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Maquina}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Operador}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.PedidoSeq}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Cliente}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 max-w-[220px] truncate" title={r.Produto}>{r.Produto}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{fmt(r.Qtd_Produzida)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold text-red-600">{fmt(r.Qtd_Refugo)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{typeof r.Kg_Estimado === 'number' ? fmt(r.Kg_Estimado, 3) : '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Comprimento_Refugo_mm}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.RackOuPallet}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">{r.Lote}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 max-w-[260px] truncate" title={r.Observacoes}>{r.Observacoes}</td>
+                    </tr>
+                  ))}
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan="14" className="px-6 py-6 text-center text-gray-500">Nenhum apontamento de sucata encontrado no período/seleção</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      }
       
       case 'paradas':
         return (
@@ -2041,6 +2257,39 @@ const Relatorios = () => {
   
   // Indicadores e insights calculados
   const indicadores = useMemo(() => {
+    if (tipoBaseRelatorio(filtros.tipoRelatorio) === 'sucata_refugo') {
+      const totalApontamentos = sucatasFiltradas.length
+      const totalProducao = sucatasFiltradas.reduce((acc, a) => acc + (Number(a.Qtd_Produzida) || 0), 0)
+      const totalRefugo = sucatasFiltradas.reduce((acc, a) => acc + (Number(a.Qtd_Refugo) || 0), 0)
+      const totalKg = sucatasFiltradas.reduce((acc, a) => acc + (typeof a.Kg_Estimado === 'number' ? a.Kg_Estimado : 0), 0)
+      const taxaRefugo = totalProducao > 0 ? ((totalRefugo / totalProducao) * 100).toFixed(2) : '0.00'
+
+      const insights = []
+      if (Number(taxaRefugo) > 5) {
+        insights.push({ tipo: 'alerta', msg: `Taxa de refugo elevada: ${taxaRefugo}%`, icone: 'warning' })
+      }
+      if (totalApontamentos === 0) {
+        insights.push({ tipo: 'info', msg: 'Nenhum apontamento com sucata no período selecionado', icone: 'clock' })
+      }
+      if (totalRefugo > 0) {
+        insights.push({ tipo: 'sucesso', msg: `${totalRefugo.toLocaleString('pt-BR')} peças refugadas registradas`, icone: 'check' })
+      }
+
+      return {
+        totalApontamentos,
+        totalProducao,
+        totalRefugo,
+        taxaRefugo,
+        totalKg,
+        tempoTotalHoras: '-',
+        produtividadeMedia: '-',
+        operadoresUnicos: new Set(sucatasFiltradas.map(a => a.Operador).filter(Boolean)).size,
+        maquinasUnicas: new Set(sucatasFiltradas.map(a => a.Maquina).filter(Boolean)).size,
+        semHoraFim: 0,
+        insights
+      }
+    }
+
     const totalApontamentos = apontamentosFiltrados.length
     const totalProducao = apontamentosFiltrados.reduce((acc, a) => acc + (Number(a.quantidade) || 0), 0)
     const totalRefugo = apontamentosFiltrados.reduce((acc, a) => acc + (Number(a.qtd_refugo) || 0), 0)
@@ -2100,46 +2349,59 @@ const Relatorios = () => {
       semHoraFim,
       insights
     }
-  }, [apontamentosFiltrados])
+  }, [apontamentosFiltrados, sucatasFiltradas, filtros.tipoRelatorio])
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Relatórios</h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 className="text-2xl font-bold text-gray-800">Relatórios</h1>
+          <DocumentVersionBadge />
+        </div>
         <span className="text-sm text-gray-500">
           {filtros.dataInicio && `${new Date(filtros.dataInicio).toLocaleDateString('pt-BR')}`}
           {filtros.dataFim && ` até ${new Date(filtros.dataFim).toLocaleDateString('pt-BR')}`}
         </span>
       </div>
 
-      {/* Tabs de Navegação */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+      {/* Cada família tem um único ponto de entrada; o checklist possui filtros próprios. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <nav className="contents">
           <button
-            onClick={() => setAbaAtiva('producao')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+            onClick={() => {
+              setAbaAtiva('producao')
+              if (filtros.tipoRelatorio === 'checklist') {
+                setFiltros(prev => ({ ...prev, tipoRelatorio: 'producao' }))
+              }
+            }}
+            className={`p-4 rounded-xl border text-left transition-colors ${
               abaAtiva === 'producao'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
             }`}
           >
             <div className="flex items-center gap-2">
               <FaIndustry className="w-4 h-4" />
-              Produção
+              <span className="font-bold">Relatórios operacionais</span>
             </div>
+            <p className="mt-1 text-xs opacity-80">Produção, qualidade, desempenho e rastreabilidade</p>
           </button>
           <button
-            onClick={() => setAbaAtiva('checklist')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+            onClick={() => {
+              setAbaAtiva('checklist')
+              setFiltros(prev => ({ ...prev, tipoRelatorio: 'checklist' }))
+            }}
+            className={`p-4 rounded-xl border text-left transition-colors ${
               abaAtiva === 'checklist'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300'
             }`}
           >
             <div className="flex items-center gap-2">
               <FaCheckCircle className="w-4 h-4" />
-              Checklist
+              <span className="font-bold">Checklist de Início de Turno</span>
             </div>
+            <p className="mt-1 text-xs opacity-80">Histórico, conformidade, ocorrências e impressão</p>
           </button>
         </nav>
       </div>
@@ -2149,90 +2411,152 @@ const Relatorios = () => {
         <RelatorioChecklist />
       ) : (
         <>
-      {/* Cards de Indicadores Inteligentes */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
-          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
-            <FaChartLine className="w-3 h-3" />
-            <span>Apontamentos</span>
-          </div>
-          <div className="text-2xl font-bold text-gray-800">{indicadores.totalApontamentos}</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
-          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
-            <FaIndustry className="w-3 h-3" />
-            <span>Produção Total</span>
-          </div>
-          <div className="text-2xl font-bold text-gray-800">{indicadores.totalProducao.toLocaleString('pt-BR')}</div>
-          <div className="text-xs text-gray-400">peças</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
-          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
-            <FaClock className="w-3 h-3" />
-            <span>Tempo Total</span>
-          </div>
-          <div className="text-2xl font-bold text-gray-800">{indicadores.tempoTotalHoras}</div>
-          <div className="text-xs text-gray-400">horas</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-teal-500">
-          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
-            <FaTachometerAlt className="w-3 h-3" />
-            <span>Produtividade</span>
-          </div>
-          <div className="text-2xl font-bold text-gray-800">{indicadores.produtividadeMedia}</div>
-          <div className="text-xs text-gray-400">pcs/hora</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
-          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
-            <FaUsers className="w-3 h-3" />
-            <span>Operadores</span>
-          </div>
-          <div className="text-2xl font-bold text-gray-800">{indicadores.operadoresUnicos}</div>
-        </div>
-        
-        <div className={`bg-white rounded-lg shadow p-4 border-l-4 ${parseFloat(indicadores.taxaRefugo) > 5 ? 'border-red-500' : 'border-gray-300'}`}>
-          <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
-            <FaExclamationTriangle className="w-3 h-3" />
-            <span>Taxa Refugo</span>
-          </div>
-          <div className={`text-2xl font-bold ${parseFloat(indicadores.taxaRefugo) > 5 ? 'text-red-600' : 'text-gray-800'}`}>
-            {indicadores.taxaRefugo}%
-          </div>
-          <div className="text-xs text-gray-400">{indicadores.totalRefugo} pcs</div>
-        </div>
-      </div>
-
-      {/* Insights e Alertas Automáticos */}
-      {indicadores.insights.length > 0 && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-            <FaChartLine className="w-4 h-4 text-blue-600" />
-            Insights Automáticos
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {indicadores.insights.map((insight, idx) => (
-              <div 
-                key={idx}
-                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
-                  insight.tipo === 'alerta' ? 'bg-red-100 text-red-700' :
-                  insight.tipo === 'atencao' ? 'bg-yellow-100 text-yellow-700' :
-                  insight.tipo === 'sucesso' ? 'bg-green-100 text-green-700' :
-                  'bg-blue-100 text-blue-700'
-                }`}
-              >
-                {insight.icone === 'warning' && <FaExclamationTriangle className="w-3 h-3" />}
-                {insight.icone === 'clock' && <FaClock className="w-3 h-3" />}
-                {insight.icone === 'chart' && <FaChartLine className="w-3 h-3" />}
-                {insight.icone === 'check' && <FaCheckCircle className="w-3 h-3" />}
-                {insight.msg}
+      {tipoBaseRelatorio(filtros.tipoRelatorio) === 'sucata_refugo' ? (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaSkullCrossbones className="w-3 h-3" />
+                <span>Apontamentos com sucata</span>
               </div>
-            ))}
+              <div className="text-2xl font-bold text-gray-800">{indicadores.totalApontamentos}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaIndustry className="w-3 h-3" />
+                <span>Peças refugadas</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{Number(indicadores.totalRefugo || 0).toLocaleString('pt-BR')}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-amber-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaChartLine className="w-3 h-3" />
+                <span>Kg estimados</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{fmt(indicadores.totalKg, 3)}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaExclamationTriangle className="w-3 h-3" />
+                <span>Taxa de refugo</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{indicadores.taxaRefugo}%</div>
+            </div>
           </div>
-        </div>
+
+          {indicadores.insights.length > 0 && (
+            <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-lg p-4 border border-red-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <FaSkullCrossbones className="w-4 h-4 text-red-600" />
+                Alertas do relatório
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {indicadores.insights.map((insight, idx) => (
+                  <div
+                    key={idx}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+                      insight.tipo === 'alerta' ? 'bg-red-100 text-red-700' :
+                      insight.tipo === 'sucesso' ? 'bg-green-100 text-green-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    {insight.icone === 'warning' && <FaExclamationTriangle className="w-3 h-3" />}
+                    {insight.icone === 'clock' && <FaClock className="w-3 h-3" />}
+                    {insight.icone === 'check' && <FaCheckCircle className="w-3 h-3" />}
+                    {insight.msg}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaChartLine className="w-3 h-3" />
+                <span>Apontamentos</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{indicadores.totalApontamentos}</div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaIndustry className="w-3 h-3" />
+                <span>Produção Total</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{indicadores.totalProducao.toLocaleString('pt-BR')}</div>
+              <div className="text-xs text-gray-400">peças</div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaClock className="w-3 h-3" />
+                <span>Tempo Total</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{indicadores.tempoTotalHoras}</div>
+              <div className="text-xs text-gray-400">horas</div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-teal-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaTachometerAlt className="w-3 h-3" />
+                <span>Produtividade</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{indicadores.produtividadeMedia}</div>
+              <div className="text-xs text-gray-400">pcs/hora</div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaUsers className="w-3 h-3" />
+                <span>Operadores</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{indicadores.operadoresUnicos}</div>
+            </div>
+
+            <div className={`bg-white rounded-lg shadow p-4 border-l-4 ${parseFloat(indicadores.taxaRefugo) > 5 ? 'border-red-500' : 'border-gray-300'}`}>
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <FaExclamationTriangle className="w-3 h-3" />
+                <span>Taxa Refugo</span>
+              </div>
+              <div className={`text-2xl font-bold ${parseFloat(indicadores.taxaRefugo) > 5 ? 'text-red-600' : 'text-gray-800'}`}>
+                {indicadores.taxaRefugo}%
+              </div>
+              <div className="text-xs text-gray-400">{indicadores.totalRefugo} pcs</div>
+            </div>
+          </div>
+
+          {/* Insights e Alertas Automáticos */}
+          {indicadores.insights.length > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <FaChartLine className="w-4 h-4 text-blue-600" />
+                Insights Automáticos
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {indicadores.insights.map((insight, idx) => (
+                  <div
+                    key={idx}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+                      insight.tipo === 'alerta' ? 'bg-red-100 text-red-700' :
+                      insight.tipo === 'atencao' ? 'bg-yellow-100 text-yellow-700' :
+                      insight.tipo === 'sucesso' ? 'bg-green-100 text-green-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    {insight.icone === 'warning' && <FaExclamationTriangle className="w-3 h-3" />}
+                    {insight.icone === 'clock' && <FaClock className="w-3 h-3" />}
+                    {insight.icone === 'chart' && <FaChartLine className="w-3 h-3" />}
+                    {insight.icone === 'check' && <FaCheckCircle className="w-3 h-3" />}
+                    {insight.msg}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
       
       <div className="bg-white rounded-lg shadow p-4 md:p-6">
@@ -2262,8 +2586,12 @@ const Relatorios = () => {
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50"
               >
-                {tiposRelatorio.map(tipo => (
-                  <option key={tipo.id} value={tipo.id}>{tipo.nome}</option>
+                {Object.entries(gruposRelatorio).map(([grupo, relatorios]) => (
+                  <optgroup key={grupo} label={grupo}>
+                    {relatorios.map(tipo => (
+                      <option key={tipo.id} value={tipo.id}>{tipo.nome}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
