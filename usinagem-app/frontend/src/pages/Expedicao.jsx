@@ -356,7 +356,15 @@ export default function Expedicao() {
     if (unidadePedido) return unidadePedido
 
     const produto = normalizarCodigoProduto(registro?.produto || registro?.codigoPerfil)
-    return unidadesPedidoPorProduto.get(produto) || 'PC'
+    const unidadeProduto = unidadesPedidoPorProduto.get(produto)
+    if (unidadeProduto) return unidadeProduto
+
+    // Apontamentos antigos não guardavam a unidade e o pedido pode já ter
+    // saído da carteira atual. Quantidade fracionária não pode representar PC.
+    const quantidade = Number(registro?.quantidade)
+    if (Number.isFinite(quantidade) && !Number.isInteger(quantidade)) return 'KG'
+
+    return 'PC'
   }
 
   const obterTotaisRomaneio = (romaneio) => {
