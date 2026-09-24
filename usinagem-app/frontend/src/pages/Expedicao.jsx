@@ -26,6 +26,11 @@ const normalizarCodigoProduto = (valor) => String(valor || '')
   // Alguns apontamentos antigos registraram a letra O no trecho numerico do item.
   .replace(/O/g, '0')
 
+const possuiQuantidadePositiva = (registro) => {
+  const quantidade = Number(registro?.quantidade)
+  return Number.isFinite(quantidade) && quantidade > 0
+}
+
 const adicionarQuantidadePorUnidade = (totais, unidade, quantidade) => {
   const chave = normalizarUnidadeQuantidade(unidade)
   totais[chave] = (Number(totais[chave]) || 0) + (Number(quantidade) || 0)
@@ -103,6 +108,7 @@ export default function Expedicao() {
   const [itensRomaneioSelecionado, setItensRomaneioSelecionado] = useState([])
   const [clienteSelecionadoDetalhes, setClienteSelecionadoDetalhes] = useState(null)
   const [racksModalSelecionados, setRacksModalSelecionados] = useState([])
+  const [filtroRacksModal, setFiltroRacksModal] = useState('')
   
   const [itensConferencia, setItensConferencia] = useState([])
   const [itensConferidos, setItensConferidos] = useState({})
@@ -275,6 +281,9 @@ export default function Expedicao() {
         const rackNormalizado = String(rackBase).trim().toUpperCase()
         if (rackNormalizado.length === 0) return false
 
+        // Registros zerados são ajustes/histórico e não representam material disponível.
+        if (!possuiQuantidadePositiva(a)) return false
+
         // Apenas racks que começam com USI
         if (!rackNormalizado.startsWith('USI')) return false
         
@@ -388,6 +397,8 @@ export default function Expedicao() {
         const rackNormalizado = String(rackBase).trim().toUpperCase()
         const temRack = rackNormalizado.length > 0
         if (!temRack) return false
+
+        if (!possuiQuantidadePositiva(a)) return false
         
         // Excluir racks que já foram expedidos ou marcados com romaneio_numero
         if (racksExpedidosSet.has(rackNormalizado)) return false
@@ -431,7 +442,8 @@ export default function Expedicao() {
       const compVal = a.comprimento_acabado_mm || a.comprimentoAcabadoMm
       if (compVal) grupos[rack].comprimentos.add(`${compVal}mm`)
     })
-    const resultado = Object.values(grupos)
+    // Proteção adicional para não publicar racks cujo saldo agregado seja zero.
+    const resultado = Object.values(grupos).filter(rack => rack.totalPecas > 0)
     console.log('📦 racksAgrupados:', resultado.length, 'racks prontos')
     return resultado
   }, [racksProtos, unidadesPedidoPorSeq, unidadesPedidoPorProduto])
@@ -758,7 +770,45 @@ export default function Expedicao() {
   const abrirDetalhesCliente = (clienteGroup) => {
     setClienteSelecionadoDetalhes(clienteGroup)
     setRacksModalSelecionados([])
+    setFiltroRacksModal('')
     setDetalhesModalAberto(true)
+  }
+
+  const racksFiltradosModal = useMemo(() => {
+    if (!clienteSelecionadoDetalhes) return []
+
+    const termo = String(filtroRacksModal || '').trim().toLocaleUpperCase('pt-BR')
+    return [...clienteSelecionadoDetalhes.racks]
+      .filter(rack => rack.totalPecas >= 10)
+      .filter((rack) => {
+        if (!termo) return true
+        const valoresPesquisa = [
+          rack.rack,
+          ...Array.from(rack.produtos || []),
+          ...Array.from(rack.pedidos || []),
+        ]
+        return valoresPesquisa.some(valor =>
+          String(valor || '').toLocaleUpperCase('pt-BR').includes(termo)
+        )
+      })
+      .sort((a, b) => {
+        const dataA = a.apontamentos[0]?.created_at || ''
+        const dataB = b.apontamentos[0]?.created_at || ''
+        return new Date(dataB) - new Date(dataA)
+      })
+  }, [clienteSelecionadoDetalhes, filtroRacksModal])
+
+  const todosRacksVisiveisSelecionados = racksFiltradosModal.length > 0 &&
+    racksFiltradosModal.every(rack => racksModalSelecionados.some(item => item.rack === rack.rack))
+
+  const selecionarRacksVisiveis = (selecionar) => {
+    const racksVisiveis = new Set(racksFiltradosModal.map(rack => rack.rack))
+    setRacksModalSelecionados((atuais) => {
+      if (!selecionar) return atuais.filter(rack => !racksVisiveis.has(rack.rack))
+
+      const jaSelecionados = new Set(atuais.map(rack => rack.rack))
+      return [...atuais, ...racksFiltradosModal.filter(rack => !jaSelecionados.has(rack.rack))]
+    })
   }
 
   const toggleRackModal = (rack) => {
@@ -2487,24 +2537,50 @@ export default function Expedicao() {
               </button>
             </div>
 
-            {/* Barra de seleção */}
-            <div className="flex items-center gap-4 px-6 py-3 bg-gray-50 border-b">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
+            {/* Filtro e barra de seleção */}
+            <div className="px-6 py-3 bg-gray-50 border-b space-y-3">
+              <div className="relative">
+                <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="checkbox"
-                  checked={racksModalSelecionados.length === clienteSelecionadoDetalhes.racks.length}
-                  onChange={(e) =>
-                    setRacksModalSelecionados(e.target.checked ? [...clienteSelecionadoDetalhes.racks] : [])
-                  }
-                  className="w-4 h-4"
+                  type="search"
+                  value={filtroRacksModal}
+                  onChange={(e) => setFiltroRacksModal(e.target.value)}
+                  placeholder="Filtrar por rack, produto ou pedido..."
+                  className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  autoFocus
                 />
-                <span className="text-sm font-medium text-gray-700">Selecionar todos</span>
-              </label>
-              {racksModalSelecionados.length > 0 && (
-                <span className="text-sm text-blue-600 font-medium">
-                  {racksModalSelecionados.length} rack(s) selecionado(s) — {formatarTotaisPorUnidade(somarTotaisDosRacks(racksModalSelecionados))}
+                {filtroRacksModal && (
+                  <button
+                    type="button"
+                    onClick={() => setFiltroRacksModal('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                    title="Limpar filtro"
+                    aria-label="Limpar filtro"
+                  >
+                    <FaTimes />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <label className={`flex items-center gap-2 select-none ${racksFiltradosModal.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
+                  <input
+                    type="checkbox"
+                    checked={todosRacksVisiveisSelecionados}
+                    disabled={racksFiltradosModal.length === 0}
+                    onChange={(e) => selecionarRacksVisiveis(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Selecionar resultados</span>
+                </label>
+                <span className="text-sm text-gray-500">
+                  {racksFiltradosModal.length} de {clienteSelecionadoDetalhes.racks.filter(rack => rack.totalPecas >= 10).length} rack(s)
                 </span>
-              )}
+                {racksModalSelecionados.length > 0 && (
+                  <span className="text-sm text-blue-600 font-medium">
+                    {racksModalSelecionados.length} selecionado(s) — {formatarTotaisPorUnidade(somarTotaisDosRacks(racksModalSelecionados))}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Tabela de racks */}
@@ -2524,19 +2600,12 @@ export default function Expedicao() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...clienteSelecionadoDetalhes.racks]
-                    .filter(rack => rack.totalPecas >= 10)
-                    .sort((a, b) => {
-                      const dataA = a.apontamentos[0]?.created_at || ''
-                      const dataB = b.apontamentos[0]?.created_at || ''
-                      return new Date(dataB) - new Date(dataA)
-                    })
-                    .map((rack, idx) => {
+                  {racksFiltradosModal.map((rack) => {
                     const selecionado = racksModalSelecionados.some(r => r.rack === rack.rack)
                     const primeiroAp = rack.apontamentos[0] || {}
                     return (
                       <tr
-                        key={idx}
+                        key={rack.rack}
                         onClick={() => toggleRackModal(rack)}
                         className={`border-b cursor-pointer transition-colors ${
                           selecionado ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'
@@ -2587,6 +2656,13 @@ export default function Expedicao() {
                       </tr>
                     )
                   })}
+                  {racksFiltradosModal.length === 0 && (
+                    <tr>
+                      <td colSpan="9" className="px-6 py-10 text-center text-gray-500">
+                        Nenhum rack encontrado para este filtro.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
