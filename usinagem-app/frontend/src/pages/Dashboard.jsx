@@ -6,7 +6,7 @@ import ApontamentoAlerta from '../components/ApontamentoAlerta'
 const Dashboard = () => {
   // Dados reais do Supabase
   const { items: pedidos } = useSupabase('pedidos')
-  const { items: apontamentos } = useSupabase('apontamentos')
+  const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   const { items: paradas } = useSupabase('apontamentos_parada')
   const { items: maquinas } = useSupabase('maquinas')
   
@@ -58,8 +58,22 @@ const Dashboard = () => {
       return acc
     }, {})).sort(([a], [b]) => a.localeCompare(b))
 
+    const producaoBrutaPorUnidade = Object.entries(apontamentosPeriodo.reduce((acc, a) => {
+      const unidade = String(a.unidade || a.unidade_medida || 'PC').toUpperCase()
+      acc[unidade] = (acc[unidade] || 0) + (Number(a.quantidade_bruta ?? a.quantidade) || 0)
+      return acc
+    }, {})).sort(([a], [b]) => a.localeCompare(b))
+
+    const sucataPosPorUnidade = Object.entries(apontamentosPeriodo.reduce((acc, a) => {
+      const unidade = String(a.unidade || a.unidade_medida || 'PC').toUpperCase()
+      acc[unidade] = (acc[unidade] || 0) + (Number(a.quantidade_sucateada) || 0)
+      return acc
+    }, {})).filter(([, quantidade]) => quantidade > 0).sort(([a], [b]) => a.localeCompare(b))
+
     const producaoTotal = apontamentosPeriodo.reduce((acc, a) => acc + (Number(a.quantidade) || 0), 0)
-    const refugoTotal = apontamentosPeriodo.reduce((acc, a) => acc + (Number(a.qtd_refugo) || 0), 0)
+    const refugoImediatoTotal = apontamentosPeriodo.reduce((acc, a) => acc + (Number(a.qtd_refugo) || 0), 0)
+    const sucataPosTotal = apontamentosPeriodo.reduce((acc, a) => acc + (Number(a.quantidade_sucateada) || 0), 0)
+    const refugoTotal = refugoImediatoTotal + sucataPosTotal
 
     const msProducao = apontamentosPeriodo.reduce((acc, a) => {
       const inicio = new Date(a.inicio || a.inicio_timestamp || a.inicio_norm || '')
@@ -121,6 +135,8 @@ const Dashboard = () => {
       },
       tempoParada: tempoParadaFmt,
       producaoPorUnidade,
+      producaoBrutaPorUnidade,
+      sucataPosPorUnidade,
       refugoTotal,
       ordensCompletadas: concluidas,
       ordensPendentes: pendentes,
@@ -228,12 +244,17 @@ const Dashboard = () => {
         </div>
         
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-700">Produção no Período</h2>
+          <h2 className="text-lg font-semibold text-gray-700">Produção Válida no Período</h2>
           {stats.producaoPorUnidade.length > 0 ? stats.producaoPorUnidade.map(([unidade, quantidade]) => (
             <p key={unidade} className="text-2xl font-bold text-green-600">
               {quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} <span className="text-sm">{unidade}</span>
             </p>
           )) : <p className="text-3xl font-bold text-gray-400">-</p>}
+          {stats.sucataPosPorUnidade.map(([unidade, quantidade]) => (
+            <p key={`sucata-${unidade}`} className="mt-1 text-xs font-semibold text-red-600">
+              Sucata pós: {quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {unidade}
+            </p>
+          ))}
         </div>
         
         <div className="bg-white rounded-lg shadow p-6">

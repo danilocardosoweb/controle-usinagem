@@ -97,7 +97,9 @@ const Relatorios = () => {
   const [abaAtiva, setAbaAtiva] = useState('producao') // 'producao' ou 'checklist'
   
   // Dados reais do IndexedDB
-  const { items: apontamentos } = useSupabase('apontamentos')
+  const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
+  const { items: sucateamentosPos } = useSupabase('apontamentos_sucata')
+  const { items: historicoRacks } = useSupabase('vw_rack_historico')
   const { items: paradasRaw } = useSupabase('apontamentos_parada')
   const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
   const { items: maquinasCat } = useSupabase('maquinas')
@@ -205,7 +207,8 @@ const Relatorios = () => {
     { id: 'paradas', nome: 'Paradas de máquina', grupo: 'Operação' },
     { id: 'expedicao', nome: 'Estimativa de expedição', grupo: 'Logística e rastreabilidade' },
     { id: 'rastreabilidade', nome: 'Rastreabilidade de amarrados e lotes', grupo: 'Logística e rastreabilidade' },
-    { id: 'apontamentos_rack', nome: 'Apontamentos por rack de embalagem', grupo: 'Logística e rastreabilidade' }
+    { id: 'apontamentos_rack', nome: 'Apontamentos por rack de embalagem', grupo: 'Logística e rastreabilidade' },
+    { id: 'movimentacoes_rack', nome: 'Transferências entre racks', grupo: 'Logística e rastreabilidade' }
   ]
 
   const gruposRelatorio = tiposRelatorio.reduce((grupos, relatorio) => {
@@ -537,7 +540,9 @@ const Relatorios = () => {
             PedidoSeq: a.ordemTrabalho || a.ordem_trabalho || a.pedido_seq || '-',
             Produto: a.produto || a.codigoPerfil || '-',
             Ferramenta: extrairFerramenta(a.produto || a.codigoPerfil) || '-',
-            Quantidade: a.quantidade || 0,
+            Producao_Bruta: a.quantidade_bruta ?? a.quantidade ?? 0,
+            Sucata_Pos_Apontamento: a.quantidade_sucateada || 0,
+            Producao_Valida: a.quantidade || 0,
             Pcs_por_Hora: duracao > 0 ? ((a.quantidade || 0) / (duracao / 60)).toFixed(1) : '-',
             Refugo: a.qtd_refugo || 0,
             RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
@@ -565,7 +570,26 @@ const Relatorios = () => {
           Dureza: r.Dureza,
           Origem: r.Origem,
           Etapa: r.Etapa,
+          Motivo: r.Motivo,
+          Status: r.Status,
           Observacoes: r.Observacoes
+        }))
+      case 'movimentacoes_rack':
+        return movimentacoesRackFiltradas.map(r => ({
+          Data: brDate(r.data_hora),
+          Hora: brTime(r.data_hora),
+          Evento: r.tipo_evento === 'estorno' ? 'Estorno' : 'Transferência',
+          Rack_Origem: r.rack,
+          Rack_Destino: r.rack_contraparte,
+          Quantidade: Number(r.quantidade || 0),
+          Produto: r.produto || '-',
+          Ordem_Producao: r.ordem_producao || '-',
+          Lote: r.lote || '-',
+          Motivo: r.motivo || '-',
+          Observacao: r.observacao || '-',
+          Usuario: r.usuario_nome || '-',
+          Transferencia_ID: r.transferencia_id || '-',
+          Transferencia_Original_ID: r.transferencia_original_id || '-',
         }))
       case 'paradas':
         return paradasFiltradas.map(p => ({
@@ -1186,7 +1210,7 @@ const Relatorios = () => {
   }, [apontamentosBaseFiltros, filtros.ferramenta, filtros.comprimento])
 
   const sucatasFiltradas = useMemo(() => {
-    return (apontamentosFiltrados || [])
+    const refugoImediato = (apontamentosFiltrados || [])
       .filter(a => Number(a.qtd_refugo || 0) > 0)
       .map(a => {
         const produto = a.produto || a.codigoPerfil || '-'
@@ -1213,13 +1237,66 @@ const Relatorios = () => {
           RackAcabado: a.rack_acabado || a.rackAcabado || '-',
           Lote: a.lote || '-',
           Dureza: a.dureza_material || '-',
-          Origem: a.exp_unidade || '-',
+          Origem: 'Refugo imediato',
           Etapa: a.exp_stage || '-',
-          Observacoes: a.observacoes || '-'
+          Observacoes: a.observacoes || '-',
+          Motivo: '-',
+          Status: 'ativo'
         }
       })
+
+    const apontamentosPermitidos = new Map((apontamentosFiltrados || []).map(a => [String(a.id), a]))
+    const sucataPosterior = (sucateamentosPos || [])
+      .filter(evento => evento.status === 'ativo' && apontamentosPermitidos.has(String(evento.apontamento_id)))
+      .map(evento => {
+        const a = apontamentosPermitidos.get(String(evento.apontamento_id)) || {}
+        const dataEvento = evento.created_at || a.inicio
+        return {
+          _sort: dataEvento ? new Date(dataEvento).getTime() : 0,
+          Data: brDate(dataEvento),
+          Hora: brTime(dataEvento),
+          Maquina: maqMap[String(a.maquina)] || a.maquina || '-',
+          Operador: a.operador || '-',
+          PedidoSeq: evento.ordem_producao || a.ordem_trabalho || a.pedido_seq || '-',
+          Cliente: a.cliente || '-',
+          Produto: evento.produto || a.produto || '-',
+          Qtd_Produzida: Number(evento.quantidade_produzida_original || 0),
+          Qtd_Refugo: Number(evento.quantidade_sucateada || 0),
+          Comprimento_Refugo_mm: a.comprimento_refugo || '-',
+          Kg_Estimado: Number(evento.peso_sucateado_kg || 0),
+          RackOuPallet: evento.rack_ou_pallet || a.rack_ou_pallet || '-',
+          RackAcabado: a.rack_acabado || '-',
+          Lote: evento.lote || a.lote || '-',
+          Dureza: a.dureza_material || '-',
+          Origem: 'Sucata pós-apontamento',
+          Etapa: evento.origem_reprovacao || 'qualidade',
+          Observacoes: evento.observacao || '-',
+          Motivo: evento.motivo_codigo || '-',
+          Status: evento.status,
+        }
+      })
+
+    return [...refugoImediato, ...sucataPosterior]
       .sort((a, b) => (b._sort || 0) - (a._sort || 0))
-  }, [apontamentosFiltrados, maqMap, cfgPorFerramenta])
+  }, [apontamentosFiltrados, sucateamentosPos, maqMap, cfgPorFerramenta])
+
+  const movimentacoesRackFiltradas = useMemo(() => {
+    const di = filtros.dataInicio ? toISODate(filtros.dataInicio) : null
+    const df = filtros.dataFim ? toISODate(filtros.dataFim) : null
+    const rackFiltro = normTxt(filtros.rack)
+    const produtoFiltro = normTxt(filtros.produto)
+    return (historicoRacks || [])
+      .filter(r => ['transferencia', 'estorno'].includes(r.tipo_evento) && r.direcao === 'saida')
+      .filter(r => {
+        const data = toISODate(r.data_hora)
+        if (di && (!data || data < di)) return false
+        if (df && (!data || data > df)) return false
+        if (rackFiltro && !normTxt(`${r.rack} ${r.rack_contraparte}`).includes(rackFiltro)) return false
+        if (produtoFiltro && !normTxt(r.produto).includes(produtoFiltro)) return false
+        return true
+      })
+      .sort((a, b) => new Date(b.data_hora || 0) - new Date(a.data_hora || 0))
+  }, [historicoRacks, filtros.dataInicio, filtros.dataFim, filtros.rack, filtros.produto])
 
   const apontamentosPorId = useMemo(() => {
     const map = {}
@@ -1809,6 +1886,32 @@ const Relatorios = () => {
               </table>
             </div>
           </>
+        )
+      }
+
+      case 'movimentacoes_rack': {
+        const rows = buildRows('movimentacoes_rack')
+        return (
+          <div className="overflow-x-auto rounded-lg bg-white p-4 shadow">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-700">Transferências entre racks</h2>
+                <p className="text-sm text-gray-500">Movimentos internos; não são somados à produção.</p>
+              </div>
+              <span className="text-sm text-gray-500">{rows.length} registro(s)</span>
+            </div>
+            <table className="min-w-[1300px] divide-y divide-gray-200">
+              <thead className="bg-gray-50"><tr>
+                {['Data', 'Hora', 'Evento', 'Rack origem', 'Rack destino', 'Quantidade', 'Produto', 'OP', 'Lote', 'Motivo', 'Usuário', 'Observação'].map(coluna => <th key={coluna} className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500">{coluna}</th>)}
+              </tr></thead>
+              <tbody className="divide-y divide-gray-200">
+                {rows.map((r, idx) => <tr key={`${r.Transferencia_ID}-${idx}`} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 text-sm">{r.Data}</td><td className="px-3 py-2 text-sm">{r.Hora}</td><td className="px-3 py-2 text-sm font-semibold">{r.Evento}</td><td className="px-3 py-2 text-sm font-semibold">{r.Rack_Origem}</td><td className="px-3 py-2 text-sm font-semibold">{r.Rack_Destino}</td><td className="px-3 py-2 text-sm font-bold">{fmt(r.Quantidade, 3)}</td><td className="px-3 py-2 text-sm">{r.Produto}</td><td className="px-3 py-2 text-sm">{r.Ordem_Producao}</td><td className="px-3 py-2 text-sm">{r.Lote}</td><td className="px-3 py-2 text-sm">{r.Motivo}</td><td className="px-3 py-2 text-sm">{r.Usuario}</td><td className="px-3 py-2 text-sm">{r.Observacao}</td>
+                </tr>)}
+                {rows.length === 0 && <tr><td colSpan="12" className="px-6 py-8 text-center text-gray-500">Nenhuma transferência encontrada no período.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         )
       }
       

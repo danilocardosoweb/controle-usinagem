@@ -41,7 +41,7 @@ export default function Estoque() {
   ]
 
   // Dados base
-  const { items: apontamentos } = useSupabase('apontamentos')
+  const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   const { items: baixas, loadItems: loadBaixas } = useSupabase('exp_estoque_baixas')
   const { items: maquinasCat } = useSupabase('maquinas')
   const { items: ferramentasCfg, loadItems: loadFerramentasCfg } = useSupabase('ferramentas_cfg')

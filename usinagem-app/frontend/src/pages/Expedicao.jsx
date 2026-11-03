@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FaTruck, FaBarcode, FaCheckCircle, FaBox, FaClipboardList, FaHistory, FaPrint, FaPlus, FaSearch, FaFilter, FaDownload, FaTimes, FaCheck, FaExclamationTriangle, FaTrash, FaCubes, FaTruckLoading, FaCalendarAlt, FaUser, FaFolderOpen, FaSync, FaExternalLinkAlt, FaShippingFast, FaUndo, FaBoxes, FaEdit } from 'react-icons/fa'
+import { FaTruck, FaBarcode, FaCheckCircle, FaBox, FaClipboardList, FaHistory, FaPrint, FaPlus, FaSearch, FaFilter, FaDownload, FaTimes, FaCheck, FaExclamationTriangle, FaTrash, FaCubes, FaTruckLoading, FaCalendarAlt, FaUser, FaFolderOpen, FaSync, FaExternalLinkAlt, FaShippingFast, FaUndo, FaBoxes, FaEdit, FaExchangeAlt } from 'react-icons/fa'
 import { supabase } from '../config/supabase'
 import useSupabase from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
@@ -8,6 +8,7 @@ import ExpedicaoService from '../services/ExpedicaoService'
 import ExpedicaoImpressao from '../components/ExpedicaoImpressao'
 import KitsPanel from '../components/expedicao/KitsPanel'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
+import TransferenciaRackModal from '../components/TransferenciaRackModal'
 import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../utils/auth'
 import * as XLSX from 'xlsx'
@@ -71,8 +72,15 @@ export default function Expedicao() {
   // Verificar se usuário é administrador
   const userIsAdmin = useMemo(() => isAdmin(user), [user])
   
-  const { items: apontamentos } = useSupabase('apontamentos')
-  const { items: apontamentosParaKits, loadItems: loadApontamentosParaKits } = useSupabase('apontamentos') // Carrega TODOS os apontamentos sem filtro de data
+  const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
+  const { items: saldosRackDetalhados, loadItems: loadApontamentosParaKits } = useSupabase('vw_rack_saldos_detalhados')
+  const apontamentosParaKits = useMemo(() => (saldosRackDetalhados || []).map((item) => ({
+    ...item,
+    rack_origem_original: item.rack_acabado || item.rack_ou_pallet || '',
+    rack_acabado: item.rack_saldo,
+    quantidade_bruta: Number(item.quantidade || 0),
+    quantidade: Number(item.saldo_quantidade || 0),
+  })), [saldosRackDetalhados])
   const { items: maquinas } = useSupabase('maquinas')
   const { items: romaneios, loadItems: loadRomaneios } = useSupabase('expedicao_romaneios')
   const { items: romaneioItens, loadItems: loadRomaneioItens } = useSupabase('expedicao_romaneio_itens')
@@ -109,6 +117,7 @@ export default function Expedicao() {
   const [clienteSelecionadoDetalhes, setClienteSelecionadoDetalhes] = useState(null)
   const [racksModalSelecionados, setRacksModalSelecionados] = useState([])
   const [filtroRacksModal, setFiltroRacksModal] = useState('')
+  const [transferenciaRackSelecionada, setTransferenciaRackSelecionada] = useState(null)
   
   const [itensConferencia, setItensConferencia] = useState([])
   const [itensConferidos, setItensConferidos] = useState({})
@@ -2597,6 +2606,7 @@ export default function Expedicao() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Amarrados</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Operador</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Data</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2653,12 +2663,25 @@ export default function Expedicao() {
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {primeiroAp.created_at ? new Date(primeiroAp.created_at).toLocaleDateString('pt-BR') : '-'}
                         </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setTransferenciaRackSelecionada({ apontamento: primeiroAp, rackOrigem: rack.rack })
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-xs font-bold text-cyan-800 hover:bg-cyan-100"
+                            title="Transferir peças deste rack"
+                          >
+                            <FaExchangeAlt /> Transferir
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
                   {racksFiltradosModal.length === 0 && (
                     <tr>
-                      <td colSpan="9" className="px-6 py-10 text-center text-gray-500">
+                      <td colSpan="10" className="px-6 py-10 text-center text-gray-500">
                         Nenhum rack encontrado para este filtro.
                       </td>
                     </tr>
@@ -2687,6 +2710,19 @@ export default function Expedicao() {
             </div>
           </div>
         </div>
+      )}
+
+      {transferenciaRackSelecionada && (
+        <TransferenciaRackModal
+          apontamento={transferenciaRackSelecionada.apontamento}
+          rackOrigem={transferenciaRackSelecionada.rackOrigem}
+          user={user}
+          onClose={() => setTransferenciaRackSelecionada(null)}
+          onSuccess={async () => {
+            await loadApontamentosParaKits()
+            setDetalhesModalAberto(false)
+          }}
+        />
       )}
     </div>
   )

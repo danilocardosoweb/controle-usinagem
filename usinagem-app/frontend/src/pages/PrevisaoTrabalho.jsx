@@ -87,7 +87,7 @@ const PrevisaoTrabalho = () => {
   const [extrasSabado, setExtrasSabado] = useState(0)
 
   // Dados do sistema
-  const { items: apontamentos } = useSupabase('apontamentos')
+  const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   const { items: pedidos } = useSupabase('pedidos')
   const { items: maquinas } = useSupabase('maquinas')
   const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')

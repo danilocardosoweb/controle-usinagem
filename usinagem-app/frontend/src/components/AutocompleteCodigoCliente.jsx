@@ -4,6 +4,7 @@ import BuscaCodigoClienteService from '../services/BuscaCodigoClienteService'
 
 const AutocompleteCodigoCliente = ({ 
   codigoTecno, 
+  nomeCliente = '',
   value, 
   onChange, 
   placeholder = "Digite ou busque o código do cliente...",
@@ -12,31 +13,36 @@ const AutocompleteCodigoCliente = ({
   const [sugestoes, setSugestoes] = useState([])
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false)
   const [carregando, setCarregando] = useState(false)
-  const [codigoTecnoAnterior, setCodigoTecnoAnterior] = useState('')
   const inputRef = useRef(null)
   const sugestoesRef = useRef(null)
-  const codigoTecnoAtualRef = useRef(codigoTecno)
-
-  useEffect(() => {
-    codigoTecnoAtualRef.current = codigoTecno
-  }, [codigoTecno])
+  const inputFocadoRef = useRef(false)
+  const buscaProdutoRef = useRef(0)
+  const buscaDigitadaRef = useRef(0)
 
   // Buscar sugestões quando código Tecno muda
   useEffect(() => {
-    if (codigoTecno && codigoTecno !== codigoTecnoAnterior) {
-      buscarSugestoesPorTecno(codigoTecno)
-      setCodigoTecnoAnterior(codigoTecno)
+    const requisicao = ++buscaProdutoRef.current
+    setSugestoes([])
+    setMostrarSugestoes(false)
+
+    if (!codigoTecno) {
+      setCarregando(false)
+      return
     }
-  }, [codigoTecno])
+
+    buscarSugestoesPorTecno(codigoTecno, nomeCliente, requisicao)
+  }, [codigoTecno, nomeCliente])
 
   // Buscar sugestões quando usuário digita
   useEffect(() => {
     if (value && value.length >= 2) {
+      const requisicao = ++buscaDigitadaRef.current
       const timer = setTimeout(() => {
-        buscarSugestoes(value)
+        buscarSugestoes(value, requisicao)
       }, 300)
       return () => clearTimeout(timer)
     } else {
+      buscaDigitadaRef.current += 1
       setSugestoes([])
       setMostrarSugestoes(false)
     }
@@ -46,6 +52,7 @@ const AutocompleteCodigoCliente = ({
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (sugestoesRef.current && !sugestoesRef.current.contains(event.target)) {
+        inputFocadoRef.current = false
         setMostrarSugestoes(false)
       }
     }
@@ -54,39 +61,36 @@ const AutocompleteCodigoCliente = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const buscarSugestoesPorTecno = async (codigo) => {
+  const buscarSugestoesPorTecno = async (codigo, cliente, requisicao) => {
     if (!codigo) return
     
     setCarregando(true)
     try {
-      const resultados = await BuscaCodigoClienteService.buscarCodigosClientePorTecno(codigo)
-      if (String(codigoTecnoAtualRef.current || '') !== String(codigo || '')) return
+      const resultados = await BuscaCodigoClienteService.buscarCodigosClientePorTecno(codigo, cliente)
+      if (buscaProdutoRef.current !== requisicao) return
       setSugestoes(resultados)
-      
-      // Se não tem valor digitado e há sugestões, mostrar a primeira como preferencial
-      if (!value && resultados.length > 0) {
-        const preferencial = resultados[0]
-        onChange(preferencial.value)
-      }
     } catch (error) {
+      if (buscaProdutoRef.current !== requisicao) return
       console.error('Erro ao buscar sugestões:', error)
       setSugestoes([])
     } finally {
-      setCarregando(false)
+      if (buscaProdutoRef.current === requisicao) setCarregando(false)
     }
   }
 
-  const buscarSugestoes = async (termo) => {
+  const buscarSugestoes = async (termo, requisicao) => {
     setCarregando(true)
     try {
       const resultados = await BuscaCodigoClienteService.buscarSugestoes(termo)
+      if (buscaDigitadaRef.current !== requisicao) return
       setSugestoes(resultados)
-      setMostrarSugestoes(true)
+      setMostrarSugestoes(inputFocadoRef.current)
     } catch (error) {
+      if (buscaDigitadaRef.current !== requisicao) return
       console.error('Erro ao buscar sugestões:', error)
       setSugestoes([])
     } finally {
-      setCarregando(false)
+      if (buscaDigitadaRef.current === requisicao) setCarregando(false)
     }
   }
 
@@ -108,6 +112,7 @@ const AutocompleteCodigoCliente = ({
   }
 
   const handleFocus = () => {
+    inputFocadoRef.current = true
     if (sugestoes.length > 0) {
       setMostrarSugestoes(true)
     }
@@ -188,9 +193,9 @@ const AutocompleteCodigoCliente = ({
                     </div>
                   )}
                 </div>
-                {sugestao.codigo_tecno === codigoTecno && (
+                {sugestao.compativel_cliente && (
                   <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                    Correspondente
+                    Mesmo cliente
                   </span>
                 )}
               </div>

@@ -479,7 +479,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
 
       const queries = [
         // Sempre: apontamentos vinculados a romaneios ativos (sem filtro de ferramenta)
-        supabase.from('apontamentos').select(SELECT)
+        supabase.from('vw_rack_saldos_detalhados').select(SELECT)
           .not('romaneio_numero', 'is', null).neq('romaneio_numero', '').limit(2000),
       ]
 
@@ -487,13 +487,9 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
       if (ferramenta) {
         const ferrNorm = ferramenta.replace(/-/g, '')
         queries.push(
-          supabase.from('apontamentos').select(SELECT)
+          supabase.from('vw_rack_saldos_detalhados').select(SELECT)
             .ilike('produto', `${ferrNorm}%`)
-            .not('rack_acabado', 'is', null).neq('rack_acabado', '').limit(500),
-          supabase.from('apontamentos').select(SELECT)
-            .ilike('produto', `${ferrNorm}%`)
-            .is('rack_acabado', null)
-            .not('rack_ou_pallet', 'is', null).neq('rack_ou_pallet', '').limit(300),
+            .not('rack_saldo', 'is', null).neq('rack_saldo', '').gt('saldo_quantidade', 0).limit(800),
         )
       }
 
@@ -505,7 +501,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
       const porRack = {}
 
       const parseQuantidade = (row) => {
-        const bruto = row?.quantidade ?? row?.qtd_pc ?? row?.quantidade_pcs ?? row?.quantidade_pecas ?? row?.qtd_pecas ?? row?.qtdPc ?? row?.qtdPecas
+        const bruto = row?.saldo_quantidade ?? row?.quantidade_liquida ?? row?.quantidade ?? row?.qtd_pc ?? row?.quantidade_pcs ?? row?.quantidade_pecas ?? row?.qtd_pecas ?? row?.qtdPc ?? row?.qtdPecas
         if (typeof bruto === 'number') return Number.isFinite(bruto) ? bruto : 0
         const txt = String(bruto || '').trim()
         if (!txt) return 0
@@ -525,7 +521,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
         const isSoRomaneio = idx === 0 // primeira query = somente romaneios, sem filtro de ferramenta
         console.log(`Query ${idx} (${isSoRomaneio ? 'romaneios' : 'ferramenta'}): ${(res.data || []).length} registros`)
         ;(res.data || []).forEach(a => {
-          const rack = String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase()
+          const rack = String(a.rack_saldo || a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase()
           if (!rack) return
 
           // Query exclusiva de romaneios (idx=0): descartar se não está nos ativos
@@ -535,7 +531,7 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
           }
 
           // Deduplicar linha exata
-          const key = a.id ? `id:${a.id}` : `${rack}|${a.produto}|${a.quantidade}|${a.created_at || ''}`
+          const key = a.id ? `id:${a.id}|rack:${rack}` : `${rack}|${a.produto}|${a.quantidade}|${a.created_at || ''}`
           if (visto.has(key)) return
           visto.add(key)
 
@@ -589,8 +585,9 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
     setRackSelecionado(item)
     setFerramentaCfgRack(null)
     try {
-      const { data } = await supabase.from('apontamentos').select('*')
-        .or(`rack_acabado.eq.${item.rack},rack_ou_pallet.eq.${item.rack}`)
+      const { data } = await supabase.from('vw_rack_saldos_detalhados').select('*')
+        .eq('rack_saldo', item.rack)
+        .gt('saldo_quantidade', 0)
         .order('created_at', { ascending: false })
         .limit(1).maybeSingle()
       setApontamentoRack(data)

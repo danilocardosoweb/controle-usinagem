@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { FaPrint, FaTimes, FaCheckCircle, FaExclamationTriangle, FaFileWord, FaBarcode, FaEye, FaArrowLeft } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, isImpressoraAtiva } from '../utils/impressoras'
 import { buildFormularioIdentificacaoHtml, resolverDescricaoCodigoCliente, resolverKit } from '../utils/formularioIdentificacao'
@@ -23,6 +23,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
   const [showPreview, setShowPreview] = useState(false)
   const [previewEtiquetaIndex, setPreviewEtiquetaIndex] = useState(0)
   const [tamanhoEtiqueta, setTamanhoEtiqueta] = useState('100x45')
+  const codigoClienteRequestRef = useRef(0)
 
   const { items: pedidosDB } = useSupabase('pedidos')
   const { items: kitsDB } = useSupabase('expedicao_kits')
@@ -79,10 +80,18 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
 
   // Buscar código do cliente automaticamente quando apontamento mudar
   useEffect(() => {
-    if (apontamento && isOpen && apontamento.produto) {
-      buscarCodigoClienteAutomaticoSeguro(apontamento.produto)
-    } else if (isOpen) {
-      setCodigoProdutoCliente('')
+    if (!isOpen) return
+
+    const codigoSalvo = String(
+      apontamento?.codigo_produto_cliente || apontamento?.codigoProdutoCliente || ''
+    ).trim()
+    const codigoTecno = String(apontamento?.produto || apontamento?.codigoPerfil || '').trim()
+    const nomeCliente = String(apontamento?.cliente || apontamento?.nome_cliente || '').trim()
+    const requisicao = ++codigoClienteRequestRef.current
+
+    setCodigoProdutoCliente(codigoSalvo)
+    if (!codigoSalvo && codigoTecno) {
+      buscarCodigoClienteAutomaticoSeguro(codigoTecno, nomeCliente, requisicao)
     }
   }, [apontamento, isOpen])
 
@@ -253,31 +262,15 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
   }
 
   // Buscar código do cliente automaticamente
-  const buscarCodigoClienteAutomaticoSeguro = async (codigoTecno) => {
+  const buscarCodigoClienteAutomaticoSeguro = async (codigoTecno, nomeCliente, requisicao) => {
     const codigoTecnoAtual = String(codigoTecno || '').trim()
-    if (!codigoTecnoAtual) {
-      setCodigoProdutoCliente('')
-      return
-    }
+    if (!codigoTecnoAtual) return
 
     try {
-      setCodigoProdutoCliente('')
-      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecnoAtual)
+      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecnoAtual, nomeCliente)
+      if (codigoClienteRequestRef.current !== requisicao) return
       if (codigoPreferencial) {
         setCodigoProdutoCliente(codigoPreferencial.codigo_cliente)
-        console.log(`CÃ³digo do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecnoAtual}`)
-      }
-    } catch (error) {
-      console.error('Erro ao buscar cÃ³digo do cliente automÃ¡tico:', error)
-    }
-  }
-
-  const buscarCodigoClienteAutomatico = async (codigoTecno) => {
-    try {
-      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecno)
-      if (codigoPreferencial) {
-        setCodigoProdutoCliente(codigoPreferencial.codigo_cliente)
-        console.log(`Código do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecno}`)
       }
     } catch (error) {
       console.error('Erro ao buscar código do cliente automático:', error)
@@ -786,6 +779,7 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
                   <div className="space-y-2">
                     <AutocompleteCodigoCliente
                       codigoTecno={apontamento?.produto || ''}
+                      nomeCliente={apontamento?.cliente || apontamento?.nome_cliente || ''}
                       value={codigoProdutoCliente}
                       onChange={handleCodigoClienteChange}
                       disabled={loading}

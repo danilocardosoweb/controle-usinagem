@@ -11,6 +11,19 @@ class SupabaseService {
     this.isInitialized = true;
   }
 
+  getReadTableName(tableName) {
+    return tableName === 'apontamentos' ? 'vw_apontamentos_saldos' : tableName;
+  }
+
+  normalizeReadItems(tableName, items) {
+    if (tableName !== 'apontamentos') return items;
+    return (items || []).map((item) => ({
+      ...item,
+      quantidade_bruta: Number(item.quantidade || 0),
+      quantidade: Number(item.quantidade_liquida ?? item.quantidade ?? 0),
+    }));
+  }
+
   /**
    * Busca itens aplicando múltiplos filtros (compatível com chamadas do tipo getWhere).
    * @param {string} tableName
@@ -21,7 +34,7 @@ class SupabaseService {
     await this.init();
 
     try {
-      let query = this.supabase.from(tableName).select('*')
+      let query = this.supabase.from(this.getReadTableName(tableName)).select('*')
 
       for (const f of (filters || [])) {
         if (!f || !f.column) continue
@@ -47,7 +60,7 @@ class SupabaseService {
         return Promise.reject(error)
       }
 
-      return data || []
+      return this.normalizeReadItems(tableName, data || [])
     } catch (error) {
       console.error(`Erro ao buscar (getWhere) em ${tableName}:`, error)
       return Promise.reject(error)
@@ -67,7 +80,7 @@ class SupabaseService {
     try {
       if (!Array.isArray(values) || values.length === 0) return []
       const { data, error } = await this.supabase
-        .from(tableName)
+        .from(this.getReadTableName(tableName))
         .select('*')
         .in(fieldName, values);
 
@@ -76,7 +89,7 @@ class SupabaseService {
         return Promise.reject(error);
       }
 
-      return data || [];
+      return this.normalizeReadItems(tableName, data || []);
     } catch (error) {
       console.error(`Erro ao buscar por IN em ${tableName}:`, error);
       return Promise.reject(error);
@@ -103,7 +116,7 @@ class SupabaseService {
     try {
       console.log(`📝 Inserindo em ${tableName}:`, item);
       const { data, error } = await this.supabase
-        .from(tableName)
+        .from(this.getReadTableName(tableName))
         .insert(item)
         .select();
 
@@ -287,7 +300,9 @@ class SupabaseService {
         return Promise.reject(error);
       }
 
-      return data;
+      return tableName === 'apontamentos'
+        ? this.normalizeReadItems(tableName, [data])[0]
+        : data;
     } catch (error) {
       console.error(`Erro ao buscar item em ${tableName}:`, error);
       return Promise.reject(error);
@@ -303,6 +318,8 @@ class SupabaseService {
     await this.init();
 
     try {
+      const readTableName = this.getReadTableName(tableName);
+
       // Para tabelas grandes, buscar todos os registros com paginação
       const tabelasGrandes = ['lotes', 'expedicao_romaneio_itens', 'apontamentos']
       if (tabelasGrandes.includes(tableName)) {
@@ -312,7 +329,7 @@ class SupabaseService {
         
         while (true) {
           const { data, error } = await this.supabase
-            .from(tableName)
+            .from(readTableName)
             .select('*')
             .range(from, from + batchSize - 1);
 
@@ -330,12 +347,12 @@ class SupabaseService {
         }
         
         console.log(`✅ Total de ${tableName} carregados: ${allData.length}`);
-        return allData;
+        return this.normalizeReadItems(tableName, allData);
       }
 
       // Para outras tabelas, busca normal
       const { data, error } = await this.supabase
-        .from(tableName)
+        .from(readTableName)
         .select('*');
 
       if (error) {
@@ -343,7 +360,7 @@ class SupabaseService {
         return Promise.reject(error);
       }
 
-      return data;
+      return this.normalizeReadItems(tableName, data);
     } catch (error) {
       console.error(`Erro ao buscar todos os itens de ${tableName}:`, error);
       return Promise.reject(error);
@@ -362,7 +379,7 @@ class SupabaseService {
 
     try {
       const { data, error } = await this.supabase
-        .from(tableName)
+        .from(this.getReadTableName(tableName))
         .select('*')
         .eq(fieldName, value);
 
@@ -371,7 +388,7 @@ class SupabaseService {
         return Promise.reject(error);
       }
 
-      return data;
+      return this.normalizeReadItems(tableName, data);
     } catch (error) {
       console.error(`Erro ao buscar por índice em ${tableName}:`, error);
       return Promise.reject(error);

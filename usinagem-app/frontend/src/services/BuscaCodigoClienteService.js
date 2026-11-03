@@ -1,6 +1,20 @@
 import CodigosProdutosClientesService from './CodigosProdutosClientesService'
 
 class BuscaCodigoClienteService {
+  normalizarTexto(valor) {
+    return String(valor || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+  }
+
+  clienteCorresponde(nomeCadastrado, nomePedido) {
+    const cadastrado = this.normalizarTexto(nomeCadastrado)
+    const pedido = this.normalizarTexto(nomePedido)
+    return Boolean(cadastrado && pedido && cadastrado === pedido)
+  }
+
   // Buscar código do cliente pelo código da Tecno
   async buscarPorCodigoTecno(codigoTecno) {
     try {
@@ -83,7 +97,7 @@ class BuscaCodigoClienteService {
   }
 
   // Função para autocomplete no campo de código do cliente
-  async buscarCodigosClientePorTecno(codigoTecno) {
+  async buscarCodigosClientePorTecno(codigoTecno, nomeCliente = '') {
     try {
       if (!codigoTecno || codigoTecno.trim() === '') {
         return []
@@ -93,19 +107,33 @@ class BuscaCodigoClienteService {
       return clientes.map(cliente => ({
         value: cliente.codigo_cliente,
         label: `${cliente.codigo_cliente} - ${cliente.nome_cliente || 'Sem nome'}`,
+        compativel_cliente: this.clienteCorresponde(cliente.nome_cliente, nomeCliente),
         ...cliente
-      }))
+      })).sort((a, b) => {
+        if (a.compativel_cliente !== b.compativel_cliente) return a.compativel_cliente ? -1 : 1
+        return String(a.codigo_cliente || '').localeCompare(String(b.codigo_cliente || ''), 'pt-BR')
+      })
     } catch (error) {
       console.error('Erro ao buscar códigos do cliente:', error)
       return []
     }
   }
 
-  // Buscar código preferencial do cliente (primeiro da lista)
-  async buscarCodigoPreferencial(codigoTecno) {
+  // Só escolhe automaticamente quando a correspondência é inequívoca.
+  async buscarCodigoPreferencial(codigoTecno, nomeCliente = '') {
     try {
       const clientes = await this.buscarClientesPorTecno(codigoTecno)
-      return clientes.length > 0 ? clientes[0] : null
+      if (!clientes.length) return null
+
+      const clientePedido = this.normalizarTexto(nomeCliente)
+      if (clientePedido) {
+        const correspondentes = clientes.filter(cliente =>
+          this.clienteCorresponde(cliente.nome_cliente, nomeCliente)
+        )
+        return correspondentes.length === 1 ? correspondentes[0] : null
+      }
+
+      return clientes.length === 1 ? clientes[0] : null
     } catch (error) {
       console.error('Erro ao buscar código preferencial:', error)
       return null

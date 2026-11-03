@@ -18,7 +18,7 @@ const Pedidos = () => {
     loadItems
   } = useSupabase('pedidos')
   // Apontamentos para consolidar quantidade apontada por pedido
-  const { items: apontamentosDB } = useSupabase('apontamentos')
+  const { items: apontamentosDB } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   // Catálogo de máquinas para mapear ID → nome
   const { items: maquinasCat } = useSupabase('maquinas')
   // Mapa id->nome de máquina para exibições (modal 'Apontamentos do Pedido')

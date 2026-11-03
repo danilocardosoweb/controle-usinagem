@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext' // Importando o contexto de autenticação
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
-import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox, FaImage, FaCubes, FaPlay, FaChartLine, FaFileAlt, FaFileExcel, FaPrint, FaRedo, FaBarcode, FaCamera, FaTimes, FaUpload, FaEye, FaTags, FaEdit, FaClipboardList, FaBookOpen } from 'react-icons/fa'
+import { FaSearch, FaFilePdf, FaBroom, FaListUl, FaPlus, FaCopy, FaStar, FaWrench, FaSkullCrossbones, FaBox, FaImage, FaCubes, FaPlay, FaChartLine, FaFileAlt, FaFileExcel, FaPrint, FaRedo, FaBarcode, FaCamera, FaTimes, FaUpload, FaEye, FaTags, FaEdit, FaClipboardList, FaBookOpen, FaExchangeAlt } from 'react-icons/fa'
 import { Line } from 'react-chartjs-2'
 import { useNavigate } from 'react-router-dom'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip } from 'chart.js'
@@ -33,6 +33,8 @@ import InspecaoQualidadeModal from '../components/InspecaoQualidadeModal'
 import PainelRitmoTurno from '../components/PainelRitmoTurno'
 import { ITDigitalModal } from '../components/it-digital'
 import DocumentVersionBadge from '../components/DocumentVersionBadge'
+import SucateamentoProducaoModal from '../components/SucateamentoProducaoModal'
+import TransferenciaRackModal from '../components/TransferenciaRackModal'
 import { FORMULARIO_INSPECAO_QUALIDADE } from '../config/documentVersion'
 
 // Constrói URL HTTP para abrir PDF via backend, codificando caminho base e arquivo
@@ -262,7 +264,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const { user } = useAuth() // Obtendo o usuário logado
   const somenteVisualizacao = isVisualizador(user)
   const { items: pedidosDB, loading: carregandoPedidos } = useSupabase('pedidos')
-  const { items: apontamentosDB, addItem: addApont, loadItems: recarregarApontamentos } = useSupabase('apontamentos')
+  const { items: apontamentosDB, addItem: addApont, loadItems: recarregarApontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   const { items: statusApontamentosDB, addItem: addStatusApont, updateItem: updateStatusApont, loadItems: recarregarStatusApontamentos } = useSupabase('status_apontamentos')
   const [metaDiariaRitmo, setMetaDiariaRitmo] = useState(20000)
   const [turnosRitmo, setTurnosRitmo] = useState([])
@@ -1571,6 +1573,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     setTimerStart(null)
   }
   const [draftLoaded, setDraftLoaded] = useState(false)
+  const codigoClienteRequestRef = useRef(0)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [buscaTexto, setBuscaTexto] = useState('')
   // Confirmação de apontamento
@@ -1598,6 +1601,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Modal de listagem de apontamentos da ordem selecionada
   const [listarApontAberto, setListarApontAberto] = useState(false)
   const [tabelaDiariaAberta, setTabelaDiariaAberta] = useState(false)
+  const [apontamentoSucataSelecionado, setApontamentoSucataSelecionado] = useState(null)
+  const [apontamentoTransferenciaSelecionado, setApontamentoTransferenciaSelecionado] = useState(null)
   const [dataTabelaDiaria, setDataTabelaDiaria] = useState(() => {
     return getDataOperacionalAtualInput()
   })
@@ -3039,39 +3044,37 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }
   }, [user])
 
-  // Buscar código do cliente automaticamente quando código do perfil mudar
+  // Busca somente uma correspondência segura para o produto e o cliente atuais.
   useEffect(() => {
-    if (formData.codigoPerfil && formData.codigoPerfil.trim()) {
-      buscarCodigoClienteAutomaticoSeguro(formData.codigoPerfil)
-    } else {
-      setFormData(prev => prev.codigoProdutoCliente ? ({ ...prev, codigoProdutoCliente: '' }) : prev)
-    }
-  }, [formData.codigoPerfil])
+    const codigoTecno = String(formData.codigoPerfil || '').trim()
+    const nomeCliente = String(formData.cliente || '').trim()
+    const requisicao = ++codigoClienteRequestRef.current
 
-  // Buscar código do cliente automaticamente
-  const buscarCodigoClienteAutomaticoSeguro = async (codigoTecno) => {
+    setFormData(prev => prev.codigoProdutoCliente ? ({ ...prev, codigoProdutoCliente: '' }) : prev)
+    if (!codigoTecno) return
+
+    buscarCodigoClienteAutomaticoSeguro(codigoTecno, nomeCliente, requisicao)
+  }, [formData.codigoPerfil, formData.cliente])
+
+  const buscarCodigoClienteAutomaticoSeguro = async (codigoTecno, nomeCliente, requisicao) => {
     const codigoTecnoAtual = String(codigoTecno || '').trim()
-    if (!codigoTecnoAtual) {
-      setFormData(prev => prev.codigoProdutoCliente ? ({ ...prev, codigoProdutoCliente: '' }) : prev)
-      return
-    }
+    const clienteAtual = String(nomeCliente || '').trim()
+    if (!codigoTecnoAtual) return
 
     try {
-      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecnoAtual)
+      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecnoAtual, clienteAtual)
+      if (codigoClienteRequestRef.current !== requisicao) return
+
       setFormData(prev => {
-        // Evita que uma busca atrasada de outro produto preencha o pedido atual.
+        // Evita que uma resposta de outro pedido, produto ou cliente altere o formulário atual.
         if (String(prev.codigoPerfil || '').trim() !== codigoTecnoAtual) return prev
+        if (String(prev.cliente || '').trim() !== clienteAtual) return prev
 
         if (codigoPreferencial) {
-          console.log(`CÃ³digo do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecnoAtual}`)
           return {
             ...prev,
             codigoProdutoCliente: codigoPreferencial.codigo_cliente
           }
-        }
-
-        if (prev.codigoProdutoCliente) {
-          console.warn(`Nenhum cÃ³digo cliente cadastrado para ${codigoTecnoAtual}. Campo limpo para evitar reutilizar cÃ³digo antigo.`)
         }
 
         return {
@@ -3080,27 +3083,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         }
       })
     } catch (error) {
-      console.error('Erro ao buscar cÃ³digo do cliente automÃ¡tico:', error)
-    }
-  }
-
-  const buscarCodigoClienteAutomatico = async (codigoTecno) => {
-    try {
-      const codigoPreferencial = await BuscaCodigoClienteService.buscarCodigoPreferencial(codigoTecno)
-      if (codigoPreferencial) {
-        setFormData(prev => ({
-          ...prev,
-          codigoProdutoCliente: codigoPreferencial.codigo_cliente
-        }))
-        console.log(`Código do cliente encontrado automaticamente: ${codigoPreferencial.codigo_cliente} para ${codigoTecno}`)
-      }
-    } catch (error) {
       console.error('Erro ao buscar código do cliente automático:', error)
     }
   }
 
-  // Carrega rascunho salvo ao montar ou quando modo muda
+  // Carrega o rascunho uma vez por modo; mudanças no usuário não restauram valores antigos.
   useEffect(() => {
+    setDraftLoaded(false)
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
       if (raw) {
@@ -3109,14 +3098,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           setFormData(prev => ({
             ...prev,
             ...saved,
-            // garante operador do usuário atual quando disponível
-            operador: (user && user.nome) ? user.nome : (saved.operador || prev.operador)
+            operador: saved.operador || prev.operador
           }))
         }
       }
     } catch {}
     setDraftLoaded(true)
-  }, [modo, user])
+  }, [STORAGE_KEY])
 
   // Salva rascunho automaticamente sempre que o form mudar (após carregar)
   useEffect(() => {
@@ -3643,6 +3631,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }).map((a, idx) => {
       const ordem = String(a.ordem_trabalho || a.ordemTrabalho || a.pedido_seq || '').trim()
       const quantidade = Number(a.quantidade || 0)
+      const quantidadeBruta = Number(a.quantidade_bruta ?? a.quantidade ?? 0)
+      const quantidadeSucateada = Number(a.quantidade_sucateada || 0)
       const qtdRefugoRow = Number(a.qtd_refugo || 0)
       
       // Calcular horas trabalhadas
@@ -3675,11 +3665,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       const kgEstimado = pesoLinear > 0 && comprimentoM > 0
         ? Number((pesoLinear * comprimentoM * quantidade).toFixed(3))
         : 0
+      const kgProduzidoBruto = pesoLinear > 0 && comprimentoM > 0
+        ? Number((pesoLinear * comprimentoM * quantidadeBruta).toFixed(3))
+        : (String(a.unidade || '').toUpperCase() === 'KG' ? quantidadeBruta : 0)
       
       const dataReferenciaTurno = a.inicio || a.created_at
       const turno = calcularTurno(dataReferenciaTurno)
 
-      const totalPecas = quantidade + qtdRefugoRow
+      const totalPecas = quantidadeBruta + qtdRefugoRow
       const apontamentoCorrecao = totalPecas <= 0
 
       return {
@@ -3696,6 +3689,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         codigoProdutoCliente: String(a.codigo_produto_cliente || a.codigoProdutoCliente || '').trim(),
         produto,
         quantidade,
+        quantidadeBruta,
+        quantidadeSucateada,
         qtdRefugo: qtdRefugoRow,
         rackPallet: String(a.rack_ou_pallet || a.rackOuPallet || '').trim(),
         rackAcabado: String(a.rack_acabado || a.rackAcabado || '').trim(),
@@ -3709,6 +3704,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         pesoLinear,
         comprimentoMm,
         kgEstimado,
+        kgProduzidoBruto,
         statusMigracao: statusFinal,
         statusSalvoId: statusSalvo?.id || null
       }
@@ -3738,6 +3734,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       linha.codigoProdutoCliente,
       linha.produto,
       linha.quantidade,
+      linha.quantidadeBruta,
+      linha.quantidadeSucateada,
       linha.qtdRefugo,
       linha.rackPallet,
       linha.rackAcabado,
@@ -3764,11 +3762,13 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const resumoTabelaDiaria = useMemo(() => {
     const resumo = linhasTabelaDiariaFiltradas.reduce((acc, linha) => {
       acc.totalPecasCortadas += Number(linha.quantidade || 0) || 0
+      acc.totalPecasBrutas += Number(linha.quantidadeBruta || 0) || 0
+      acc.totalSucataPos += Number(linha.quantidadeSucateada || 0) || 0
       acc.totalPecasGerais += Number(linha.totalPecas || 0) || 0
       acc.totalKgEstimado += Number(linha.kgEstimado || 0) || 0
       acc.tempoProducaoHoras += Number(linha.horasTrabalhadas || 0) || 0
       return acc
-    }, { totalPecasCortadas: 0, totalPecasGerais: 0, totalKgEstimado: 0, tempoProducaoHoras: 0 })
+    }, { totalPecasCortadas: 0, totalPecasBrutas: 0, totalSucataPos: 0, totalPecasGerais: 0, totalKgEstimado: 0, tempoProducaoHoras: 0 })
 
     const tempoParadaHoras = (paradasTabelaDiaria || []).reduce((acc, p) => {
       const inicio = p.inicio || p.inicio_timestamp
@@ -3810,7 +3810,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       'Pedido Cliente': linha.pedidoCliente,
       'Código Cliente': linha.codigoProdutoCliente,
       'Produto': linha.produto,
-      'Quantidade': linha.quantidade,
+      'Produção Bruta': linha.quantidadeBruta,
+      'Sucata Pós-Apontamento': linha.quantidadeSucateada,
+      'Produção Válida': linha.quantidade,
       'Qtd. Refugo': linha.qtdRefugo,
       'Total de Peças': linha.totalPecas,
       'Peso Linear (kg/m)': linha.pesoLinear || '',
@@ -4624,9 +4626,17 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 <input type="text" className="input-field input-field-sm" placeholder="Filtrar por pedido, cliente, máquina, operador, lote..." value={filtroTabelaDiaria} onChange={(e) => setFiltroTabelaDiaria(e.target.value)} />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-3">
               <div className="rounded border bg-gray-50 px-3 py-2">
-                <div className="text-xs text-gray-500">PCS Cortadas</div>
+                <div className="text-xs text-gray-500">Produção Bruta</div>
+                <div className="text-lg font-semibold text-gray-800">{Number(resumoTabelaDiaria.totalPecasBrutas || 0).toLocaleString('pt-BR')}</div>
+              </div>
+              <div className="rounded border border-red-100 bg-red-50 px-3 py-2">
+                <div className="text-xs text-red-600">Sucata Pós-Apontamento</div>
+                <div className="text-lg font-semibold text-red-800">{Number(resumoTabelaDiaria.totalSucataPos || 0).toLocaleString('pt-BR')}</div>
+              </div>
+              <div className="rounded border border-emerald-100 bg-emerald-50 px-3 py-2">
+                <div className="text-xs text-emerald-600">Produção Válida</div>
                 <div className="text-lg font-semibold text-gray-800">{Number(resumoTabelaDiaria.totalPecasCortadas || 0).toLocaleString('pt-BR')}</div>
               </div>
               <div className="rounded border bg-gray-50 px-3 py-2">
@@ -4683,8 +4693,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2 whitespace-nowrap">Pedido Cliente</th>
                     <th className="text-left px-3 py-2 whitespace-nowrap">Código Cliente</th>
                     <th className="text-left px-3 py-2 whitespace-nowrap">Produto</th>
-                    <th className="text-right px-3 py-2 whitespace-nowrap">Qtd.</th>
-                    <th className="text-right px-3 py-2 whitespace-nowrap">Refugo</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Produção Bruta</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Sucata Pós</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Produção Válida</th>
+                    <th className="text-right px-3 py-2 whitespace-nowrap">Refugo Imediato</th>
                     <th className="text-right px-3 py-2 whitespace-nowrap">Total Peças</th>
                     <th className="text-right px-3 py-2 whitespace-nowrap">KG Est.</th>
                     <th className="text-right px-3 py-2 whitespace-nowrap">Total Horas</th>
@@ -4721,7 +4733,9 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2 whitespace-nowrap">{linha.pedidoCliente}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{linha.codigoProdutoCliente}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{linha.produto}</td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">{linha.quantidade}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">{linha.quantidadeBruta}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap font-semibold text-red-600">{linha.quantidadeSucateada || '-'}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap font-semibold text-emerald-700">{linha.quantidade}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">{linha.qtdRefugo}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         {linha.totalPecas}
@@ -4757,13 +4771,34 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                           >
                             <FaPrint className="w-4 h-4" />
                           </button>
+                          {!linhaCorrecao && linha.quantidadeBruta > 0 && (
+                            <button
+                              onClick={() => setApontamentoTransferenciaSelecionado(linha.original)}
+                              className="p-2 text-cyan-700 hover:bg-cyan-50 rounded transition"
+                              title="Transferir peças entre racks"
+                            >
+                              <FaExchangeAlt className="w-4 h-4" />
+                            </button>
+                          )}
+                          {!linhaCorrecao && linha.quantidadeBruta > 0 && (
+                            <button
+                              onClick={() => setApontamentoSucataSelecionado({
+                                ...linha.original,
+                                peso_produzido_estimado_kg: linha.kgProduzidoBruto,
+                              })}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded transition"
+                              title="Sucatear produção apontada"
+                            >
+                              <FaSkullCrossbones className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
                   )})}  
                   {linhasTabelaDiariaFiltradas.length === 0 && (
                     <tr>
-                      <td colSpan="20" className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para a data e filtros selecionados</td>
+                      <td colSpan="22" className="px-3 py-6 text-center text-gray-500">Nenhum apontamento encontrado para a data e filtros selecionados</td>
                     </tr>
                   )}
                 </tbody>
@@ -4771,6 +4806,24 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
             </div>
           </div>
         </div>
+      )}
+
+      {apontamentoSucataSelecionado && (
+        <SucateamentoProducaoModal
+          apontamento={apontamentoSucataSelecionado}
+          user={user}
+          onClose={() => setApontamentoSucataSelecionado(null)}
+          onSuccess={recarregarApontamentos}
+        />
+      )}
+
+      {apontamentoTransferenciaSelecionado && (
+        <TransferenciaRackModal
+          apontamento={apontamentoTransferenciaSelecionado}
+          user={user}
+          onClose={() => setApontamentoTransferenciaSelecionado(null)}
+          onSuccess={recarregarApontamentos}
+        />
       )}
 
       {/* Popup: Gráfico de Paradas por Tipo */}
@@ -6448,6 +6501,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               </label>
               <AutocompleteCodigoCliente
                 codigoTecno={formData.codigoPerfil || ''}
+                nomeCliente={formData.cliente || ''}
                 value={formData.codigoProdutoCliente}
                 onChange={(value) => setFormData(prev => ({ ...prev, codigoProdutoCliente: value }))}
                 placeholder="Digite ou busque o código do cliente..."

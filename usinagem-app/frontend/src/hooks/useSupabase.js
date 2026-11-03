@@ -5,7 +5,8 @@ import supabaseService from '../services/SupabaseService';
  * Hook simplificado para usar apenas Supabase
  * Substitui o useDatabase que tinha lógica híbrida
  */
-export function useSupabase(tableName) {
+export function useSupabase(tableName, options = {}) {
+  const readTableName = options.readTable || tableName;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,8 +29,15 @@ export function useSupabase(tableName) {
   const loadItems = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await supabaseService.getAll(tableName);
-      setItems(data || []);
+      const data = await supabaseService.getAll(readTableName);
+      const itensNormalizados = readTableName === 'vw_apontamentos_saldos'
+        ? (data || []).map((item) => ({
+            ...item,
+            quantidade_bruta: Number(item.quantidade || 0),
+            quantidade: Number(item.quantidade_liquida ?? item.quantidade ?? 0),
+          }))
+        : (data || []);
+      setItems(itensNormalizados);
       setError(null);
     } catch (err) {
       console.error(`Erro ao carregar ${tableName}:`, err);
@@ -37,7 +45,7 @@ export function useSupabase(tableName) {
     } finally {
       setLoading(false);
     }
-  }, [tableName]);
+  }, [tableName, readTableName]);
 
   // Adicionar item
   const addItem = useCallback(async (item) => {
