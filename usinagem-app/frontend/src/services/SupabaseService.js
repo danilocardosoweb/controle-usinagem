@@ -116,7 +116,7 @@ class SupabaseService {
     try {
       console.log(`📝 Inserindo em ${tableName}:`, item);
       const { data, error } = await this.supabase
-        .from(this.getReadTableName(tableName))
+        .from(tableName)
         .insert(item)
         .select();
 
