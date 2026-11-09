@@ -39,6 +39,7 @@ export function useSupabase(tableName, options = {}) {
         : (data || []);
       setItems(itensNormalizados);
       setError(null);
+      return itensNormalizados;
     } catch (err) {
       console.error(`Erro ao carregar ${tableName}:`, err);
       setError(`Erro ao carregar dados: ${err.message}`);

@@ -72,7 +72,7 @@ export default function Expedicao() {
   // Verificar se usuário é administrador
   const userIsAdmin = useMemo(() => isAdmin(user), [user])
   
-  const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
+  const { items: apontamentos, loadItems: loadApontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   const { items: saldosRackDetalhados, loadItems: loadApontamentosParaKits } = useSupabase('vw_rack_saldos_detalhados')
   const apontamentosParaKits = useMemo(() => (saldosRackDetalhados || []).map((item) => ({
     ...item,
@@ -987,7 +987,7 @@ export default function Expedicao() {
   }
 
   // Buscar apontamentos para correção
-  const buscarApontamentosParaCorrecao = async () => {
+  const buscarApontamentosParaCorrecao = async (dadosAtualizados) => {
     if (!buscaRackCorrecao.trim()) {
       await avisarOperacao({
         tipo: 'warning',
@@ -998,7 +998,8 @@ export default function Expedicao() {
     }
     
     const termo = buscaRackCorrecao.trim().toUpperCase()
-    const encontrados = (Array.isArray(apontamentos) ? apontamentos : [])
+    const fonte = Array.isArray(dadosAtualizados) ? dadosAtualizados : apontamentos
+    const encontrados = (Array.isArray(fonte) ? fonte : [])
       .filter(a => {
         const rack = String(a.rack_acabado || a.rack_ou_pallet || '').trim().toUpperCase()
         const cliente = String(a.cliente || '').trim().toUpperCase()
@@ -1123,8 +1124,8 @@ export default function Expedicao() {
   const handleSucessoCorrecao = async () => {
     setCorrecaoApontamentoAberto(false)
     setApontamentoParaCorrigir(null)
-    // Recarregar a busca
-    buscarApontamentosParaCorrecao()
+    const [dadosAtualizados] = await Promise.all([loadApontamentos(), loadApontamentosParaKits()])
+    if (dadosAtualizados && buscaRackCorrecao.trim()) buscarApontamentosParaCorrecao(dadosAtualizados)
     await avisarOperacao({
       tipo: 'success',
       titulo: 'Correção salva',

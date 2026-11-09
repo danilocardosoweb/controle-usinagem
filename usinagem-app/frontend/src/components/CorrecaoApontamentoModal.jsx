@@ -39,11 +39,12 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
     if (apontamento) {
       // Inicializar formulário com dados atuais
       setFormData({
-        quantidade: apontamento.quantidade || '',
+        quantidade: apontamento.quantidade_bruta ?? apontamento.quantidade ?? '',
         inicio: formatDateTimeLocalInput(apontamento.inicio),
         fim: formatDateTimeLocalInput(apontamento.fim),
         operador: apontamento.operador || '',
         maquina: apontamento.maquina || '',
+        rack_acabado: apontamento.rack_acabado || '',
         rack_ou_pallet: apontamento.rack_ou_pallet || '',
         lote_externo: apontamento.lote_externo || '',
         observacoes: apontamento.observacoes || ''
@@ -78,11 +79,14 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
   }
 
   const handleChange = (e) => {
-    const { name, value } = e.target
-    const valorAnteriorBruto = apontamento[name]
+    const { name } = e.target
+    const value = name === 'rack_acabado' ? e.target.value.toUpperCase() : e.target.value
+    const valorAnteriorBruto = name === 'quantidade'
+      ? (apontamento.quantidade_bruta ?? apontamento.quantidade)
+      : apontamento[name]
     const valorAnterior = (name === 'inicio' || name === 'fim')
       ? formatDateTimeLocalInput(valorAnteriorBruto)
-      : valorAnteriorBruto
+      : String(valorAnteriorBruto ?? '')
     
     setFormData(prev => ({
       ...prev,
@@ -115,8 +119,12 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
     const dadosNovos = {}
 
     camposAlterados.forEach(campo => {
-      dadosOriginais[campo] = apontamento[campo]
-      dadosNovos[campo] = normalizeToDbIso(campo, formData[campo])
+      dadosOriginais[campo] = campo === 'quantidade'
+        ? (apontamento.quantidade_bruta ?? apontamento.quantidade ?? null)
+        : (apontamento[campo] ?? null)
+      dadosNovos[campo] = campo === 'rack_acabado'
+        ? formData[campo].trim()
+        : normalizeToDbIso(campo, formData[campo])
     })
 
     const resultado = await salvarCorrecao(
@@ -153,7 +161,8 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
       fim: 'Data/Hora Fim',
       operador: 'Operador',
       maquina: 'Máquina',
-      rack_ou_pallet: 'Rack/Pallet',
+      rack_acabado: 'Palete acabado',
+      rack_ou_pallet: 'Rack de origem',
       observacoes: 'Observações'
     }
     return mapa[campo] || campo
@@ -330,7 +339,27 @@ const CorrecaoApontamentoModal = ({ apontamento, usuarioId, onClose, onSucesso }
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Rack/Pallet
+                    Palete acabado
+                  </label>
+                  <input
+                    type="text"
+                    name="rack_acabado"
+                    value={formData.rack_acabado ?? ''}
+                    onChange={handleChange}
+                    placeholder="Ex.: USI-2426"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      camposAlterados.includes('rack_acabado') ? 'border-orange-500 bg-orange-50' : 'border-gray-300'
+                    }`}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {camposAlterados.includes('rack_acabado') ? `Original: ${apontamento?.rack_acabado || '-'} · ` : ''}
+                    Palete usado para agrupar as peças na Expedição.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Rack de origem (material)
                   </label>
                   <input
                     type="text"

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import supabaseService from '../services/SupabaseService'
+import { supabase } from '../config/supabase'
 
 export const useCorrecaoApontamento = () => {
   const [carregando, setCarregando] = useState(false)
@@ -10,25 +11,14 @@ export const useCorrecaoApontamento = () => {
     setErro(null)
 
     try {
-      // 1. Registrar a correção na tabela de auditoria
-      const correcao = {
-        apontamento_id: apontamentoId,
-        valor_anterior: dadosOriginais,
-        valor_novo: dadosNovos,
-        campos_alterados: camposAlterados,
-        corrigido_por: usuarioId,
-        motivo_correcao: motivo
-      }
-
-      const correcaoId = await supabaseService.add('apontamentos_correcoes', correcao)
-
-      // 2. Atualizar o apontamento com os novos dados
-      const atualizacoes = {}
-      camposAlterados.forEach(campo => {
-        atualizacoes[campo] = dadosNovos[campo]
+      const { data: correcaoId, error } = await supabase.rpc('corrigir_apontamento_auditado', {
+        p_apontamento_id: apontamentoId,
+        p_usuario_id: usuarioId,
+        p_esperado: dadosOriginais,
+        p_alteracoes: Object.fromEntries(camposAlterados.map(campo => [campo, dadosNovos[campo]])),
+        p_motivo: motivo
       })
-
-      await supabaseService.update('apontamentos', { id: apontamentoId, ...atualizacoes })
+      if (error) throw error
 
       setCarregando(false)
       return { sucesso: true, correcaoId }
