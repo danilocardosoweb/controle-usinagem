@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase'
+import { obterLoteExterno, obterRackRomaneio, prepararItensRomaneio } from '../utils/itensRomaneio'
 
 class ExpedicaoService {
   // Gerar número de romaneio único
@@ -14,10 +15,12 @@ class ExpedicaoService {
   // Criar novo romaneio com itens
   static async criarRomaneio(romaneioData, itensData) {
     try {
+      const itensValidos = prepararItensRomaneio(itensData)
+      if (!itensValidos.length) throw new Error('Selecione ao menos um item com quantidade positiva.')
       // Inserir romaneio
       const { data: novoRomaneio, error: erroRomaneio } = await supabase
         .from('expedicao_romaneios')
-        .insert(romaneioData)
+        .insert({ ...romaneioData, total_racks: new Set(itensValidos.map(obterRackRomaneio)).size })
         .select()
 
       if (erroRomaneio) throw erroRomaneio
@@ -25,7 +28,7 @@ class ExpedicaoService {
       const romaneioId = novoRomaneio[0].id
 
       // Inserir itens com romaneio_id
-      const itensComRomaneio = itensData.map(item => ({
+      const itensComRomaneio = itensValidos.map(item => ({
         ...item,
         romaneio_id: romaneioId
       }))
@@ -61,7 +64,8 @@ class ExpedicaoService {
 
       if (erroItens) throw erroItens
 
-      return { ...romaneio, itens }
+      const itensValidos = prepararItensRomaneio(itens || [])
+      return { ...romaneio, itens: itensValidos, total_racks: new Set(itensValidos.map(obterRackRomaneio)).size }
     } catch (erro) {
       console.error('Erro ao obter romaneio:', erro)
       throw erro
@@ -151,7 +155,10 @@ class ExpedicaoService {
 
       if (error) throw error
 
-      return data
+      return (data || []).map(romaneio => {
+        const itens = prepararItensRomaneio(romaneio.itens || [])
+        return { ...romaneio, itens, total_racks: new Set(itens.map(obterRackRomaneio)).size }
+      })
     } catch (erro) {
       console.error('Erro ao gerar relatório:', erro)
       throw erro
@@ -172,7 +179,7 @@ class ExpedicaoService {
         ['Total de Peças:', romaneio.total_pecas],
         [],
         ['ITENS DO ROMANEIO'],
-        ['Rack', 'Produto', 'Quantidade', 'Cliente', 'Pedido', 'Lote', 'Status']
+        ['Rack', 'Produto', 'Quantidade', 'Cliente', 'Pedido', 'Lote', 'Lote Externo', 'Status']
       ]
 
       romaneio.itens.forEach(item => {
@@ -183,6 +190,7 @@ class ExpedicaoService {
           item.cliente,
           item.pedido_seq,
           item.lote,
+          obterLoteExterno(item),
           item.status_item
         ])
       })

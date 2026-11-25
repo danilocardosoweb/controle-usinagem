@@ -3,6 +3,7 @@ import { FaPlus, FaTrash, FaEdit, FaSave, FaBoxes, FaExclamationTriangle, FaChec
 import useSupabase from '../../hooks/useSupabase'
 import supabaseService from '../../services/SupabaseService'
 import { extrairFerramenta } from '../../utils/expUsinagem'
+import { obterLoteExterno, possuiQuantidadePositiva } from '../../utils/itensRomaneio'
 import GeradorRomaneio from './GeradorRomaneio'
 import { DOCUMENT_VERSION_LABEL } from '../../config/documentVersion'
 
@@ -1284,6 +1285,9 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
           console.log('📋 Gerando romaneio:', dadosRomaneio)
           
           try {
+            if (!dadosRomaneio.paletesParaSeparar.length || dadosRomaneio.paletesParaSeparar.some(
+              palete => !possuiQuantidadePositiva({ quantidade: palete.quantidadeNecessaria })
+            )) throw new Error('Revise a selecao: todos os paletes do kit precisam ter quantidade positiva.')
             // Gerar número de romaneio no padrão: ROM-DDMMYYYY-NNNN
             const agora = new Date()
             const dia = String(agora.getDate()).padStart(2, '0')
@@ -1363,7 +1367,7 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                 pedido_seq: apontamentoOriginal?.pedido_seq || '-',
                 pedido_cliente: apontamentoOriginal?.pedido_cliente || apontamentoOriginal?.pedidoCliente || '-',
                 lote: apontamentoOriginal?.lote || '-',
-                lote_externo: apontamentoOriginal?.lote_externo || '-',
+                lote_externo: apontamentoOriginal ? obterLoteExterno(apontamentoOriginal) : '',
                 peso_estimado_kg: pesoEstimadoKg > 0 ? Number(pesoEstimadoKg.toFixed(3)) : null,
                 status_item: 'pendente',
                 tipo_item: 'rack',

@@ -11,6 +11,7 @@ import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 import TransferenciaRackModal from '../components/TransferenciaRackModal'
 import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../utils/auth'
+import { obterLoteExterno, obterRackRomaneio, possuiQuantidadePositiva, prepararItensRomaneio } from '../utils/itensRomaneio'
 import * as XLSX from 'xlsx'
 
 const normalizarUnidadeQuantidade = (valor) => {
@@ -26,11 +27,6 @@ const normalizarCodigoProduto = (valor) => String(valor || '')
   .toUpperCase()
   // Alguns apontamentos antigos registraram a letra O no trecho numerico do item.
   .replace(/O/g, '0')
-
-const possuiQuantidadePositiva = (registro) => {
-  const quantidade = Number(registro?.quantidade)
-  return Number.isFinite(quantidade) && quantidade > 0
-}
 
 const adicionarQuantidadePorUnidade = (totais, unidade, quantidade) => {
   const chave = normalizarUnidadeQuantidade(unidade)
@@ -74,13 +70,13 @@ export default function Expedicao() {
   
   const { items: apontamentos, loadItems: loadApontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
   const { items: saldosRackDetalhados, loadItems: loadApontamentosParaKits } = useSupabase('vw_rack_saldos_detalhados')
-  const apontamentosParaKits = useMemo(() => (saldosRackDetalhados || []).map((item) => ({
+  const apontamentosParaKits = useMemo(() => prepararItensRomaneio((saldosRackDetalhados || []).map((item) => ({
     ...item,
     rack_origem_original: item.rack_acabado || item.rack_ou_pallet || '',
     rack_acabado: item.rack_saldo,
-    quantidade_bruta: Number(item.quantidade || 0),
+    quantidade_bruta: item.quantidade,
     quantidade: Number(item.saldo_quantidade || 0),
-  })), [saldosRackDetalhados])
+  }))), [saldosRackDetalhados])
   const { items: maquinas } = useSupabase('maquinas')
   const { items: romaneios, loadItems: loadRomaneios } = useSupabase('expedicao_romaneios')
   const { items: romaneioItens, loadItems: loadRomaneioItens } = useSupabase('expedicao_romaneio_itens')
@@ -270,6 +266,7 @@ export default function Expedicao() {
 
     const itensEmRomaneio = (Array.isArray(romaneioItens) ? romaneioItens : [])
       .filter(item => romaneiosAtivos.has(String(item.romaneio_id)))
+      .filter(possuiQuantidadePositiva)
       .filter(item => !isItemLiberadoPorDivergencia(item.status_item))
       .map(item => String(item.rack_ou_pallet || '').trim().toUpperCase())
       .filter(rack => rack.length > 0)
@@ -592,6 +589,7 @@ export default function Expedicao() {
 
       racksParaRomaneio.forEach(rack => {
         rack.apontamentos.forEach(apontamento => {
+          if (!possuiQuantidadePositiva(apontamento)) return
           const produtoCod = apontamento.produto || apontamento.codigoPerfil || ''
 
           const ferramentaExtraida = (() => {
@@ -605,11 +603,7 @@ export default function Expedicao() {
             ? Number(String(compRaw).replace(/\D/g, '')) || null
             : null
 
-          const lotesExternosArr = Array.isArray(apontamento.lotes_externos) ? apontamento.lotes_externos : []
-          const loteSimples = apontamento.lote_externo || apontamento.loteExterno || ''
-          const loteSimplesValido = loteSimples && loteSimples !== '00000' && loteSimples !== '0'
-          const loteDoArray = lotesExternosArr.find(l => l && l !== '00000' && l !== '0') || ''
-          const loteExterno = loteSimplesValido ? loteSimples : (loteDoArray || loteSimples || '')
+          const loteExterno = obterLoteExterno(apontamento)
 
           const qtd = Number(apontamento.quantidade || 0) || 0
           const unidade = obterUnidadeApontamento(apontamento)
@@ -639,6 +633,7 @@ export default function Expedicao() {
         })
       })
 
+      if (!itensBase.length) throw new Error('Os racks selecionados nao possuem quantidade para expedir.')
       const pesoTotalEstimadoKg = Number(
         itensBase.reduce((sum, item) => sum + (Number(item.peso_estimado_kg || 0) || 0), 0).toFixed(3)
       )
@@ -659,7 +654,7 @@ export default function Expedicao() {
           numero_romaneio: numeroRomaneio,
           status: 'pendente',
           usuario_criacao: user?.nome || 'Sistema',
-          total_racks: racksParaRomaneio.length,
+          total_racks: new Set(itensBase.map(obterRackRomaneio)).size,
           total_pecas: totalPecas,
           cliente: clientesDoRomaneio,
           peso_total_estimado_kg: pesoTotalEstimadoKg > 0 ? pesoTotalEstimadoKg : null
@@ -685,7 +680,7 @@ export default function Expedicao() {
       // Marcar romaneio_numero nos apontamentos para bloquear reuso
       for (const rack of racksParaRomaneio) {
         for (const apontamento of rack.apontamentos) {
-          if (apontamento.id) {
+          if (apontamento.id && possuiQuantidadePositiva(apontamento)) {
             await supabaseService.supabase
               .from('apontamentos')
               .update({ romaneio_numero: numeroRomaneio })
@@ -741,7 +736,7 @@ export default function Expedicao() {
         .select('*')
         .eq('romaneio_id', romaneio.id)
       if (error) throw error
-      setItensConferencia(itens || [])
+      setItensConferencia(prepararItensRomaneio(itens || []))
     } catch (erro) {
       await avisarOperacao({
         tipo: 'error',
@@ -758,14 +753,16 @@ export default function Expedicao() {
         .select('*')
         .eq('romaneio_id', romaneio.id)
       if (error) throw error
-      setItensRomaneioSelecionado((itens || []).map((item) => ({
+      const itensValidos = prepararItensRomaneio(itens || [])
+      setItensRomaneioSelecionado(itensValidos.map((item) => ({
         ...item,
+        lote_externo: obterLoteExterno(item),
         unidade: obterUnidadeApontamento(item),
         peso_estimado_kg: obterUnidadeApontamento(item) === 'KG'
           ? Number(item.quantidade || 0)
           : item.peso_estimado_kg,
       })))
-      setRomaneioSelecionado(romaneio)
+      setRomaneioSelecionado({ ...romaneio, total_racks: new Set(itensValidos.map(obterRackRomaneio)).size })
       setImpressaoModalAberto(true)
     } catch (erro) {
       await avisarOperacao({
@@ -838,7 +835,7 @@ export default function Expedicao() {
   }
 
   const finalizarConferencia = async () => {
-    if (!romaneioSelecionado) return
+    if (!romaneioSelecionado || !itensConferencia.length) return
 
     const itensDivergentes = itensConferencia.filter(item => !itensConferidos[item.id])
     const temDivergencia = itensDivergentes.length > 0
@@ -1318,11 +1315,12 @@ export default function Expedicao() {
 
   const exportarParaExcel = async (romaneio) => {
     try {
-      const { data: itens, error: erroItens } = await supabaseService.supabase
+      const { data: itensBrutos, error: erroItens } = await supabaseService.supabase
         .from('expedicao_romaneio_itens')
         .select('*')
         .eq('romaneio_id', romaneio.id)
       if (erroItens) throw erroItens
+      const itens = prepararItensRomaneio(itensBrutos || [])
 
       // Formatador pt-BR para números
       const formatarNumero = (valor) => {
@@ -1336,7 +1334,7 @@ export default function Expedicao() {
         ['Número:', romaneio.numero_romaneio],
         ['Data de Criação:', new Date(romaneio.data_criacao).toLocaleDateString('pt-BR')],
         ['Status:', romaneio.status.toUpperCase()],
-        ['Total de Racks:', romaneio.total_racks],
+        ['Total de Racks:', new Set(itens.map(obterRackRomaneio)).size],
         ['Quantidade Total:', formatarTotaisPorUnidade((itens || []).reduce((totais, item) => {
           adicionarQuantidadePorUnidade(totais, obterUnidadeApontamento(item), item.quantidade)
           return totais
@@ -1360,7 +1358,7 @@ export default function Expedicao() {
           item.cliente || '',
           item.pedido_seq || '',
           item.pedido_cliente || '',
-          item.lote_externo || '',
+          obterLoteExterno(item),
           item.status_item || 'pendente'
         ])
       })
@@ -2426,6 +2424,9 @@ export default function Expedicao() {
                             <p className="text-sm text-gray-500 mt-0.5">
                               {item.ferramenta ? `Ferramenta: ${item.ferramenta}` : ''}{item.ferramenta && item.comprimento_acabado_mm ? ' · ' : ''}{item.comprimento_acabado_mm ? `${item.comprimento_acabado_mm}mm` : ''} · {formatarQuantidade(item.quantidade, obterUnidadeApontamento(item))}
                             </p>
+                            {obterLoteExterno(item) && (
+                              <p className="text-sm text-gray-500">Lote externo: {obterLoteExterno(item)}</p>
+                            )}
                             {naoEnc && obs && (
                               <p className="text-xs text-red-600 mt-1 font-medium">📝 {obs}</p>
                             )}
@@ -2492,7 +2493,8 @@ export default function Expedicao() {
                 </button>
                 <button
                   onClick={finalizarConferencia}
-                  className={`flex-1 px-6 py-2 text-white rounded-lg font-medium transition-colors ${
+                  disabled={!totalItens}
+                  className={`flex-1 px-6 py-2 text-white rounded-lg font-medium transition-colors disabled:opacity-50 ${
                     temDivergencias
                       ? 'bg-orange-500 hover:bg-orange-600'
                       : 'bg-green-600 hover:bg-green-700'

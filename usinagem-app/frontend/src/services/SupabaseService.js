@@ -321,17 +321,19 @@ class SupabaseService {
       const readTableName = this.getReadTableName(tableName);
 
       // Para tabelas grandes, buscar todos os registros com paginação
-      const tabelasGrandes = ['lotes', 'expedicao_romaneio_itens', 'apontamentos']
-      if (tabelasGrandes.includes(tableName)) {
+      const tabelasGrandes = ['lotes', 'expedicao_romaneio_itens', 'apontamentos', 'vw_apontamentos_saldos', 'vw_rack_saldos_detalhados']
+      if (tabelasGrandes.includes(readTableName)) {
         let allData = [];
         let from = 0;
         const batchSize = 1000;
         
         while (true) {
-          const { data, error } = await this.supabase
+          let consulta = this.supabase
             .from(readTableName)
             .select('*')
-            .range(from, from + batchSize - 1);
+            .order('id');
+          if (readTableName === 'vw_rack_saldos_detalhados') consulta = consulta.order('rack_saldo');
+          const { data, error } = await consulta.range(from, from + batchSize - 1);
 
           if (error) {
             console.error(`Erro ao buscar ${tableName} (lote ${from}-${from + batchSize - 1}):`, error);

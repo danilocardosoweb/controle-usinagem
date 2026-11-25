@@ -6,6 +6,7 @@ import { FaTimes, FaCubes, FaSave, FaEdit, FaTruckLoading, FaPlus, FaTrash, FaCl
 import PaleteVisualizacao3D, { PALETE_CONFIGS, calcularLayoutColunas, calcularDimensoesPalete, resolverEstruturaVertical, limparMetadataAltura, montarDescricaoComAltura } from './PaleteVisualizacao3D'
 import AmarradoVisualizacao3D from './AmarradoVisualizacao3D'
 import PaleteDetalhe2D from './PaleteDetalhe2D'
+import { prepararItensRomaneio } from '../utils/itensRomaneio'
 import TooltipPaleteInfo from './TooltipPaleteInfo'
 import { gerarPosicoesAmarrado } from '../utils/geometriaAmarrado'
 import { AmarradoService } from '../services/AmarradoService'
@@ -2337,13 +2338,13 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
       const { data: itens, error: itensError } = await supabase
         .from('expedicao_romaneio_itens')
-        .select('id, romaneio_id, rack_ou_pallet, produto, quantidade, cliente, pedido_seq, lote_externo, status_item, comprimento_acabado_mm')
+        .select('id, romaneio_id, rack_ou_pallet, produto, quantidade, unidade, cliente, pedido_seq, lote_externo, status_item, comprimento_acabado_mm')
         .in('romaneio_id', ids)
         .order('romaneio_id', { ascending: false })
 
       if (itensError) throw itensError
 
-      const itensConferidos = (itens || []).filter((item) => item.status_item === 'conferido')
+      const itensConferidos = prepararItensRomaneio(itens || []).filter((item) => item.status_item === 'conferido')
       const grupos = agruparRomaneioItens(itensConferidos, romaneioMap)
       setRomaneioPaletes(grupos)
     } catch (error) {
