@@ -12,6 +12,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { isAdmin } from '../utils/auth'
 import * as XLSX from 'xlsx'
 
+const normalizarBuscaPalete = (valor) => String(valor || '').trim().toUpperCase().replace(/[\s-]+/g, '')
+
 export default function Expedicao() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -20,10 +22,10 @@ export default function Expedicao() {
   const userIsAdmin = useMemo(() => isAdmin(user), [user])
   
   const { items: apontamentos } = useSupabase('apontamentos')
-  const { items: apontamentosParaKits, loadItems: loadApontamentosParaKits } = useSupabase('apontamentos') // Carrega TODOS os apontamentos sem filtro de data
+  const { items: apontamentosParaKits, loadItems: loadApontamentosParaKits, loading: carregandoRacks, error: erroRacks } = useSupabase('apontamentos')
   const { items: maquinas } = useSupabase('maquinas')
-  const { items: romaneios, loadItems: loadRomaneios } = useSupabase('expedicao_romaneios')
-  const { items: romaneioItens, loadItems: loadRomaneioItens } = useSupabase('expedicao_romaneio_itens')
+  const { items: romaneios, loadItems: loadRomaneios, loading: carregandoRomaneios, error: erroRomaneios } = useSupabase('expedicao_romaneios')
+  const { items: romaneioItens, loadItems: loadRomaneioItens, loading: carregandoItensRomaneio, error: erroItensRomaneio } = useSupabase('expedicao_romaneio_itens')
   const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
 
   const [tab, setTab] = useState('dashboard')
@@ -54,6 +56,7 @@ export default function Expedicao() {
   const [itensRomaneioSelecionado, setItensRomaneioSelecionado] = useState([])
   const [clienteSelecionadoDetalhes, setClienteSelecionadoDetalhes] = useState(null)
   const [racksModalSelecionados, setRacksModalSelecionados] = useState([])
+  const [filtroRacksModal, setFiltroRacksModal] = useState('')
   
   const [itensConferencia, setItensConferencia] = useState([])
   const [itensConferidos, setItensConferidos] = useState({})
@@ -561,7 +564,53 @@ export default function Expedicao() {
   const abrirDetalhesCliente = (clienteGroup) => {
     setClienteSelecionadoDetalhes(clienteGroup)
     setRacksModalSelecionados([])
+    setFiltroRacksModal('')
     setDetalhesModalAberto(true)
+  }
+
+  const racksFiltradosModal = useMemo(() => {
+    const termo = filtroRacksModal.trim().toUpperCase()
+    const termoRack = normalizarBuscaPalete(termo)
+    return (clienteSelecionadoDetalhes?.racks || [])
+      .filter(rack => Number(rack.totalPecas) > 0)
+      .filter(rack => !termo ||
+        (termoRack && normalizarBuscaPalete(rack.rack).includes(termoRack)) ||
+        [...rack.produtos, ...rack.pedidos].some(valor => String(valor || '').toUpperCase().includes(termo)))
+      .sort((a, b) => new Date(b.apontamentos[0]?.created_at || '') - new Date(a.apontamentos[0]?.created_at || ''))
+  }, [clienteSelecionadoDetalhes, filtroRacksModal])
+
+  const selecionarRacksVisiveis = (selecionar) => {
+    const visiveis = new Set(racksFiltradosModal.map(rack => rack.rack))
+    setRacksModalSelecionados(atuais => {
+      if (!selecionar) return atuais.filter(rack => !visiveis.has(rack.rack))
+      const selecionados = new Set(atuais.map(rack => rack.rack))
+      return [...atuais, ...racksFiltradosModal.filter(rack => !selecionados.has(rack.rack))]
+    })
+  }
+
+  const mensagemBuscaPalete = () => {
+    const busca = normalizarBuscaPalete(filtroRacksModal)
+    if (!/^(?:USI)?\d+$/.test(busca)) return 'Nenhum palete encontrado na lista para este filtro.'
+    const chave = busca.startsWith('USI') ? busca : `USI${busca}`
+    const palete = `USI-${chave.slice(3)}`
+    if (erroRomaneios || erroItensRomaneio || erroRacks) return `Não foi possível verificar o palete ${palete}.`
+    if (carregandoRomaneios || carregandoItensRomaneio || carregandoRacks) return `Consultando o palete ${palete}…`
+
+    const idsRomaneios = new Set(romaneioItens
+      .filter(item => normalizarBuscaPalete(item.rack_ou_pallet || item.rack) === chave &&
+        Number(item.quantidade) > 0 && !['nao_encontrado', 'divergencia'].includes(item.status_item))
+      .map(item => item.romaneio_id))
+    const numeros = [...new Set(romaneios
+      .filter(romaneio => romaneio.status !== 'cancelado' && idsRomaneios.has(romaneio.id))
+      .map(romaneio => romaneio.numero_romaneio || romaneio.id))].sort()
+    if (numeros.length) return `O palete ${palete} está vinculado ${numeros.length === 1 ? 'ao romaneio' : 'aos romaneios'} ${numeros.join(', ')}.`
+
+    const registros = apontamentosParaKits.filter(item =>
+      normalizarBuscaPalete(item.rack_acabado || item.rackAcabado || item.rack_ou_pallet || item.rackOuPallet) === chave)
+    if (registros.some(item => Number(item.quantidade) > 0)) return `O palete ${palete} existe, mas está fora da lista atual. Confira o cliente e os filtros da Expedição.`
+    return registros.length
+      ? `O palete ${palete} está sem quantidade disponível na lista.`
+      : `O palete ${palete} não foi encontrado nos registros de paletes acabados.`
   }
 
   const toggleRackModal = (rack) => {
@@ -2286,23 +2335,38 @@ export default function Expedicao() {
             </div>
 
             {/* Barra de seleção */}
-            <div className="flex items-center gap-4 px-6 py-3 bg-gray-50 border-b">
+            <div className="px-6 py-3 bg-gray-50 border-b space-y-3">
+              <label htmlFor="busca-palete-acabado" className="block text-sm font-medium text-gray-700">Buscar palete</label>
+              <div className="relative">
+                <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  id="busca-palete-acabado"
+                  type="search"
+                  className="w-full border border-gray-300 rounded-lg py-2 pl-10 pr-3 text-sm"
+                  placeholder="Ex.: USI-2609 ou 2609. Também busca por produto ou pedido."
+                  value={filtroRacksModal}
+                  onChange={(e) => setFiltroRacksModal(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={racksModalSelecionados.length === clienteSelecionadoDetalhes.racks.length}
-                  onChange={(e) =>
-                    setRacksModalSelecionados(e.target.checked ? [...clienteSelecionadoDetalhes.racks] : [])
-                  }
+                  checked={racksFiltradosModal.length > 0 && racksFiltradosModal.every(rack =>
+                    racksModalSelecionados.some(selecionado => selecionado.rack === rack.rack))}
+                  disabled={!racksFiltradosModal.length}
+                  onChange={(e) => selecionarRacksVisiveis(e.target.checked)}
                   className="w-4 h-4"
                 />
-                <span className="text-sm font-medium text-gray-700">Selecionar todos</span>
+                <span className="text-sm font-medium text-gray-700">Selecionar resultados</span>
               </label>
+              <span className="text-sm text-gray-500">{racksFiltradosModal.length} resultado(s)</span>
               {racksModalSelecionados.length > 0 && (
                 <span className="text-sm text-blue-600 font-medium">
                   {racksModalSelecionados.length} rack(s) selecionado(s) — {racksModalSelecionados.reduce((s, r) => s + r.totalPecas, 0).toLocaleString('pt-BR')} PC
                 </span>
               )}
+              </div>
             </div>
 
             {/* Tabela de racks */}
@@ -2322,19 +2386,12 @@ export default function Expedicao() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...clienteSelecionadoDetalhes.racks]
-                    .filter(rack => rack.totalPecas >= 10)
-                    .sort((a, b) => {
-                      const dataA = a.apontamentos[0]?.created_at || ''
-                      const dataB = b.apontamentos[0]?.created_at || ''
-                      return new Date(dataB) - new Date(dataA)
-                    })
-                    .map((rack, idx) => {
+                  {racksFiltradosModal.map((rack) => {
                     const selecionado = racksModalSelecionados.some(r => r.rack === rack.rack)
                     const primeiroAp = rack.apontamentos[0] || {}
                     return (
                       <tr
-                        key={idx}
+                          key={rack.rack}
                         onClick={() => toggleRackModal(rack)}
                         className={`border-b cursor-pointer transition-colors ${
                           selecionado ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'
@@ -2382,6 +2439,11 @@ export default function Expedicao() {
                       </tr>
                     )
                   })}
+                  {!racksFiltradosModal.length && (
+                    <tr><td colSpan="9" className="p-6 text-center text-gray-600">
+                      <span role="status">{mensagemBuscaPalete()}</span>
+                    </td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
