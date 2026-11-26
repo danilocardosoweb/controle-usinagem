@@ -1589,6 +1589,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [ocorrenciasAnomalias, setOcorrenciasAnomalias] = useState('')
   const [finalizarRack, setFinalizarRack] = useState(true)
   const [editandoRack, setEditandoRack] = useState(false)
+  const [carregandoPaleteAcabado, setCarregandoPaleteAcabado] = useState(false)
+  const [erroPaleteAcabado, setErroPaleteAcabado] = useState(false)
   const [alertaExcessoAberto, setAlertaExcessoAberto] = useState(false)
   const [alertaExcessoDados, setAlertaExcessoDados] = useState(null)
   // Modal de peça morta
@@ -2926,39 +2928,35 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   // Gerar ou reutilizar rack quando o modal de confirmação é aberto
   useEffect(() => {
     if (!confirmarAberto) return
+    let ativo = true
+    setCarregandoPaleteAcabado(true)
 
     const gerarOuReutilizarRack = async () => {
       try {
-        // Primeiro, verificar se existe um rack em aberto para o mesmo produto/ordem
         const rackEmAberto = await supabaseService.buscarRackEmAberto(
-          formData.produto,
+          formData.codigoPerfil,
           formData.ordemTrabalho
         )
-
-        setEditandoRack(false)
-        if (rackEmAberto) {
-          // Reutilizar rack existente — checkbox padrão = false (rack ainda não finalizado)
-          console.log('Rack em aberto encontrado:', rackEmAberto)
-          setFormData(prev => ({ ...prev, rack_acabado: rackEmAberto }))
-          setFinalizarRack(false)
-        } else {
-          // Novo rack — checkbox padrão = true (finalizar ao confirmar)
-          const proximoRack = await supabaseService.obterProximoRackUsinagem()
-          if (proximoRack) {
-            console.log('Novo rack gerado:', proximoRack)
-            setFormData(prev => ({ ...prev, rack_acabado: proximoRack }))
-          }
-          setFinalizarRack(true)
-        }
+        if (!ativo) return
+        const palete = String(rackEmAberto || await supabaseService.obterProximoRackUsinagem() || '').trim()
+        if (!ativo) return
+        if (!palete) throw new Error('Palete acabado nao retornado.')
+        setFormData(prev => ({ ...prev, rack_acabado: palete }))
+        setFinalizarRack(!rackEmAberto)
       } catch (err) {
+        if (!ativo) return
         console.error('Erro ao gerar/reutilizar rack:', err)
         setFinalizarRack(true)
-        setEditandoRack(false)
+        setErroPaleteAcabado(true)
+        setEditandoRack(true)
+      } finally {
+        if (ativo) setCarregandoPaleteAcabado(false)
       }
     }
 
     gerarOuReutilizarRack()
-  }, [confirmarAberto, formData.produto, formData.ordemTrabalho])
+    return () => { ativo = false }
+  }, [confirmarAberto, formData.codigoPerfil, formData.ordemTrabalho])
 
   // Pedido genérico fixo para testes e trabalhos sem pedido formal
   const PEDIDO_GENERICO = {
@@ -3214,10 +3212,19 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     setComprimentoRefugo('')
     setDurezaMaterial('')
     setOcorrenciasAnomalias('')
+    setFormData(prev => ({ ...prev, rack_acabado: '' }))
+    setEditandoRack(false)
+    setErroPaleteAcabado(false)
+    setCarregandoPaleteAcabado(true)
     setConfirmarAberto(true)
   }
 
   const concluirRegistro = async (forcarConfirmacao = false) => {
+    const paleteAcabado = String(formData.rack_acabado || '').trim().toUpperCase()
+    if (carregandoPaleteAcabado || !paleteAcabado) {
+      alert('Aguarde a geração ou informe o número do palete acabado antes de confirmar.')
+      return
+    }
     const qtdForm = Number(formData.quantidade || 0)
     const qtdConf = Number(qtdConfirmada || 0)
     if (modo === 'embalagem' && formData.processoEmbalagem === 'rebarbar_embalar' && !String(formData.etapaEmbalagem || '').trim()) {
@@ -3302,7 +3309,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       ordem_trabalho: formData.ordemTrabalho || '',
       observacoes: formData.observacoes || '',
       rack_ou_pallet: rackOuPallet || '',
-      rack_acabado: formData.rack_acabado || '',
+      rack_acabado: paleteAcabado,
       dureza_material: durezaMaterial || '',
       ocorrencias_anomalias: ocorrenciasAnomalias || '',
       rack_finalizado: finalizarRack || false,
@@ -7033,9 +7040,10 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-semibold text-blue-800">Rack/Pallet (Acabado) *</label>
+                  <label htmlFor="palete-acabado-confirmacao" className="block text-sm font-semibold text-blue-800">Rack/Pallet (Acabado) *</label>
                   <button
                     type="button"
+                    disabled={carregandoPaleteAcabado}
                     onClick={() => setEditandoRack(prev => !prev)}
                     title={editandoRack ? 'Bloquear edição' : 'Editar número do rack manualmente'}
                     className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-colors ${
@@ -7050,16 +7058,22 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
                 <input 
                   type="text" 
+                  id="palete-acabado-confirmacao"
                   className={`input-field input-field-sm focus:ring-blue-500 transition-colors ${
                     editandoRack
                       ? 'border-yellow-400 bg-yellow-50'
                       : 'border-blue-300 bg-blue-50'
                   }`}
-                  placeholder="Será gerado automaticamente" 
+                  placeholder={carregandoPaleteAcabado ? 'Buscando palete acabado…' : 'Informe o número do palete'}
                   value={formData.rack_acabado} 
                   onChange={(e) => setFormData(prev => ({ ...prev, rack_acabado: e.target.value }))} 
-                  readOnly={!editandoRack}
+                  readOnly={carregandoPaleteAcabado || !editandoRack}
                 />
+                {erroPaleteAcabado && !String(formData.rack_acabado || '').trim() && (
+                  <p role="status" className="text-xs text-amber-700 mt-1">
+                    Não foi possível obter o palete automaticamente. Informe o número da etiqueta física ou reabra a confirmação para tentar novamente.
+                  </p>
+                )}
                 {editandoRack && (
                   <p className="text-xs text-yellow-700 mt-1">⚠ Edição manual ativa — certifique-se de usar um rack válido.</p>
                 )}
@@ -7126,7 +7140,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
               >
                 Inspeção QA
               </button>
-              <button type="button" className="btn-primary" onClick={concluirRegistro}>Confirmar</button>
+              <button
+                type="button"
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={carregandoPaleteAcabado || !String(formData.rack_acabado || '').trim()}
+                onClick={() => concluirRegistro()}
+              >
+                Confirmar
+              </button>
             </div>
           </div>
         </div>
@@ -7207,7 +7228,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                     <th className="text-left px-3 py-2">Comprimento</th>
                     <th className="text-left px-3 py-2">Comp. Longo</th>
                     <th className="text-left px-3 py-2">Operador</th>
-                    <th className="text-left px-3 py-2">Rack/Pallet</th>
+                    <th className="text-left px-3 py-2">Palete acabado</th>
                     <th className="text-left px-3 py-2">Obs.</th>
                     {isAdmin() && <th className="text-center px-3 py-2">Ações</th>}
                   </tr>
@@ -7226,7 +7247,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                       <td className="px-3 py-2">{a.comprimento_acabado_mm ? `${a.comprimento_acabado_mm}mm` : '-'}</td>
                       <td className="px-3 py-2">{extrairComprimentoPerfilLongo(a.perfil_longo || '')}</td>
                       <td className="px-3 py-2">{a.operador || ''}</td>
-                      <td className="px-3 py-2">{a.rackOuPallet || ''}</td>
+                      <td className="px-3 py-2">{a.rack_acabado || a.rackAcabado || 'Sem palete'}</td>
                       <td className="px-3 py-2">{a.observacoes || ''}</td>
                       {isAdmin() && (
                         <td className="px-3 py-2 text-center">
