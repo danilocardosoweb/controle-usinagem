@@ -28,6 +28,8 @@ const normalizarCodigoProduto = (valor) => String(valor || '')
   // Alguns apontamentos antigos registraram a letra O no trecho numerico do item.
   .replace(/O/g, '0')
 
+const normalizarBuscaPalete = (valor) => String(valor || '').trim().toUpperCase().replace(/[\s-]+/g, '')
+
 const adicionarQuantidadePorUnidade = (totais, unidade, quantidade) => {
   const chave = normalizarUnidadeQuantidade(unidade)
   totais[chave] = (Number(totais[chave]) || 0) + (Number(quantidade) || 0)
@@ -69,7 +71,7 @@ export default function Expedicao() {
   const userIsAdmin = useMemo(() => isAdmin(user), [user])
   
   const { items: apontamentos, loadItems: loadApontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
-  const { items: saldosRackDetalhados, loadItems: loadApontamentosParaKits } = useSupabase('vw_rack_saldos_detalhados')
+  const { items: saldosRackDetalhados, loadItems: loadApontamentosParaKits, loading: carregandoRacks, error: erroRacks } = useSupabase('vw_rack_saldos_detalhados')
   const apontamentosParaKits = useMemo(() => prepararItensRomaneio((saldosRackDetalhados || []).map((item) => ({
     ...item,
     rack_origem_original: item.rack_acabado || item.rack_ou_pallet || '',
@@ -78,8 +80,8 @@ export default function Expedicao() {
     quantidade: Number(item.saldo_quantidade || 0),
   }))), [saldosRackDetalhados])
   const { items: maquinas } = useSupabase('maquinas')
-  const { items: romaneios, loadItems: loadRomaneios } = useSupabase('expedicao_romaneios')
-  const { items: romaneioItens, loadItems: loadRomaneioItens } = useSupabase('expedicao_romaneio_itens')
+  const { items: romaneios, loadItems: loadRomaneios, loading: carregandoRomaneios, error: erroRomaneios } = useSupabase('expedicao_romaneios')
+  const { items: romaneioItens, loadItems: loadRomaneioItens, loading: carregandoItensRomaneio, error: erroItensRomaneio } = useSupabase('expedicao_romaneio_itens')
   const { items: ferramentasCfg } = useSupabase('ferramentas_cfg')
   const [unidadesPedidoPorSeq, setUnidadesPedidoPorSeq] = useState(() => new Map())
   const [unidadesPedidoPorProduto, setUnidadesPedidoPorProduto] = useState(() => new Map())
@@ -257,23 +259,21 @@ export default function Expedicao() {
 
   // Identificar racks que já estão reservados em romaneios ativos.
   // Itens marcados como não encontrados/divergentes deixam de bloquear o palete para novo romaneio.
-  const racksExpedidosSet = useMemo(() => {
-    const romaneiosAtivos = new Set(
-      (Array.isArray(romaneios) ? romaneios : [])
+  const romaneiosPorRack = useMemo(() => {
+    const romaneiosAtivos = new Map(
+      romaneios
         .filter(r => r.status !== 'cancelado')
-        .map(r => String(r.id))
+        .map(r => [r.id, r.numero_romaneio || r.id])
     )
-
-    const itensEmRomaneio = (Array.isArray(romaneioItens) ? romaneioItens : [])
-      .filter(item => romaneiosAtivos.has(String(item.romaneio_id)))
-      .filter(possuiQuantidadePositiva)
-      .filter(item => !isItemLiberadoPorDivergencia(item.status_item))
-      .map(item => String(item.rack_ou_pallet || '').trim().toUpperCase())
-      .filter(rack => rack.length > 0)
-
-    console.log('🔍 racksExpedidosSet:', itensEmRomaneio.length, 'racks bloqueados de', romaneiosAtivos.size, 'romaneios ativos (', Array.isArray(romaneioItens) ? romaneioItens.length : 0, 'itens carregados)')
-
-    return new Set(itensEmRomaneio)
+    const vinculos = new Map()
+    for (const item of romaneioItens) {
+      const numero = romaneiosAtivos.get(item.romaneio_id)
+      const rack = normalizarBuscaPalete(obterRackRomaneio(item))
+      if (!numero || !rack || !possuiQuantidadePositiva(item) || isItemLiberadoPorDivergencia(item.status_item)) continue
+      if (!vinculos.has(rack)) vinculos.set(rack, new Set())
+      vinculos.get(rack).add(numero)
+    }
+    return vinculos
   }, [romaneios, romaneioItens])
 
   const racksProtos = useMemo(() => {
@@ -294,7 +294,7 @@ export default function Expedicao() {
         if (!rackNormalizado.startsWith('USI')) return false
         
         // Excluir racks que já foram expedidos (comparando em maiúsculas)
-        if (racksExpedidosSet.has(rackNormalizado)) {
+        if (romaneiosPorRack.has(normalizarBuscaPalete(rackNormalizado))) {
           bloqueados++
           return false
         }
@@ -309,7 +309,7 @@ export default function Expedicao() {
     console.log('📊 racksProtos:', resultado.length, 'disponíveis |', bloqueados, 'bloqueados por romaneio')
     
     return resultado
-  }, [apontamentosParaKits, filtroCliente, filtroProduto, racksExpedidosSet])
+  }, [apontamentosParaKits, filtroCliente, filtroProduto, romaneiosPorRack])
 
   useEffect(() => {
     let ativo = true
@@ -407,7 +407,7 @@ export default function Expedicao() {
         if (!possuiQuantidadePositiva(a)) return false
         
         // Excluir racks que já foram expedidos ou marcados com romaneio_numero
-        if (racksExpedidosSet.has(rackNormalizado)) return false
+        if (romaneiosPorRack.has(normalizarBuscaPalete(rackNormalizado))) return false
         const rnVal = String(a.romaneio_numero || '').trim()
         if (rnVal.length > 0 && !/^0+$/.test(rnVal)) return false
         
@@ -417,7 +417,7 @@ export default function Expedicao() {
     console.log('🎯 kits:', resultado.length, 'apontamentos disponíveis de', apontamentosParaKits.length, 'total')
     
     return resultado
-  }, [apontamentosParaKits, racksExpedidosSet])
+  }, [apontamentosParaKits, romaneiosPorRack])
 
   const racksAgrupados = useMemo(() => {
     const grupos = {}
@@ -784,10 +784,13 @@ export default function Expedicao() {
     if (!clienteSelecionadoDetalhes) return []
 
     const termo = String(filtroRacksModal || '').trim().toLocaleUpperCase('pt-BR')
+    const termoRack = normalizarBuscaPalete(termo)
     return [...clienteSelecionadoDetalhes.racks]
-      .filter(rack => rack.totalPecas >= 10)
       .filter((rack) => {
         if (!termo) return true
+        if (termoRack && normalizarBuscaPalete(rack.rack).includes(termoRack)) {
+          return true
+        }
         const valoresPesquisa = [
           rack.rack,
           ...Array.from(rack.produtos || []),
@@ -803,6 +806,27 @@ export default function Expedicao() {
         return new Date(dataB) - new Date(dataA)
       })
   }, [clienteSelecionadoDetalhes, filtroRacksModal])
+
+  const mensagemBuscaPalete = () => {
+    const busca = normalizarBuscaPalete(filtroRacksModal)
+    if (!/^(?:USI)?\d+$/.test(busca)) return 'Nenhum palete encontrado na lista para este filtro.'
+    const chave = busca.startsWith('USI') ? busca : `USI${busca}`
+    const palete = `USI-${chave.slice(3)}`
+    const numeros = romaneiosPorRack.get(chave)
+    if (numeros?.size) {
+      const lista = [...numeros].sort().join(', ')
+      return `O palete ${palete} está vinculado ${numeros.size === 1 ? 'ao romaneio' : 'aos romaneios'} ${lista}.`
+    }
+    if (erroRomaneios || erroItensRomaneio || erroRacks) return `Não foi possível verificar o palete ${palete}.`
+    if (carregandoRomaneios || carregandoItensRomaneio || carregandoRacks) return `Consultando o palete ${palete}…`
+    const registros = saldosRackDetalhados.filter(item => normalizarBuscaPalete(obterRackRomaneio(item)) === chave)
+    if (registros.some(item => Number(item.saldo_quantidade) > 0)) {
+      return `O palete ${palete} existe, mas está fora da lista atual. Confira o cliente e os filtros da Expedição.`
+    }
+    return registros.length
+      ? `O palete ${palete} está sem saldo para expedição.`
+      : `O palete ${palete} não foi encontrado nos registros de paletes acabados.`
+  }
 
   const todosRacksVisiveisSelecionados = racksFiltradosModal.length > 0 &&
     racksFiltradosModal.every(rack => racksModalSelecionados.some(item => item.rack === rack.rack))
@@ -2551,13 +2575,17 @@ export default function Expedicao() {
 
             {/* Filtro e barra de seleção */}
             <div className="px-6 py-3 bg-gray-50 border-b space-y-3">
+              <label htmlFor="busca-palete-acabado" className="block text-sm font-medium text-gray-700">
+                Buscar palete
+              </label>
               <div className="relative">
                 <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="search"
+                  id="busca-palete-acabado"
                   value={filtroRacksModal}
                   onChange={(e) => setFiltroRacksModal(e.target.value)}
-                  placeholder="Filtrar por rack, produto ou pedido..."
+                  placeholder="Ex.: USI-2617 ou 2617. Também busca por produto ou pedido."
                   className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   autoFocus
                 />
@@ -2585,7 +2613,7 @@ export default function Expedicao() {
                   <span className="text-sm font-medium text-gray-700">Selecionar resultados</span>
                 </label>
                 <span className="text-sm text-gray-500">
-                  {racksFiltradosModal.length} de {clienteSelecionadoDetalhes.racks.filter(rack => rack.totalPecas >= 10).length} rack(s)
+                  {racksFiltradosModal.length} de {clienteSelecionadoDetalhes.racks.length} rack(s)
                 </span>
                 {racksModalSelecionados.length > 0 && (
                   <span className="text-sm text-blue-600 font-medium">
@@ -2685,7 +2713,7 @@ export default function Expedicao() {
                   {racksFiltradosModal.length === 0 && (
                     <tr>
                       <td colSpan="10" className="px-6 py-10 text-center text-gray-500">
-                        Nenhum rack encontrado para este filtro.
+                        <span role="status">{mensagemBuscaPalete()}</span>
                       </td>
                     </tr>
                   )}

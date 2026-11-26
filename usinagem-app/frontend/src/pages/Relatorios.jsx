@@ -8,6 +8,7 @@ import RelatorioChecklist from '../components/RelatorioChecklist'
 import { buildFormularioIdentificacaoHtml, resolverDescricaoCodigoCliente, resolverKit } from '../utils/formularioIdentificacao'
 import DocumentVersionBadge from '../components/DocumentVersionBadge'
 import { DOCUMENT_VERSION_LABEL } from '../config/documentVersion'
+import { possuiQuantidadePositiva } from '../utils/itensRomaneio'
 import * as XLSX from 'xlsx'
 
 // Helpers (fora do componente) para evitar problemas de hoisting/TDZ
@@ -98,6 +99,8 @@ const Relatorios = () => {
   
   // Dados reais do IndexedDB
   const { items: apontamentos } = useSupabase('apontamentos', { readTable: 'vw_apontamentos_saldos' })
+  const { items: romaneios, loading: carregandoRomaneios, error: erroRomaneios } = useSupabase('expedicao_romaneios')
+  const { items: itensRomaneio, loading: carregandoItensRomaneio, error: erroItensRomaneio } = useSupabase('expedicao_romaneio_itens')
   const { items: sucateamentosPos } = useSupabase('apontamentos_sucata')
   const { items: historicoRacks } = useSupabase('vw_rack_historico')
   const { items: paradasRaw } = useSupabase('apontamentos_parada')
@@ -110,6 +113,27 @@ const Relatorios = () => {
   const { items: kitsDB } = useSupabase('expedicao_kits')
   const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
   const { items: codigosProdutosClientesDB } = useSupabase('codigos_produtos_clientes')
+
+  const romaneiosPorApontamento = useMemo(() => {
+    const ativos = new Map(romaneios
+      .filter(romaneio => romaneio.status !== 'cancelado')
+      .map(romaneio => [romaneio.id, romaneio.numero_romaneio || 'Sim']))
+    const vinculos = new Map()
+    for (const item of itensRomaneio) {
+      const numero = ativos.get(item.romaneio_id)
+      if (!item.apontamento_id || !numero || !possuiQuantidadePositiva(item)) continue
+      if (['nao_encontrado', 'divergencia'].includes(String(item.status_item || '').trim())) continue
+      if (!vinculos.has(item.apontamento_id)) vinculos.set(item.apontamento_id, new Set())
+      vinculos.get(item.apontamento_id).add(numero)
+    }
+    return vinculos
+  }, [romaneios, itensRomaneio])
+
+  const exibirRomaneioApontamento = (id) => {
+    if (!id || erroRomaneios || erroItensRomaneio || carregandoRomaneios || carregandoItensRomaneio) return 'Indisponível'
+    const numeros = romaneiosPorApontamento.get(id)
+    return numeros ? [...numeros].sort().join(', ') : 'Sem romaneio'
+  }
 
   // Utilitário: Agrupar rastreabilidade em modo compacto (uma linha por apontamento)
   const agruparRastreabilidadeCompacto = (linhas) => {
@@ -547,6 +571,7 @@ const Relatorios = () => {
             Refugo: a.qtd_refugo || 0,
             RackOuPallet: a.rack_ou_pallet || a.rackOuPallet || '-',
             RackAcabado: a.rack_acabado || a.rackAcabado || '-',
+            Romaneio: exibirRomaneioApontamento(a.id),
             QtdPedido: a.qtd_pedido ?? a.qtdPedido ?? '-',
             Separado: a.separado ?? a.qtd_separado ?? '-'
           }
@@ -1709,6 +1734,7 @@ const Relatorios = () => {
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pcs/h</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Refugo</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rack</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Romaneio</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Imp.</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
@@ -1749,6 +1775,7 @@ const Relatorios = () => {
                         </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{a.rack_ou_pallet || a.rackOuPallet || '-'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">{exibirRomaneioApontamento(a.id)}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold text-gray-800">{imp}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm">
                         <button type="button" className="p-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700" title="Imprimir formulário ou etiquetas" onClick={() => { setApontamentoSelecionado(a); setPrintModalAberto(true) }}>
@@ -1760,7 +1787,7 @@ const Relatorios = () => {
                 })}
                 {apontamentosOrdenados.length === 0 && (
                   <tr>
-                    <td colSpan="14" className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan="15" className="px-6 py-8 text-center text-gray-500">
                       <div className="flex flex-col items-center gap-2">
                         <FaCalendarAlt className="w-8 h-8 text-gray-300" />
                         <span>Nenhum apontamento encontrado no período selecionado</span>
